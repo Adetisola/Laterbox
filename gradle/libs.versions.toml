@@ -20,6 +20,7 @@ robolectric = "4.14"
 mockwebserver = "4.12.0"
 turbine = "1.2.0"
 coroutinesTest = "1.9.0"
+androidxTest = "1.6.1"
 
 [libraries]
 # AndroidX & Compose
@@ -51,6 +52,7 @@ robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "
 mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "mockwebserver" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+androidx-test-core = { group = "androidx.test", name = "core-ktx", version.ref = "androidxTest" }
 compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 
