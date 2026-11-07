@@ -49,6 +49,12 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -81,6 +87,7 @@ dependencies {
 
     // Unit & Local Testing
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.test.core)
     testImplementation(libs.robolectric)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.turbine)
@@ -89,4 +96,20 @@ dependencies {
     // Debugging Tools
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
+}
+
+tasks.withType<Test> {
+    val cacerts = file("/home/antigravity/cacerts")
+    if (cacerts.exists()) {
+        systemProperty("javax.net.ssl.trustStore", cacerts.absolutePath)
+        systemProperty("javax.net.ssl.trustStorePassword", "changeit")
+    }
+    val httpProxy = System.getenv("http_proxy") ?: System.getenv("HTTP_PROXY")
+    if (!httpProxy.isNullOrEmpty()) {
+        val port = httpProxy.substringAfterLast(":")
+        systemProperty("http.proxyHost", "127.0.0.1")
+        systemProperty("http.proxyPort", port)
+        systemProperty("https.proxyHost", "127.0.0.1")
+        systemProperty("https.proxyPort", port)
+    }
 }

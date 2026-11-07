@@ -13,6 +13,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Laterbox">
 
+        <!-- Main Application Navigation Entry -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -20,6 +21,24 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Dedicated Translucent Share Sheet Receiver -->
+        <activity
+            android:name=".sharing.ShareReceiverActivity"
+            android:exported="true"
+            android:label="@string/save_to_laterbox"
+            android:theme="@style/Theme.Laterbox.TransparentSheet"
+            android:taskAffinity="com.laterbox.app.share"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter android:label="@string/save_to_laterbox">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
 
