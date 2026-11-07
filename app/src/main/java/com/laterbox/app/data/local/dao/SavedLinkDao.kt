@@ -66,6 +66,9 @@ interface SavedLinkDao {
     @Query("UPDATE saved_links SET is_read = :isRead, updated_at = :updatedAt WHERE id = :id")
     suspend fun setRead(id: Long, isRead: Boolean, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE saved_links SET metadata_status = :status, updated_at = :updatedAt WHERE id = :id")
+    suspend fun updateMetadataStatus(id: Long, status: MetadataStatus, updatedAt: Long = System.currentTimeMillis())
+
     @Query("""
         UPDATE saved_links 
         SET title = :title,

@@ -3,14 +3,23 @@ package com.laterbox.app.data.repository
 import com.laterbox.app.data.local.dao.SavedLinkDao
 import com.laterbox.app.data.local.entity.SavedLinkEntity
 import com.laterbox.app.data.local.entity.SavedLinkWithCollection
+import com.laterbox.app.data.metadata.JsoupMetadataExtractor
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.MetadataStatus
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.domain.util.UrlNormalizer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
-class LinkRepository(private val savedLinkDao: SavedLinkDao) {
+class LinkRepository(
+    private val savedLinkDao: SavedLinkDao,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+) {
 
     val inboxLinks: Flow<List<SavedLink>> = savedLinkDao.getInboxLinks().map { list ->
         list.map { it.toDomain() }
@@ -47,7 +56,8 @@ class LinkRepository(private val savedLinkDao: SavedLinkDao) {
         title: String? = null,
         personalNote: String? = null,
         collectionId: Long? = null,
-        contentType: ContentType = ContentType.WEBSITE
+        contentType: ContentType = ContentType.WEBSITE,
+        autoFetchMetadata: Boolean = true
     ): Long {
         val trimmedUrl = originalUrl.trim()
         val normalized = UrlNormalizer.normalize(trimmedUrl)
@@ -68,7 +78,58 @@ class LinkRepository(private val savedLinkDao: SavedLinkDao) {
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
-        return savedLinkDao.insertLink(entity)
+        val insertedId = savedLinkDao.insertLink(entity)
+
+        if (autoFetchMetadata) {
+            scope.launch {
+                fetchMetadataNow(insertedId)
+            }
+        }
+
+        return insertedId
+    }
+
+    suspend fun fetchMetadataNow(linkId: Long) {
+        val linkWithCol = savedLinkDao.getLinkById(linkId).first() ?: return
+        val link = linkWithCol.link
+        savedLinkDao.updateMetadataStatus(linkId, MetadataStatus.FETCHING)
+
+        val result = JsoupMetadataExtractor.extract(link.originalUrl)
+        if (result.isSuccess) {
+            val meta = result.getOrThrow()
+            val resolvedTitle = if (link.title == link.domain && !meta.title.isNullOrBlank()) {
+                meta.title
+            } else {
+                link.title
+            }
+            val status = if (meta.previewImageUrl != null || meta.description != null) {
+                MetadataStatus.SUCCESS
+            } else {
+                MetadataStatus.PARTIAL
+            }
+            savedLinkDao.updateLink(
+                link.copy(
+                    title = resolvedTitle,
+                    description = meta.description ?: link.description,
+                    siteName = meta.siteName ?: link.siteName,
+                    faviconUrl = meta.faviconUrl ?: link.faviconUrl,
+                    previewImageUrl = meta.previewImageUrl ?: link.previewImageUrl,
+                    contentType = meta.contentType,
+                    metadataStatus = status,
+                    lastFetchedAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        } else {
+            val newRetry = link.retryCount + 1
+            savedLinkDao.updateLink(
+                link.copy(
+                    retryCount = newRetry,
+                    metadataStatus = if (newRetry >= 3) MetadataStatus.FAILED else MetadataStatus.PENDING,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
     }
 
     suspend fun updateLink(link: SavedLink) {

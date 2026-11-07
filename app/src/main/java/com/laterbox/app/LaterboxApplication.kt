@@ -1,6 +1,7 @@
 package com.laterbox.app
 
 import android.app.Application
+import com.laterbox.app.data.metadata.MetadataSyncWorker
 import com.laterbox.app.di.AppContainer
 import com.laterbox.app.di.DefaultAppContainer
 import kotlinx.coroutines.CoroutineScope
@@ -19,9 +20,14 @@ class LaterboxApplication : Application() {
         super.onCreate()
         container = DefaultAppContainer(this)
 
-        // Reset any links left stuck in FETCHING from an abrupt process termination
+        // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue worker
         applicationScope.launch {
-            container.database.savedLinkDao().resetStuckFetchingLinks()
+            try {
+                container.database.savedLinkDao().resetStuckFetchingLinks()
+                MetadataSyncWorker.enqueue(this@LaterboxApplication)
+            } catch (e: Exception) {
+                // Safeguard against test environments
+            }
         }
     }
 }
