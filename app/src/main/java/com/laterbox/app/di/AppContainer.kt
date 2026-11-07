@@ -1,6 +1,7 @@
 package com.laterbox.app.di
 
 import android.content.Context
+import com.laterbox.app.data.backup.BackupManager
 import com.laterbox.app.data.local.LaterboxDatabase
 import com.laterbox.app.data.preferences.UserPreferencesRepository
 import com.laterbox.app.data.repository.CollectionRepository
@@ -11,6 +12,7 @@ interface AppContainer {
     val linkRepository: LinkRepository
     val collectionRepository: CollectionRepository
     val userPreferencesRepository: UserPreferencesRepository
+    val backupManager: BackupManager
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -29,5 +31,9 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val userPreferencesRepository: UserPreferencesRepository by lazy {
         UserPreferencesRepository(context)
+    }
+
+    override val backupManager: BackupManager by lazy {
+        BackupManager(database)
     }
 }

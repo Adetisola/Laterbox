@@ -41,7 +41,7 @@ object AppViewModelProvider {
         }
         initializer {
             val app = laterboxApplication()
-            SettingsViewModel(app.container.userPreferencesRepository)
+            SettingsViewModel(app.container.userPreferencesRepository, app.container.backupManager)
         }
     }
 }

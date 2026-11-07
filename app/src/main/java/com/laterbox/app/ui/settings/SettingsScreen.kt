@@ -1,5 +1,10 @@
 package com.laterbox.app.ui.settings
 
+import android.content.Context
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,16 +31,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.data.preferences.ThemeMode
 import com.laterbox.app.data.preferences.UserPreferences
 import com.laterbox.app.ui.theme.LaterboxTheme
+import kotlinx.coroutines.launch
+import java.io.InputStream
+import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun SettingsScreen(
@@ -43,13 +56,67 @@ fun SettingsScreen(
     onThemeModeChange: (ThemeMode) -> Unit,
     onAutoMarkAsReadChange: (Boolean) -> Unit,
     onAllowSystemBackupChange: (Boolean) -> Unit,
+    onExportBackup: suspend (OutputStream) -> Result<Int>,
+    onImportBackup: suspend (InputStream) -> Result<com.laterbox.app.data.backup.BackupRestoreResult>,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     var showLicensesDialog by remember { mutableStateOf(false) }
+
+    // Storage Access Framework Launchers
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val outputStream = context.contentResolver.openOutputStream(uri)
+                    if (outputStream != null) {
+                        val result = onExportBackup(outputStream)
+                        if (result.isSuccess) {
+                            Toast.makeText(context, "Exported ${result.getOrNull()} links successfully", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Export failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Export error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream != null) {
+                        val result = onImportBackup(inputStream)
+                        if (result.isSuccess) {
+                            val r = result.getOrThrow()
+                            Toast.makeText(
+                                context,
+                                "Restored ${r.restoredLinksCount} links, ${r.restoredCollectionsCount} collections (${r.skippedDuplicatesCount} duplicates skipped)",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            Toast.makeText(context, "Import failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Import error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     Box(
         modifier = modifier
@@ -228,6 +295,84 @@ fun SettingsScreen(
                                 checkedTrackColor = colors.accentPrimary
                             )
                         )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.lg))
+
+            // Section: Data & Backup (Local-First)
+            SectionHeader(title = "Data & Storage (Local-First)")
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = spacing.base)
+                    .clip(RoundedCornerShape(spacing.radiusMedium))
+                    .background(colors.surfacePrimary)
+                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
+                    .padding(spacing.md)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                    Text(
+                        text = "Backup & Restore",
+                        style = typography.uiMedium,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = "Export your entire library as an open JSON file or restore from a previous backup. No proprietary lock-in.",
+                        style = typography.bodySecondary.copy(fontSize = 12.sp),
+                        color = colors.textSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(spacing.xs))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.sm)
+                    ) {
+                        // Export button (min 48dp touch target)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(spacing.minTouchTarget)
+                                .clip(RoundedCornerShape(spacing.radiusSmall))
+                                .background(colors.surfaceSecondary)
+                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
+                                .clickable {
+                                    val dateStr = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+                                    exportLauncher.launch("laterbox_backup_$dateStr.json")
+                                }
+                                .padding(horizontal = spacing.sm),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Export JSON",
+                                style = typography.uiMedium.copy(fontSize = 13.sp),
+                                color = colors.accentPrimary
+                            )
+                        }
+
+                        // Import button (min 48dp touch target)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(spacing.minTouchTarget)
+                                .clip(RoundedCornerShape(spacing.radiusSmall))
+                                .background(colors.surfaceSecondary)
+                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
+                                .clickable {
+                                    importLauncher.launch(arrayOf("application/json", "text/*"))
+                                }
+                                .padding(horizontal = spacing.sm),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Import JSON",
+                                style = typography.uiMedium.copy(fontSize = 13.sp),
+                                color = colors.textPrimary
+                            )
+                        }
                     }
                 }
             }
