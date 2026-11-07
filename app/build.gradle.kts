@@ -88,6 +88,8 @@ dependencies {
     // Unit & Local Testing
     testImplementation(libs.junit)
     testImplementation(libs.androidx.test.core)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.mockwebserver)
     testImplementation(libs.turbine)
