@@ -225,6 +225,8 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         onThemeModeChange = settingsViewModel::setThemeMode,
                         onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
                         onAllowSystemBackupChange = settingsViewModel::setAllowSystemBackup,
+                        onExportBackup = settingsViewModel::exportBackup,
+                        onImportBackup = settingsViewModel::importBackup,
                         onBackClick = { navController.popBackStack() }
                     )
                 }
