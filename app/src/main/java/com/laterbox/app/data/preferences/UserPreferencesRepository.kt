@@ -22,7 +22,9 @@ data class UserPreferences(
     val autoMarkAsRead: Boolean = true,
     val includeInBackup: Boolean = true,
     val defaultCollectionId: Long? = null
-)
+) {
+    val allowSystemBackup: Boolean get() = includeInBackup
+}
 
 val Context.userDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
 
@@ -54,6 +56,9 @@ class UserPreferencesRepository(private val context: Context) {
         )
     }
 
+    val userPreferences: Flow<UserPreferences>
+        get() = userPreferencesFlow
+
     suspend fun setThemeMode(mode: ThemeMode) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.THEME_MODE] = mode.name
@@ -71,6 +76,8 @@ class UserPreferencesRepository(private val context: Context) {
             preferences[PreferencesKeys.INCLUDE_IN_BACKUP] = enabled
         }
     }
+
+    suspend fun setAllowSystemBackup(enabled: Boolean) = setIncludeInBackup(enabled)
 
     suspend fun setDefaultCollectionId(collectionId: Long?) {
         context.userDataStore.edit { preferences ->

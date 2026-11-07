@@ -39,7 +39,13 @@ data class LaterboxTypography(
     val detailTitle: TextStyle,
     val bodyPrimary: TextStyle,
     val uiLabel: TextStyle,
-    val metadataMono: TextStyle
+    val metadataMono: TextStyle,
+    val displayLarge: TextStyle = editorialDisplay,
+    val titleSmall: TextStyle = cardTitle,
+    val bodySecondary: TextStyle = bodyPrimary.copy(fontSize = 13.sp, lineHeight = 18.sp),
+    val uiMedium: TextStyle = uiLabel,
+    val metaText: TextStyle = metadataMono,
+    val codeText: TextStyle = metadataMono
 )
 
 val DefaultLaterboxTypography = LaterboxTypography(
