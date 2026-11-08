@@ -99,6 +99,7 @@ class LinkRepository(
                 contentType = contentType,
                 personalNote = cleanedNote,
                 collectionId = targetColId,
+                reminderAt = reminderAt,
                 isRead = false,
                 isArchived = false,
                 metadataStatus = MetadataStatus.PENDING,
@@ -130,6 +131,7 @@ class LinkRepository(
                         title = mergedTitle,
                         personalNote = mergedNote,
                         collectionId = mergedCollectionId,
+                        reminderAt = reminderAt ?: existing.reminderAt,
                         isArchived = false,
                         updatedAt = System.currentTimeMillis()
                     )
