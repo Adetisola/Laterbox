@@ -42,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.data.preferences.ThemeMode
 import com.laterbox.app.data.preferences.UserPreferences
+import com.laterbox.app.ui.components.LaterboxIconButton
+import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
 import kotlinx.coroutines.launch
 import java.io.InputStream
@@ -136,26 +139,14 @@ fun SettingsScreen(
                     .padding(horizontal = spacing.base, vertical = spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Back button (min 48dp touch target)
-                Box(
-                    modifier = Modifier
-                        .size(spacing.minTouchTarget)
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = "Back to inbox",
-                            onClick = onBackClick
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "←",
-                        style = typography.uiMedium.copy(fontSize = 20.sp),
-                        color = colors.textPrimary
-                    )
-                }
+                // Back button with tactile backdrop
+                LaterboxIconButton(
+                    iconRes = LaterboxIcons.ArrowLeft,
+                    contentDescription = "Back to inbox",
+                    onClick = onBackClick
+                )
 
-                Spacer(modifier = Modifier.width(spacing.xs))
+                Spacer(modifier = Modifier.width(spacing.sm))
 
                 Column {
                     Text(

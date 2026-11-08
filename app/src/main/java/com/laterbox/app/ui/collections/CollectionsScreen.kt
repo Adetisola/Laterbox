@@ -37,13 +37,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
 import com.laterbox.app.domain.model.Collection
 import com.laterbox.app.domain.model.CollectionWithCount
 import com.laterbox.app.ui.components.CollectionsSkeletonGrid
 import com.laterbox.app.ui.components.EmptyStateView
+import com.laterbox.app.ui.components.LaterboxIconButton
+import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
 
 @Composable
@@ -96,9 +99,9 @@ fun CollectionsScreen(
                 Box(
                     modifier = Modifier
                         .sizeIn(minHeight = spacing.minTouchTarget, minWidth = spacing.minTouchTarget)
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
+                        .clip(LaterboxShapeTokens.Button)
                         .background(colors.surfaceSecondary)
-                        .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
+                        .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Button)
                         .clickable(
                             role = Role.Button,
                             onClickLabel = "New collection",
@@ -108,7 +111,7 @@ fun CollectionsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "+ New folder",
+                        text = "+ New collection",
                         style = typography.uiMedium.copy(fontSize = 13.sp),
                         color = colors.accentPrimary
                     )
@@ -141,7 +144,7 @@ fun CollectionsScreen(
                             start = spacing.base,
                             end = spacing.base,
                             top = spacing.sm,
-                            bottom = 80.dp
+                            bottom = 148.dp // Leave clear space for floating navigation pill
                         ),
                         horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                         verticalArrangement = Arrangement.spacedBy(spacing.sm),
@@ -245,9 +248,9 @@ private fun CollectionCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(130.dp)
-            .clip(RoundedCornerShape(spacing.radiusMedium))
+            .clip(LaterboxShapeTokens.Card)
             .background(colors.surfacePrimary)
-            .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
+            .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Card)
             .clickable(onClick = onClick)
             .padding(spacing.md)
     ) {
@@ -260,32 +263,21 @@ private fun CollectionCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Text(
-                    text = "📁",
-                    fontSize = 20.sp
+                Icon(
+                    painter = painterResource(id = LaterboxIcons.Folder),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = colors.accentPrimary
                 )
 
                 Box {
-                    Box(
-                        modifier = Modifier
-                            .size(spacing.minTouchTarget)
-                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                            .clickable(
-                                role = Role.Button,
-                                onClickLabel = "Collection options",
-                                onClick = { showMenu = true }
-                            )
-                            .semantics {
-                                contentDescription = "Options for ${item.collection.name}"
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "⋮",
-                            style = typography.uiMedium.copy(fontSize = 18.sp),
-                            color = colors.textSecondary
-                        )
-                    }
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.MoreVertical,
+                        contentDescription = "Options for ${item.collection.name}",
+                        onClick = { showMenu = true },
+                        containerColor = colors.surfaceSecondary.copy(alpha = 0.5f),
+                        modifier = Modifier.size(36.dp)
+                    )
 
                     DropdownMenu(
                         expanded = showMenu,

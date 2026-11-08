@@ -85,7 +85,7 @@ fun SavedLinkCard(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(LaterboxTheme.spacing.cardRadius),
+        shape = LaterboxShapeTokens.Card,
         colors = CardDefaults.cardColors(
             containerColor = LaterboxTheme.colors.surfacePrimary
         ),
@@ -147,21 +147,14 @@ fun SavedLinkCard(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // Quick Open External Launch Button (min 48dp touch target)
-                    IconButton(
+                    // Quick Open External Launch Button with tactile backdrop
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.ArrowUpRight,
+                        contentDescription = "Open ${link.title.ifBlank { link.domain }} in browser",
                         onClick = onQuickOpenClick,
-                        modifier = Modifier
-                            .size(LaterboxTheme.spacing.minTouchTarget)
-                            .semantics {
-                                contentDescription = "Open ${link.title.ifBlank { link.domain }} in browser"
-                            }
-                    ) {
-                        Text(
-                            text = "↗",
-                            fontSize = 18.sp,
-                            color = LaterboxTheme.colors.textSecondary
-                        )
-                    }
+                        containerColor = LaterboxTheme.colors.surfaceSecondary.copy(alpha = 0.6f),
+                        modifier = Modifier.size(38.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(LaterboxTheme.spacing.xs))

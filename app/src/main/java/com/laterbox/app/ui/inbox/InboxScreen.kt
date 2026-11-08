@@ -1,8 +1,13 @@
 package com.laterbox.app.ui.inbox
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -31,6 +36,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -41,9 +48,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,6 +63,9 @@ import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.InboxSkeletonList
+import com.laterbox.app.ui.components.LaterboxIconButton
+import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.components.SavedLinkCard
 import com.laterbox.app.ui.onboarding.OnboardingSheet
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -83,6 +97,11 @@ fun InboxScreen(
     val showJumpToTop by remember {
         derivedStateOf { listState.firstVisibleItemIndex > 6 }
     }
+    val isFabExpanded by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 80
+        }
+    }
 
     Box(
         modifier = modifier
@@ -90,7 +109,7 @@ fun InboxScreen(
             .background(colors.backgroundPrimary)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header: Title & Action Row
+            // Header: Title & Solo Settings Button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -111,136 +130,95 @@ fun InboxScreen(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // View Mode Toggle button (Hero vs Compact)
-                    Box(
-                        modifier = Modifier
-                            .size(spacing.minTouchTarget)
-                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                            .clickable(
-                                role = Role.Button,
-                                onClickLabel = if (uiState.viewMode == InboxViewMode.HERO) "Switch to compact view" else "Switch to hero view",
-                                onClick = onToggleViewMode
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (uiState.viewMode == InboxViewMode.HERO) "▤" else "☰",
-                            style = typography.uiMedium.copy(fontSize = 18.sp),
-                            color = colors.textSecondary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(spacing.xs))
-
-                    // Settings icon button (min 48dp touch target)
-                    Box(
-                        modifier = Modifier
-                            .size(spacing.minTouchTarget)
-                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                            .clickable(
-                                role = Role.Button,
-                                onClickLabel = "Settings",
-                                onClick = onSettingsClick
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "⚙",
-                            style = typography.uiMedium.copy(fontSize = 18.sp),
-                            color = colors.textSecondary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(spacing.xs))
-
-                    // + Add button
-                    Box(
-                        modifier = Modifier
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                            .background(colors.surfaceSecondary)
-                            .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
-                            .clickable(
-                                role = Role.Button,
-                                onClickLabel = "Add link manually",
-                                onClick = onAddLinkClick
-                            )
-                            .padding(horizontal = spacing.md),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "+ Add link",
-                            style = typography.uiMedium.copy(fontSize = 13.sp),
-                            color = colors.accentPrimary
-                        )
-                    }
-                }
+                // Solo Settings button with tactile backdrop
+                LaterboxIconButton(
+                    iconRes = LaterboxIcons.Settings,
+                    contentDescription = "Settings",
+                    onClick = onSettingsClick
+                )
             }
 
-            // Search Bar
-            Box(
+            // Search Row: Search field + View mode toggle beside it
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = spacing.base, vertical = spacing.xs)
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(spacing.radiusMedium))
-                    .background(colors.surfacePrimary)
-                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
-                    .padding(horizontal = spacing.md),
-                contentAlignment = Alignment.CenterStart
+                    .padding(horizontal = spacing.base, vertical = spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                // Search Bar Input
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(LaterboxShapeTokens.InputField)
+                        .background(colors.surfacePrimary)
+                        .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.InputField)
+                        .padding(horizontal = spacing.md),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    Text(
-                        text = "⌕",
-                        style = typography.uiMedium.copy(fontSize = 16.sp),
-                        color = colors.textSecondary
-                    )
-                    Spacer(modifier = Modifier.width(spacing.sm))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            painter = painterResource(id = LaterboxIcons.Search),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.width(spacing.sm))
 
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (uiState.searchQuery.isEmpty()) {
-                            Text(
-                                text = "Search links, titles, notes...",
-                                style = typography.bodySecondary,
-                                color = colors.textSecondary.copy(alpha = 0.7f)
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (uiState.searchQuery.isEmpty()) {
+                                Text(
+                                    text = "Search links, titles, notes...",
+                                    style = typography.bodySecondary,
+                                    color = colors.textSecondary.copy(alpha = 0.7f)
+                                )
+                            }
+                            BasicTextField(
+                                value = uiState.searchQuery,
+                                onValueChange = onSearchQueryChange,
+                                singleLine = true,
+                                textStyle = typography.bodyPrimary.copy(color = colors.textPrimary),
+                                cursorBrush = SolidColor(colors.accentPrimary),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
-                        BasicTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = onSearchQueryChange,
-                            singleLine = true,
-                            textStyle = typography.bodyPrimary.copy(color = colors.textPrimary),
-                            cursorBrush = SolidColor(colors.accentPrimary),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
 
-                    if (uiState.searchQuery.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .size(spacing.minTouchTarget)
-                                .clip(CircleShape)
-                                .clickable(
-                                    role = Role.Button,
-                                    onClickLabel = "Clear search",
-                                    onClick = onClearSearch
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "✕",
-                                style = typography.metaText,
-                                color = colors.textSecondary
-                            )
+                        if (uiState.searchQuery.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(LaterboxShapeTokens.IconButton)
+                                    .clickable(
+                                        role = Role.Button,
+                                        onClickLabel = "Clear search",
+                                        onClick = onClearSearch
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = LaterboxIcons.Close),
+                                    contentDescription = "Clear search",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = colors.textSecondary
+                                )
+                            }
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.width(spacing.xs))
+
+                // View Mode Toggle button (Hero vs List) right beside search
+                LaterboxIconButton(
+                    iconRes = if (uiState.viewMode == InboxViewMode.HERO) LaterboxIcons.ViewList else LaterboxIcons.ViewCard,
+                    contentDescription = if (uiState.viewMode == InboxViewMode.HERO) "Switch to compact view" else "Switch to hero view",
+                    onClick = onToggleViewMode
+                )
             }
 
             // Filter Chips Row
@@ -393,13 +371,14 @@ fun InboxScreen(
                                 start = spacing.base,
                                 end = spacing.base,
                                 top = spacing.sm,
-                                bottom = 80.dp // Leave room for bottom bar & FAB
+                                bottom = 148.dp // Leave clear room for floating bottom bar & FAB
                             ),
                             verticalArrangement = Arrangement.spacedBy(spacing.sm)
                         ) {
                             items(
                                 items = uiState.links,
-                                key = { it.id }
+                                key = { it.id },
+                                contentType = { "link_card" }
                             ) { link ->
                                 SavedLinkCard(
                                     link = link,
@@ -414,32 +393,72 @@ fun InboxScreen(
             }
         }
 
-        // Jump to top floating action button
+        // Floating Bottom-Right Action Button (+ Add Link) [UX15, UX17]
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 96.dp)
+        ) {
+            Surface(
+                onClick = onAddLinkClick,
+                shape = LaterboxShapeTokens.Fab,
+                color = colors.accentPrimary,
+                contentColor = Color.White,
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .height(56.dp)
+                    .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(horizontal = if (isFabExpanded) 18.dp else 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = LaterboxIcons.Plus),
+                        contentDescription = "Add Link",
+                        modifier = Modifier.size(24.dp),
+                        tint = Color.White
+                    )
+                    AnimatedVisibility(
+                        visible = isFabExpanded,
+                        enter = fadeIn() + expandHorizontally(),
+                        exit = fadeOut() + shrinkHorizontally()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Add Link",
+                                style = typography.uiMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Jump to top floating action button (floats right above FAB when scrolled deep)
         AnimatedVisibility(
             visible = showJumpToTop,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = spacing.base, bottom = 80.dp)
+                .padding(end = 26.dp, bottom = 162.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(colors.surfaceElevated)
-                    .border(spacing.hairline, colors.borderSubtle, CircleShape)
-                    .clickable {
-                        coroutineScope.launch { listState.animateScrollToItem(0) }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "↑",
-                    style = typography.uiMedium.copy(fontSize = 18.sp),
-                    color = colors.textPrimary
-                )
-            }
+            LaterboxIconButton(
+                iconRes = LaterboxIcons.ChevronDown,
+                contentDescription = "Jump to top",
+                onClick = {
+                    coroutineScope.launch { listState.animateScrollToItem(0) }
+                },
+                modifier = Modifier.graphicsLayer(rotationZ = 180f)
+            )
         }
 
         // Onboarding Sheet on First Launch
@@ -465,10 +484,10 @@ private fun FilterChip(
 
     Box(
         modifier = Modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(spacing.radiusSmall))
+            .height(32.dp)
+            .clip(LaterboxShapeTokens.Chip)
             .background(bg)
-            .border(spacing.hairline, borderColor, RoundedCornerShape(spacing.radiusSmall))
+            .border(spacing.hairline, borderColor, LaterboxShapeTokens.Chip)
             .clickable(onClick = onClick)
             .padding(horizontal = spacing.md),
         contentAlignment = Alignment.Center

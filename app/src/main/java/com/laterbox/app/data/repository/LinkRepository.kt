@@ -248,6 +248,32 @@ class LinkRepository(
                             updatedAt = System.currentTimeMillis()
                         )
                     )
+
+                    // Pre-warm Coil disk cache for instant, offline-ready rendering
+                    if (appContext != null) {
+                        try {
+                            val imageLoader = coil.Coil.imageLoader(appContext)
+                            resolvedPreviewImage?.let { imgUrl ->
+                                imageLoader.enqueue(
+                                    coil.request.ImageRequest.Builder(appContext)
+                                        .data(imgUrl)
+                                        .diskCacheKey(imgUrl)
+                                        .build()
+                                )
+                            }
+                            resolvedFavicon?.let { favUrl ->
+                                imageLoader.enqueue(
+                                    coil.request.ImageRequest.Builder(appContext)
+                                        .data(favUrl)
+                                        .diskCacheKey(favUrl)
+                                        .build()
+                                )
+                            }
+                        } catch (_: Exception) {
+                            // Non-blocking pre-warm safeguard
+                        }
+                    }
+
                     true
                 } else {
                     val error = result.exceptionOrNull()

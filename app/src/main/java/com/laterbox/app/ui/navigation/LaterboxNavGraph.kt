@@ -94,41 +94,22 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxSize(),
         containerColor = colors.backgroundPrimary,
         snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                snackbar = { data ->
-                    Snackbar(
-                        snackbarData = data,
-                        containerColor = colors.surfaceElevated,
-                        contentColor = colors.textPrimary,
-                        actionColor = colors.accentPrimary,
-                        shape = RoundedCornerShape(LaterboxTheme.spacing.radiusMedium)
-                    )
-                }
-            )
-        },
-        bottomBar = {
-            if (currentRoute != LaterboxDestination.Settings.route) {
-                LaterboxBottomBar(
-                    currentDestination = currentBottomDestination,
-                    onDestinationSelected = { destination ->
-                        when (destination) {
-                            BottomBarDestination.INBOX -> {
-                                navController.navigate(LaterboxDestination.Inbox.route) {
-                                    popUpTo(LaterboxDestination.Inbox.route) { inclusive = true }
-                                }
-                            }
-                            BottomBarDestination.COLLECTIONS -> {
-                                navController.navigate(LaterboxDestination.Collections.route) {
-                                    popUpTo(LaterboxDestination.Inbox.route)
-                                }
-                            }
-                            BottomBarDestination.ARCHIVE -> {
-                                navController.navigate(LaterboxDestination.Archive.route) {
-                                    popUpTo(LaterboxDestination.Inbox.route)
-                                }
-                            }
-                        }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(bottom = if (currentRoute != LaterboxDestination.Settings.route) 84.dp else 16.dp)
+            ) {
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    snackbar = { data ->
+                        Snackbar(
+                            snackbarData = data,
+                            containerColor = colors.surfaceElevated,
+                            contentColor = colors.textPrimary,
+                            actionColor = colors.accentPrimary,
+                            shape = LaterboxShapeTokens.Card
+                        )
                     }
                 )
             }
@@ -137,7 +118,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(top = innerPadding.calculateTopPadding())
         ) {
             NavHost(
                 navController = navController,
@@ -255,6 +236,32 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         onBackClick = { navController.popBackStack() }
                     )
                 }
+            }
+
+            if (currentRoute != LaterboxDestination.Settings.route) {
+                LaterboxBottomBar(
+                    currentDestination = currentBottomDestination,
+                    onDestinationSelected = { destination ->
+                        when (destination) {
+                            BottomBarDestination.INBOX -> {
+                                navController.navigate(LaterboxDestination.Inbox.route) {
+                                    popUpTo(LaterboxDestination.Inbox.route) { inclusive = true }
+                                }
+                            }
+                            BottomBarDestination.COLLECTIONS -> {
+                                navController.navigate(LaterboxDestination.Collections.route) {
+                                    popUpTo(LaterboxDestination.Inbox.route)
+                                }
+                            }
+                            BottomBarDestination.ARCHIVE -> {
+                                navController.navigate(LaterboxDestination.Archive.route) {
+                                    popUpTo(LaterboxDestination.Inbox.route)
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
         }
     }

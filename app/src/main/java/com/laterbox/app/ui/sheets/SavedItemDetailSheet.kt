@@ -52,6 +52,9 @@ import androidx.compose.ui.unit.sp
 import com.laterbox.app.domain.model.MetadataStatus
 import com.laterbox.app.ui.components.ContentTypeBadge
 import com.laterbox.app.ui.components.FaviconImage
+import com.laterbox.app.ui.components.LaterboxIconButton
+import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -128,24 +131,12 @@ fun SavedItemDetailSheet(
                     ContentTypeBadge(contentType = link.contentType)
                 }
 
-                // Close button (min 48dp touch target)
-                Box(
-                    modifier = Modifier
-                        .size(spacing.minTouchTarget)
-                        .clip(CircleShape)
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = "Close details",
-                            onClick = onDismissRequest
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "✕",
-                        style = typography.metaText,
-                        color = colors.textSecondary
-                    )
-                }
+                // Close button with tactile backdrop [UX19]
+                LaterboxIconButton(
+                    iconRes = LaterboxIcons.Close,
+                    contentDescription = "Close details",
+                    onClick = onDismissRequest
+                )
             }
 
             Spacer(modifier = Modifier.height(spacing.sm))
@@ -157,7 +148,7 @@ fun SavedItemDetailSheet(
                     containerColor = colors.accentPrimary,
                     contentColor = colors.surfaceElevated
                 ),
-                shape = RoundedCornerShape(spacing.radiusSmall),
+                shape = LaterboxShapeTokens.Button,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)

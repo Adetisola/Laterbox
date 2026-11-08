@@ -35,10 +35,14 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.InboxSkeletonList
+import com.laterbox.app.ui.components.LaterboxIconButton
+import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.components.SavedLinkCard
 import com.laterbox.app.ui.theme.LaterboxTheme
 
@@ -94,9 +98,9 @@ fun ArchiveScreen(
                     .fillMaxWidth()
                     .padding(horizontal = spacing.base, vertical = spacing.xs)
                     .height(44.dp)
-                    .clip(RoundedCornerShape(spacing.radiusMedium))
+                    .clip(LaterboxShapeTokens.InputField)
                     .background(colors.surfacePrimary)
-                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
+                    .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.InputField)
                     .padding(horizontal = spacing.md),
                 contentAlignment = Alignment.CenterStart
             ) {
@@ -104,10 +108,11 @@ fun ArchiveScreen(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "⌕",
-                        style = typography.uiMedium.copy(fontSize = 16.sp),
-                        color = colors.textSecondary
+                    Icon(
+                        painter = painterResource(id = LaterboxIcons.Search),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.width(spacing.sm))
 
@@ -134,8 +139,8 @@ fun ArchiveScreen(
                     if (uiState.searchQuery.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(spacing.minTouchTarget)
-                                .clip(CircleShape)
+                                .size(36.dp)
+                                .clip(LaterboxShapeTokens.IconButton)
                                 .clickable(
                                     role = Role.Button,
                                     onClickLabel = "Clear search",
@@ -143,10 +148,11 @@ fun ArchiveScreen(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "✕",
-                                style = typography.metaText,
-                                color = colors.textSecondary
+                            Icon(
+                                painter = painterResource(id = LaterboxIcons.Close),
+                                contentDescription = "Clear search",
+                                modifier = Modifier.size(16.dp),
+                                tint = colors.textSecondary
                             )
                         }
                     }
@@ -187,7 +193,7 @@ fun ArchiveScreen(
                             start = spacing.base,
                             end = spacing.base,
                             top = spacing.sm,
-                            bottom = 80.dp
+                            bottom = 148.dp // Leave clear space for floating navigation pill
                         ),
                         verticalArrangement = Arrangement.spacedBy(spacing.sm),
                         modifier = Modifier
@@ -196,7 +202,8 @@ fun ArchiveScreen(
                     ) {
                         items(
                             items = uiState.links,
-                            key = { it.id }
+                            key = { it.id },
+                            contentType = { "archived_card" }
                         ) { link ->
                             Column {
                                 SavedLinkCard(
