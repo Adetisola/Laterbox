@@ -254,15 +254,23 @@ class SaveLinkViewModelTest {
     @Test
     fun saveLinkViewModel_resetClearsReminder() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
-        backgroundScope.launch(testDispatcher) { viewModel.uiState.collect() }
-        runCurrent()
 
-        viewModel.onReminderAtChange(1_800_000_000_000L)
-        runCurrent()
-        assertEquals(1_800_000_000_000L, viewModel.uiState.value.reminderAt)
+        viewModel.uiState.test {
+            runCurrent()
+            val initial = awaitItem()
+            assertNull(initial.reminderAt)
 
-        viewModel.reset()
-        runCurrent()
-        assertNull(viewModel.uiState.value.reminderAt)
+            viewModel.onReminderAtChange(1_800_000_000_000L)
+            runCurrent()
+            val withReminder = awaitItem()
+            assertEquals(1_800_000_000_000L, withReminder.reminderAt)
+
+            viewModel.reset()
+            runCurrent()
+            val resetState = awaitItem()
+            assertNull(resetState.reminderAt)
+
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }
