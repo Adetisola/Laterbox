@@ -64,7 +64,7 @@ fun LaterboxBottomBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, bottom = 12.dp),
+            .padding(start = 24.dp, end = 24.dp, bottom = 12.dp),
         contentAlignment = Alignment.Center
     ) {
         Surface(
