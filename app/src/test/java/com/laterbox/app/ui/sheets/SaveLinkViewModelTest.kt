@@ -9,6 +9,8 @@ import com.laterbox.app.data.repository.CollectionRepository
 import com.laterbox.app.data.repository.LinkRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -203,20 +205,24 @@ class SaveLinkViewModelTest {
     fun saveLinkViewModel_togglesCollectionsAndCreatesNew() = runTest(testDispatcher) {
         val colId = collectionRepository.createCollection("Reading")
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val job = launch { viewModel.uiState.collect() }
+        advanceUntilIdle()
 
         // Toggle collection on
         viewModel.onToggleCollection(colId)
-        runCurrent()
+        advanceUntilIdle()
         assertTrue(viewModel.uiState.value.selectedCollectionIds.contains(colId))
 
         // Toggle collection off
         viewModel.onToggleCollection(colId)
-        runCurrent()
+        advanceUntilIdle()
         assertFalse(viewModel.uiState.value.selectedCollectionIds.contains(colId))
 
         // Create new collection
         viewModel.onCreateCollection("Design")
-        runCurrent()
+        advanceUntilIdle()
         assertEquals(1, viewModel.uiState.value.selectedCollectionIds.size)
+
+        job.cancel()
     }
 }

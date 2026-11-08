@@ -12,7 +12,7 @@ data class SavedLinkWithCollection(
         parentColumn = "collection_id",
         entityColumn = "id"
     )
-    val collection: CollectionEntity?,
+    val legacyCollection: CollectionEntity? = null,
 
     @Relation(
         parentColumn = "id",
@@ -23,5 +23,11 @@ data class SavedLinkWithCollection(
             entityColumn = "collection_id"
         )
     )
-    val collections: List<CollectionEntity> = emptyList()
-)
+    val crossRefCollections: List<CollectionEntity> = emptyList()
+) {
+    val collections: List<CollectionEntity>
+        get() = (crossRefCollections + listOfNotNull(legacyCollection)).distinctBy { it.id }
+
+    val collection: CollectionEntity?
+        get() = collections.firstOrNull()
+}
