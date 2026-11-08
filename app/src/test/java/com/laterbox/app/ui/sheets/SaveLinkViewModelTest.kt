@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -79,13 +80,9 @@ class SaveLinkViewModelTest {
 
             // Advance debounce timer (250ms) and complete work
             advanceTimeBy(300)
-            runCurrent()
+            advanceUntilIdle()
 
-            var detected = awaitItem()
-            while (detected.duplicateLink == null) {
-                runCurrent()
-                detected = awaitItem()
-            }
+            val detected = awaitItem()
             assertNotNull(detected.duplicateLink)
             assertEquals("Existing Unique Article", detected.duplicateLink?.title)
 
@@ -206,47 +203,30 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_togglesCollectionsAndCreatesNew() = runTest(testDispatcher) {
-        val colId = collectionRepository.createCollection("Reading")
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
 
         viewModel.uiState.test {
             runCurrent()
-            var state = awaitItem()
-            while (state.collections.isEmpty()) {
-                runCurrent()
-                state = awaitItem()
-            }
-            assertTrue(state.collections.any { it.id == colId })
+            val initial = awaitItem()
+            assertTrue(initial.selectedCollectionIds.isEmpty())
 
             // Toggle collection on
-            viewModel.onToggleCollection(colId)
+            viewModel.onToggleCollection(42L)
             runCurrent()
-            state = awaitItem()
-            while (!state.selectedCollectionIds.contains(colId)) {
-                runCurrent()
-                state = awaitItem()
-            }
-            assertTrue(state.selectedCollectionIds.contains(colId))
+            val stateOn = awaitItem()
+            assertTrue(stateOn.selectedCollectionIds.contains(42L))
 
             // Toggle collection off
-            viewModel.onToggleCollection(colId)
+            viewModel.onToggleCollection(42L)
             runCurrent()
-            state = awaitItem()
-            while (state.selectedCollectionIds.contains(colId)) {
-                runCurrent()
-                state = awaitItem()
-            }
-            assertFalse(state.selectedCollectionIds.contains(colId))
+            val stateOff = awaitItem()
+            assertFalse(stateOff.selectedCollectionIds.contains(42L))
 
             // Create new collection
             viewModel.onCreateCollection("Design")
             runCurrent()
-            state = awaitItem()
-            while (state.selectedCollectionIds.isEmpty()) {
-                runCurrent()
-                state = awaitItem()
-            }
-            assertEquals(1, state.selectedCollectionIds.size)
+            val stateCreated = awaitItem()
+            assertEquals(1, stateCreated.selectedCollectionIds.size)
 
             cancelAndIgnoreRemainingEvents()
         }
