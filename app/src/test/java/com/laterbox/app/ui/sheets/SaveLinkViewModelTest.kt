@@ -205,24 +205,31 @@ class SaveLinkViewModelTest {
     fun saveLinkViewModel_togglesCollectionsAndCreatesNew() = runTest(testDispatcher) {
         val colId = collectionRepository.createCollection("Reading")
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
-        val job = launch { viewModel.uiState.collect() }
-        advanceUntilIdle()
 
-        // Toggle collection on
-        viewModel.onToggleCollection(colId)
-        advanceUntilIdle()
-        assertTrue(viewModel.uiState.value.selectedCollectionIds.contains(colId))
+        viewModel.uiState.test {
+            runCurrent()
+            awaitItem() // initial
 
-        // Toggle collection off
-        viewModel.onToggleCollection(colId)
-        advanceUntilIdle()
-        assertFalse(viewModel.uiState.value.selectedCollectionIds.contains(colId))
+            // Toggle collection on
+            viewModel.onToggleCollection(colId)
+            runCurrent()
+            val stateOn = awaitItem()
+            assertTrue(stateOn.selectedCollectionIds.contains(colId))
 
-        // Create new collection
-        viewModel.onCreateCollection("Design")
-        advanceUntilIdle()
-        assertEquals(1, viewModel.uiState.value.selectedCollectionIds.size)
+            // Toggle collection off
+            viewModel.onToggleCollection(colId)
+            runCurrent()
+            val stateOff = awaitItem()
+            assertFalse(stateOff.selectedCollectionIds.contains(colId))
 
-        job.cancel()
+            // Create new collection
+            viewModel.onCreateCollection("Design")
+            runCurrent()
+            advanceUntilIdle()
+            val stateCreated = awaitItem()
+            assertEquals(1, stateCreated.selectedCollectionIds.size)
+
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }

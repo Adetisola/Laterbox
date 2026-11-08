@@ -7,12 +7,13 @@ import com.laterbox.app.domain.model.Collection
 import com.laterbox.app.domain.model.CollectionWithCount
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 
 class CollectionRepository(private val collectionDao: CollectionDao) {
 
     val collections: Flow<List<Collection>> = collectionDao.getCollections().map { list ->
         list.map { it.toDomain() }
-    }
+    }.onStart { emit(emptyList()) }
 
     val collectionsWithCounts: Flow<List<CollectionWithCount>> = collectionDao.getCollectionsWithCounts().map { list ->
         list.map { it.toDomain() }
