@@ -94,6 +94,8 @@ class SaveLinkViewModelTest {
     fun saveLinkViewModel_savesNewLinkSuccessfully() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
 
+        val reminderTime = 1_800_000_000_000L
+        viewModel.onReminderAtChange(reminderTime)
         viewModel.onUrlChange("https://kotlinlang.org")
         viewModel.onTitleChange("Kotlin Programming Language")
         viewModel.onPersonalNoteChange("Official documentation")
@@ -110,6 +112,7 @@ class SaveLinkViewModelTest {
         assertNotNull(duplicate)
         assertEquals("Kotlin Programming Language", duplicate?.title)
         assertEquals("Official documentation", duplicate?.personalNote)
+        assertEquals(reminderTime, duplicate?.reminderAt)
         assertTrue(successCalled)
     }
 
@@ -230,25 +233,6 @@ class SaveLinkViewModelTest {
 
             cancelAndIgnoreRemainingEvents()
         }
-    }
-
-    @Test
-    fun saveLinkViewModel_reminderPersistsOnSave() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
-
-        val reminderTime = 1_800_000_000_000L
-        viewModel.onReminderAtChange(reminderTime)
-        viewModel.onUrlChange("https://reminder-example.com")
-        viewModel.onTitleChange("Reminder Article")
-
-        var saved = false
-        viewModel.onSave { saved = true }
-        runCurrent()
-        assertTrue(saved)
-
-        val savedLink = linkRepository.findDuplicate("https://reminder-example.com")
-        assertNotNull(savedLink)
-        assertEquals(reminderTime, savedLink?.reminderAt)
     }
 
     @Test
