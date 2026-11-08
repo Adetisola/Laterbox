@@ -15,9 +15,10 @@ import com.laterbox.app.data.local.entity.SavedLinkEntity
 @Database(
     entities = [
         SavedLinkEntity::class,
-        CollectionEntity::class
+        CollectionEntity::class,
+        com.laterbox.app.data.local.entity.LinkCollectionCrossRef::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -186,6 +187,42 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Consolidated atomic migration from version 2 to version 3:
+         * 1. Creates link_collection_cross_ref table with foreign keys & indices.
+         * 2. Migrates existing saved_links.collection_id entries into link_collection_cross_ref.
+         * 3. Adds reminder_at, last_nudged_at, nudge_count, and nudge_dismissed columns with index.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Create link_collection_cross_ref
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `link_collection_cross_ref` (
+                        `link_id` INTEGER NOT NULL,
+                        `collection_id` INTEGER NOT NULL,
+                        PRIMARY KEY(`link_id`, `collection_id`),
+                        FOREIGN KEY(`link_id`) REFERENCES `saved_links`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(`collection_id`) REFERENCES `collections`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_link_collection_cross_ref_collection_id` ON `link_collection_cross_ref` (`collection_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_link_collection_cross_ref_link_id` ON `link_collection_cross_ref` (`link_id`)")
+
+                // 2. Migrate existing saved_links.collection_id
+                db.execSQL("""
+                    INSERT OR IGNORE INTO `link_collection_cross_ref` (`link_id`, `collection_id`)
+                    SELECT `id`, `collection_id` FROM `saved_links` WHERE `collection_id` IS NOT NULL
+                """.trimIndent())
+
+                // 3. Add reminder & nudge columns
+                db.execSQL("ALTER TABLE `saved_links` ADD COLUMN `reminder_at` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `saved_links` ADD COLUMN `last_nudged_at` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `saved_links` ADD COLUMN `nudge_count` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `saved_links` ADD COLUMN `nudge_dismissed` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_saved_links_reminder_at` ON `saved_links` (`reminder_at`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -196,7 +233,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { INSTANCE = it }
             }

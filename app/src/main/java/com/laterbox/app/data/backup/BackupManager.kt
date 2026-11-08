@@ -2,6 +2,7 @@ package com.laterbox.app.data.backup
 
 import com.laterbox.app.data.local.LaterboxDatabase
 import com.laterbox.app.data.local.entity.CollectionEntity
+import com.laterbox.app.data.local.entity.LinkCollectionCrossRef
 import com.laterbox.app.data.local.entity.SavedLinkEntity
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.MetadataStatus
@@ -27,6 +28,7 @@ class BackupManager(private val database: LaterboxDatabase) {
             val inboxLinks = savedLinkDao.getInboxLinks().first()
             val archivedLinks = savedLinkDao.getArchivedLinks().first()
             val allLinks = (inboxLinks + archivedLinks).map { item ->
+                val colNames = item.collections.map { it.name }
                 BackupLink(
                     originalUrl = item.link.originalUrl,
                     normalizedUrl = item.link.normalizedUrl,
@@ -38,7 +40,8 @@ class BackupManager(private val database: LaterboxDatabase) {
                     previewImageUrl = item.link.previewImageUrl,
                     contentType = item.link.contentType,
                     personalNote = item.link.personalNote,
-                    collectionName = item.collection?.name,
+                    collectionName = colNames.firstOrNull(),
+                    collectionNames = colNames,
                     isRead = item.link.isRead,
                     isArchived = item.link.isArchived,
                     createdAt = item.link.createdAt
@@ -86,17 +89,26 @@ class BackupManager(private val database: LaterboxDatabase) {
                 }
             }
 
-            // 2. Restore Links with duplicate detection
+            // 2. Restore Links with duplicate detection and multi-collections
             for (bLink in backup.links) {
+                val targetNames = bLink.collectionNames.ifEmpty { listOfNotNull(bLink.collectionName) }
+                val targetColIds = targetNames.mapNotNull { name ->
+                    collectionMap[name.trim().lowercase()]
+                }
+
                 val existing = savedLinkDao.findLinkByNormalizedUrl(bLink.normalizedUrl)
                 if (existing != null) {
                     // Duplicate found: update notes if incoming backup has personal note and current does not
                     if (existing.link.personalNote.isNullOrBlank() && !bLink.personalNote.isNullOrBlank()) {
                         savedLinkDao.updateLink(existing.link.copy(personalNote = bLink.personalNote))
                     }
+                    for (colId in targetColIds) {
+                        savedLinkDao.insertLinkCollectionCrossRef(
+                            LinkCollectionCrossRef(linkId = existing.link.id, collectionId = colId)
+                        )
+                    }
                     skippedDuplicatesCount++
                 } else {
-                    val targetColId = bLink.collectionName?.trim()?.lowercase()?.let { collectionMap[it] }
                     val entity = SavedLinkEntity(
                         originalUrl = bLink.originalUrl,
                         normalizedUrl = bLink.normalizedUrl,
@@ -108,14 +120,19 @@ class BackupManager(private val database: LaterboxDatabase) {
                         previewImageUrl = bLink.previewImageUrl,
                         contentType = bLink.contentType,
                         personalNote = bLink.personalNote,
-                        collectionId = targetColId,
+                        collectionId = targetColIds.firstOrNull(),
                         isRead = bLink.isRead,
                         isArchived = bLink.isArchived,
                         metadataStatus = if (bLink.previewImageUrl != null) MetadataStatus.SUCCESS else MetadataStatus.PARTIAL,
                         createdAt = bLink.createdAt,
                         updatedAt = System.currentTimeMillis()
                     )
-                    savedLinkDao.insertLink(entity)
+                    val insertedId = savedLinkDao.insertLink(entity)
+                    for (colId in targetColIds) {
+                        savedLinkDao.insertLinkCollectionCrossRef(
+                            LinkCollectionCrossRef(linkId = insertedId, collectionId = colId)
+                        )
+                    }
                     restoredLinksCount++
                 }
             }
@@ -160,7 +177,13 @@ class BackupManager(private val database: LaterboxDatabase) {
             lObj.put("previewImageUrl", link.previewImageUrl ?: JSONObject.NULL)
             lObj.put("contentType", link.contentType.name)
             lObj.put("personalNote", link.personalNote ?: JSONObject.NULL)
-            lObj.put("collectionName", link.collectionName ?: JSONObject.NULL)
+            val effectiveColNames = link.collectionNames.ifEmpty { listOfNotNull(link.collectionName) }
+            lObj.put("collectionName", link.collectionName ?: effectiveColNames.firstOrNull() ?: JSONObject.NULL)
+            val colNamesArray = JSONArray()
+            for (cName in effectiveColNames) {
+                colNamesArray.put(cName)
+            }
+            lObj.put("collectionNames", colNamesArray)
             lObj.put("isRead", link.isRead)
             lObj.put("isArchived", link.isArchived)
             lObj.put("createdAt", link.createdAt)
@@ -202,6 +225,18 @@ class BackupManager(private val database: LaterboxDatabase) {
                     ContentType.WEBSITE
                 }
 
+                val colNamesList = mutableListOf<String>()
+                val cNamesArray = lObj.optJSONArray("collectionNames")
+                if (cNamesArray != null) {
+                    for (j in 0 until cNamesArray.length()) {
+                        colNamesList.add(cNamesArray.getString(j))
+                    }
+                }
+                val legacyCol = lObj.optNullableString("collectionName")
+                if (colNamesList.isEmpty() && legacyCol != null) {
+                    colNamesList.add(legacyCol)
+                }
+
                 links.add(
                     BackupLink(
                         originalUrl = lObj.getString("originalUrl"),
@@ -214,7 +249,8 @@ class BackupManager(private val database: LaterboxDatabase) {
                         previewImageUrl = lObj.optNullableString("previewImageUrl"),
                         contentType = contentType,
                         personalNote = lObj.optNullableString("personalNote"),
-                        collectionName = lObj.optNullableString("collectionName"),
+                        collectionName = legacyCol ?: colNamesList.firstOrNull(),
+                        collectionNames = colNamesList,
                         isRead = lObj.optBoolean("isRead", false),
                         isArchived = lObj.optBoolean("isArchived", false),
                         createdAt = lObj.optLong("createdAt", System.currentTimeMillis())

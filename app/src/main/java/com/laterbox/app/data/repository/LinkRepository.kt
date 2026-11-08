@@ -77,6 +77,7 @@ class LinkRepository(
         title: String? = null,
         personalNote: String? = null,
         collectionId: Long? = null,
+        collectionIds: List<Long> = emptyList(),
         contentType: ContentType = ContentType.WEBSITE,
         autoFetchMetadata: Boolean = true
     ): Long {
@@ -85,6 +86,7 @@ class LinkRepository(
         val domain = UrlNormalizer.extractDomain(trimmedUrl)
         val resolvedTitle = if (!title.isNullOrBlank()) title.trim() else domain
         val cleanedNote = personalNote?.trim()?.ifEmpty { null }
+        val targetColId = collectionId ?: collectionIds.firstOrNull()
 
         val linkId: Long = saveMutex.withLock {
             val entity = SavedLinkEntity(
@@ -94,7 +96,7 @@ class LinkRepository(
                 domain = domain,
                 contentType = contentType,
                 personalNote = cleanedNote,
-                collectionId = collectionId,
+                collectionId = targetColId,
                 isRead = false,
                 isArchived = false,
                 metadataStatus = MetadataStatus.PENDING,
@@ -121,7 +123,7 @@ class LinkRepository(
                         existing.personalNote.contains(cleanedNote) -> existing.personalNote
                         else -> "${existing.personalNote}\n\n$cleanedNote"
                     }
-                    val mergedCollectionId = collectionId ?: existing.collectionId
+                    val mergedCollectionId = targetColId ?: existing.collectionId
                     val updated = existing.copy(
                         title = mergedTitle,
                         personalNote = mergedNote,
@@ -137,10 +139,18 @@ class LinkRepository(
             }
         }
 
-        if (linkId > 0 && autoFetchMetadata) {
-            appContext?.let { MetadataSyncWorker.enqueue(it) }
-            scope.launch {
-                fetchMetadataNow(linkId, isManualRetry = false)
+        if (linkId > 0) {
+            val allColIds = (collectionIds + listOfNotNull(collectionId)).distinct()
+            for (cId in allColIds) {
+                savedLinkDao.insertLinkCollectionCrossRef(
+                    com.laterbox.app.data.local.entity.LinkCollectionCrossRef(linkId, cId)
+                )
+            }
+            if (autoFetchMetadata) {
+                appContext?.let { MetadataSyncWorker.enqueue(it) }
+                scope.launch {
+                    fetchMetadataNow(linkId, isManualRetry = false)
+                }
             }
         }
 
@@ -436,7 +446,11 @@ class LinkRepository(
             previewImageUrl = link.previewImageUrl ?: existing?.previewImageUrl,
             contentType = link.contentType,
             personalNote = link.personalNote,
-            collectionId = link.collectionId,
+            collectionId = link.collectionId ?: existing?.collectionId,
+            reminderAt = link.reminderAt ?: existing?.reminderAt,
+            lastNudgedAt = link.lastNudgedAt ?: existing?.lastNudgedAt,
+            nudgeCount = link.nudgeCount,
+            nudgeDismissed = link.nudgeDismissed,
             isRead = link.isRead,
             isArchived = link.isArchived,
             metadataStatus = link.metadataStatus,
@@ -446,6 +460,9 @@ class LinkRepository(
             updatedAt = System.currentTimeMillis()
         )
         savedLinkDao.updateLink(entity)
+        if (link.collectionIds.isNotEmpty()) {
+            setLinkCollections(link.id, link.collectionIds)
+        }
     }
 
     suspend fun deleteLink(id: Long) {
@@ -468,6 +485,10 @@ class LinkRepository(
                 contentType = link.contentType,
                 personalNote = link.personalNote,
                 collectionId = link.collectionId,
+                reminderAt = link.reminderAt,
+                lastNudgedAt = link.lastNudgedAt,
+                nudgeCount = link.nudgeCount,
+                nudgeDismissed = link.nudgeDismissed,
                 isRead = link.isRead,
                 isArchived = link.isArchived,
                 metadataStatus = link.metadataStatus,
@@ -477,6 +498,31 @@ class LinkRepository(
                 updatedAt = System.currentTimeMillis()
             )
             savedLinkDao.insertLink(entity)
+            for (colId in link.collectionIds) {
+                savedLinkDao.insertLinkCollectionCrossRef(
+                    com.laterbox.app.data.local.entity.LinkCollectionCrossRef(link.id, colId)
+                )
+            }
+        }
+    }
+
+    suspend fun toggleLinkCollection(linkId: Long, collectionId: Long) {
+        val currentIds = savedLinkDao.getCollectionIdsForLink(linkId)
+        if (currentIds.contains(collectionId)) {
+            savedLinkDao.deleteLinkCollectionCrossRef(linkId, collectionId)
+        } else {
+            savedLinkDao.insertLinkCollectionCrossRef(
+                com.laterbox.app.data.local.entity.LinkCollectionCrossRef(linkId, collectionId)
+            )
+        }
+    }
+
+    suspend fun setLinkCollections(linkId: Long, collectionIds: List<Long>) {
+        savedLinkDao.deleteLinkCollectionCrossRefsForLink(linkId)
+        for (colId in collectionIds) {
+            savedLinkDao.insertLinkCollectionCrossRef(
+                com.laterbox.app.data.local.entity.LinkCollectionCrossRef(linkId, colId)
+            )
         }
     }
 
@@ -489,6 +535,8 @@ class LinkRepository(
     }
 
     private fun SavedLinkWithCollection.toDomain(): SavedLink {
+        val colNames = collections.map { it.name }.ifEmpty { listOfNotNull(collection?.name) }
+        val colIds = collections.map { it.id }.ifEmpty { listOfNotNull(link.collectionId) }
         return SavedLink(
             id = link.id,
             originalUrl = link.originalUrl,
@@ -501,8 +549,14 @@ class LinkRepository(
             previewImageUrl = link.previewImageUrl,
             contentType = link.contentType,
             personalNote = link.personalNote,
-            collectionId = link.collectionId,
-            collectionName = collection?.name,
+            collectionId = colIds.firstOrNull(),
+            collectionName = colNames.firstOrNull(),
+            collectionIds = colIds,
+            collectionNames = colNames,
+            reminderAt = link.reminderAt,
+            lastNudgedAt = link.lastNudgedAt,
+            nudgeCount = link.nudgeCount,
+            nudgeDismissed = link.nudgeDismissed,
             isRead = link.isRead,
             isArchived = link.isArchived,
             metadataStatus = link.metadataStatus,

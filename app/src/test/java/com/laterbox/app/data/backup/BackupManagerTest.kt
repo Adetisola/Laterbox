@@ -145,4 +145,51 @@ class BackupManagerTest {
             targetDb.close()
         }
     }
+
+    @Test
+    fun exportAndImport_multiCollectionSupport() = runTest {
+        val colDao = database.collectionDao()
+        val linkDao = database.savedLinkDao()
+
+        val techId = colDao.insertCollection(CollectionEntity(name = "Tech"))
+        val readsId = colDao.insertCollection(CollectionEntity(name = "Reads"))
+
+        val linkId = linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://kotlinlang.org",
+                normalizedUrl = "https://kotlinlang.org",
+                title = "Kotlin",
+                domain = "kotlinlang.org"
+            )
+        )
+        linkDao.insertLinkCollectionCrossRef(
+            com.laterbox.app.data.local.entity.LinkCollectionCrossRef(linkId, techId)
+        )
+        linkDao.insertLinkCollectionCrossRef(
+            com.laterbox.app.data.local.entity.LinkCollectionCrossRef(linkId, readsId)
+        )
+
+        val out = ByteArrayOutputStream()
+        backupManager.exportToJson(out)
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val targetDb = Room.inMemoryDatabaseBuilder(context, LaterboxDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        val targetManager = BackupManager(targetDb)
+        try {
+            val input = ByteArrayInputStream(out.toByteArray())
+            val importResult = targetManager.importFromJson(input)
+            assertTrue(importResult.isSuccess)
+
+            val imported = targetDb.savedLinkDao().getInboxLinks().first()
+            assertEquals(1, imported.size)
+            assertEquals(2, imported[0].collections.size)
+            val names = imported[0].collections.map { it.name }.toSet()
+            assertTrue(names.contains("Tech"))
+            assertTrue(names.contains("Reads"))
+        } finally {
+            targetDb.close()
+        }
+    }
 }

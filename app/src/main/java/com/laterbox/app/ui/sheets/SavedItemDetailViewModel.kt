@@ -18,10 +18,13 @@ data class SavedItemDetailUiState(
     val link: SavedLink? = null,
     val editedTitle: String = "",
     val editedNote: String = "",
-    val selectedCollectionId: Long? = null,
+    val selectedCollectionIds: Set<Long> = emptySet(),
     val collections: List<Collection> = emptyList(),
     val isSaving: Boolean = false
-)
+) {
+    val selectedCollectionId: Long?
+        get() = selectedCollectionIds.firstOrNull()
+}
 
 class SavedItemDetailViewModel(
     private val linkRepository: LinkRepository,
@@ -31,14 +34,14 @@ class SavedItemDetailViewModel(
     private val _currentLink = MutableStateFlow<SavedLink?>(null)
     private val _editedTitle = MutableStateFlow("")
     private val _editedNote = MutableStateFlow("")
-    private val _selectedCollectionId = MutableStateFlow<Long?>(null)
+    private val _selectedCollectionIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _isSaving = MutableStateFlow(false)
 
     val uiState: StateFlow<SavedItemDetailUiState> = combine(
         _currentLink,
         _editedTitle,
         _editedNote,
-        _selectedCollectionId,
+        _selectedCollectionIds,
         _isSaving,
         collectionRepository.collections
     ) { params ->
@@ -46,7 +49,7 @@ class SavedItemDetailViewModel(
             link = params[0] as SavedLink?,
             editedTitle = params[1] as String,
             editedNote = params[2] as String,
-            selectedCollectionId = params[3] as Long?,
+            selectedCollectionIds = params[3] as Set<Long>,
             isSaving = params[4] as Boolean,
             collections = (params[5] as List<*>).filterIsInstance<Collection>()
         )
@@ -60,7 +63,7 @@ class SavedItemDetailViewModel(
         _currentLink.value = link
         _editedTitle.value = link.title
         _editedNote.value = link.personalNote.orEmpty()
-        _selectedCollectionId.value = link.collectionId
+        _selectedCollectionIds.value = link.collectionIds.toSet()
     }
 
     fun onTitleChange(newTitle: String) {
@@ -71,8 +74,46 @@ class SavedItemDetailViewModel(
         _editedNote.value = newNote
     }
 
-    fun onCollectionChange(collectionId: Long?) {
-        _selectedCollectionId.value = collectionId
+    fun onToggleCollection(collectionId: Long) {
+        val link = _currentLink.value ?: return
+        val currentIds = _selectedCollectionIds.value.toMutableSet()
+        val willHave = !currentIds.contains(collectionId)
+        if (willHave) {
+            currentIds.add(collectionId)
+        } else {
+            currentIds.remove(collectionId)
+        }
+        _selectedCollectionIds.value = currentIds
+        viewModelScope.launch {
+            linkRepository.toggleLinkCollection(link.id, collectionId)
+            val updatedNames = if (willHave) {
+                val col = collectionRepository.getCollectionById(collectionId)
+                if (col != null) link.collectionNames + col.name else link.collectionNames
+            } else {
+                val col = collectionRepository.getCollectionById(collectionId)
+                if (col != null) link.collectionNames.filter { it != col.name } else link.collectionNames
+            }
+            _currentLink.value = link.copy(
+                collectionIds = currentIds.toList(),
+                collectionNames = updatedNames
+            )
+        }
+    }
+
+    fun onCreateAndAssignCollection(name: String) {
+        val link = _currentLink.value ?: return
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            val newId = collectionRepository.createCollection(trimmed)
+            linkRepository.toggleLinkCollection(link.id, newId)
+            val newSet = _selectedCollectionIds.value + newId
+            _selectedCollectionIds.value = newSet
+            _currentLink.value = link.copy(
+                collectionIds = newSet.toList(),
+                collectionNames = link.collectionNames + trimmed
+            )
+        }
     }
 
     fun onSaveEdits(onSuccess: () -> Unit) {
@@ -83,9 +124,10 @@ class SavedItemDetailViewModel(
                 val updated = link.copy(
                     title = if (_editedTitle.value.isNotBlank()) _editedTitle.value.trim() else link.domain,
                     personalNote = _editedNote.value.trim().ifEmpty { null },
-                    collectionId = _selectedCollectionId.value
+                    collectionIds = _selectedCollectionIds.value.toList()
                 )
                 linkRepository.updateLink(updated)
+                linkRepository.setLinkCollections(link.id, _selectedCollectionIds.value.toList())
                 _currentLink.value = updated
                 onSuccess()
             } finally {
@@ -117,6 +159,15 @@ class SavedItemDetailViewModel(
             linkRepository.deleteLink(link.id)
             _currentLink.value = null
             onDeleted()
+        }
+    }
+
+    fun deleteWithUndo(onDeleted: (SavedLink) -> Unit) {
+        val link = _currentLink.value ?: return
+        viewModelScope.launch {
+            linkRepository.deleteLink(link.id)
+            _currentLink.value = null
+            onDeleted(link)
         }
     }
 

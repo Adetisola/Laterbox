@@ -310,7 +310,8 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
             onUrlChange = saveLinkViewModel::onUrlChange,
             onTitleChange = saveLinkViewModel::onTitleChange,
             onPersonalNoteChange = saveLinkViewModel::onPersonalNoteChange,
-            onSelectCollection = saveLinkViewModel::onSelectCollection,
+            onToggleCollection = saveLinkViewModel::onToggleCollection,
+            onCreateCollection = saveLinkViewModel::onCreateCollection,
             onSaveClick = {
                 saveLinkViewModel.onSave {
                     coroutineScope.launch {
@@ -336,7 +337,8 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
             sheetState = detailSheetState,
             onTitleChange = savedItemDetailViewModel::onTitleChange,
             onNoteChange = savedItemDetailViewModel::onNoteChange,
-            onCollectionChange = savedItemDetailViewModel::onCollectionChange,
+            onToggleCollection = savedItemDetailViewModel::onToggleCollection,
+            onCreateCollection = savedItemDetailViewModel::onCreateAndAssignCollection,
             onSaveEdits = {
                 savedItemDetailViewModel.onSaveEdits {
                     coroutineScope.launch {
@@ -368,10 +370,18 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                 }
             },
             onDelete = {
-                savedItemDetailViewModel.onDelete {
+                savedItemDetailViewModel.deleteWithUndo { deletedLink ->
                     coroutineScope.launch {
                         detailSheetState.hide()
                         selectedLinkForDetails = null
+                        val result = snackbarHostState.showSnackbar(
+                            message = "Deleted link",
+                            actionLabel = "Undo",
+                            duration = SnackbarDuration.Short
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            inboxViewModel.restoreLink(deletedLink)
+                        }
                     }
                 }
             },

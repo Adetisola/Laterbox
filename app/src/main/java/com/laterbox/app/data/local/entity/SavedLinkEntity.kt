@@ -23,7 +23,8 @@ import com.laterbox.app.domain.model.MetadataStatus
         Index(value = ["collection_id", "created_at"]),
         Index(value = ["is_archived", "created_at"]),
         Index(value = ["is_archived", "updated_at"]),
-        Index(value = ["metadata_status"])
+        Index(value = ["metadata_status"]),
+        Index(value = ["reminder_at"])
     ]
 )
 data class SavedLinkEntity(
@@ -58,6 +59,14 @@ data class SavedLinkEntity(
     val retryCount: Int = 0,
     @ColumnInfo(name = "last_fetched_at")
     val lastFetchedAt: Long? = null,
+    @ColumnInfo(name = "reminder_at")
+    val reminderAt: Long? = null,
+    @ColumnInfo(name = "last_nudged_at")
+    val lastNudgedAt: Long? = null,
+    @ColumnInfo(name = "nudge_count")
+    val nudgeCount: Int = 0,
+    @ColumnInfo(name = "nudge_dismissed")
+    val nudgeDismissed: Boolean = false,
     @ColumnInfo(name = "created_at")
     val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at")

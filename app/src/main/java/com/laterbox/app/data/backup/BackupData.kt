@@ -19,6 +19,7 @@ data class BackupLink(
     val contentType: ContentType = ContentType.WEBSITE,
     val personalNote: String? = null,
     val collectionName: String? = null,
+    val collectionNames: List<String> = emptyList(),
     val isRead: Boolean = false,
     val isArchived: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()

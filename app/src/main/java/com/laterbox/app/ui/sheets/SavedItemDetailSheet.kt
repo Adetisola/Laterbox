@@ -3,6 +3,7 @@ package com.laterbox.app.ui.sheets
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -21,8 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -30,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -44,9 +47,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.domain.model.MetadataStatus
@@ -55,6 +62,7 @@ import com.laterbox.app.ui.components.FaviconImage
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
+import com.laterbox.app.ui.components.LinkQuickActionsMenu
 import com.laterbox.app.ui.theme.LaterboxTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,14 +72,16 @@ fun SavedItemDetailSheet(
     sheetState: SheetState,
     onTitleChange: (String) -> Unit,
     onNoteChange: (String) -> Unit,
-    onCollectionChange: (Long?) -> Unit,
+    onToggleCollection: (Long) -> Unit,
+    onCreateCollection: (String) -> Unit,
     onSaveEdits: () -> Unit,
     onToggleRead: () -> Unit,
     onToggleArchive: () -> Unit,
     onDelete: () -> Unit,
     onQuickOpen: (String) -> Unit,
     onRetryMetadata: () -> Unit,
-    onDismissRequest: () -> Unit
+    onDismissRequest: () -> Unit,
+    onCollectionChange: (Long?) -> Unit = {}
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
@@ -80,10 +90,13 @@ fun SavedItemDetailSheet(
     val link = uiState.link ?: return
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var isDescriptionExpanded by remember { mutableStateOf(false) }
+    var showCreateCollectionDialog by remember { mutableStateOf(false) }
 
     val hasPendingEdits = uiState.editedTitle != link.title ||
         uiState.editedNote != (link.personalNote ?: "") ||
-        uiState.selectedCollectionId != link.collectionId
+        uiState.selectedCollectionIds != link.collectionIds.toSet()
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -106,7 +119,7 @@ fun SavedItemDetailSheet(
                 .padding(bottom = spacing.xl)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Header: Domain, ContentType, Status
+            // Header: Domain, ContentType on Left; More (⋮) and Close (×) on Right
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -131,12 +144,47 @@ fun SavedItemDetailSheet(
                     ContentTypeBadge(contentType = link.contentType)
                 }
 
-                // Close button with tactile backdrop [UX19]
-                LaterboxIconButton(
-                    iconRes = LaterboxIcons.Close,
-                    contentDescription = "Close details",
-                    onClick = onDismissRequest
-                )
+                // Action buttons: More Menu (⋮) & Close (×)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                ) {
+                    Box {
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.MoreVertical,
+                            contentDescription = "More actions",
+                            onClick = { showMoreMenu = true }
+                        )
+
+                        LinkQuickActionsMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false },
+                            link = link,
+                            onToggleRead = onToggleRead,
+                            onCopyLink = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("URL", link.originalUrl))
+                                Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                            },
+                            onShareLink = {
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, link.originalUrl)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, "Share link"))
+                            },
+                            onArchive = onToggleArchive,
+                            onDelete = { showDeleteConfirm = true }
+                        )
+                    }
+
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Close,
+                        contentDescription = "Close details",
+                        onClick = onDismissRequest
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(spacing.sm))
@@ -176,73 +224,108 @@ fun SavedItemDetailSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Extracted description snippet
+            // Extracted description snippet with 2-line truncation and inline Read more / Show less
             if (!link.description.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(spacing.sm))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
+                        .clip(LaterboxShapeTokens.Card)
                         .background(colors.surfaceSecondary)
                         .padding(spacing.md)
                 ) {
-                    Text(
-                        text = link.description,
-                        style = typography.bodySecondary,
-                        color = colors.textSecondary
-                    )
+                    Column {
+                        Text(
+                            text = link.description,
+                            style = typography.bodySecondary,
+                            color = colors.textSecondary,
+                            maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (isDescriptionExpanded) "Show less" else "Read more",
+                            style = typography.uiMedium.copy(fontSize = 12.sp),
+                            color = colors.accentPrimary,
+                            modifier = Modifier
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = if (isDescriptionExpanded) "Collapse description" else "Expand description"
+                                ) {
+                                    isDescriptionExpanded = !isDescriptionExpanded
+                                }
+                                .padding(vertical = 2.dp)
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(spacing.sm))
 
-            // URL Row with Copy action
+            // Original Link box with clear label, single-line text selection, right end-fade, and copy button
+            Text(
+                text = "Original link",
+                style = typography.metaText,
+                color = colors.textSecondary
+            )
+            Spacer(modifier = Modifier.height(spacing.xs))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(spacing.radiusSmall))
+                    .clip(LaterboxShapeTokens.Card)
                     .background(colors.surfaceSecondary)
-                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
-                    .padding(horizontal = spacing.md, vertical = spacing.sm),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Card)
+                    .padding(start = spacing.md, top = 4.dp, bottom = 4.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = link.originalUrl,
-                    style = typography.codeText.copy(fontSize = 11.sp),
-                    color = colors.textSecondary,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
-                )
-
-                Spacer(modifier = Modifier.width(spacing.sm))
-
                 Box(
                     modifier = Modifier
-                        .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = "Copy URL to clipboard"
-                        ) {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("URL", link.originalUrl))
-                            Toast.makeText(context, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
-                        },
-                    contentAlignment = Alignment.Center
+                        .weight(1f)
+                        .height(36.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    Text(
-                        text = "Copy",
-                        style = typography.uiMedium.copy(fontSize = 12.sp),
-                        color = colors.accentPrimary
+                    BasicTextField(
+                        value = link.originalUrl,
+                        onValueChange = {},
+                        readOnly = true,
+                        singleLine = true,
+                        textStyle = typography.codeText.copy(fontSize = 12.sp, color = colors.textPrimary),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Right end-fade gradient overlay
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .width(36.dp)
+                            .fillMaxHeight()
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        colors.surfaceSecondary
+                                    )
+                                )
+                            )
                     )
                 }
+
+                LaterboxIconButton(
+                    iconRes = LaterboxIcons.Copy,
+                    contentDescription = "Copy original link",
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("URL", link.originalUrl))
+                        Toast.makeText(context, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
+                    }
+                )
             }
 
             Spacer(modifier = Modifier.height(spacing.md))
 
-            // Shelf / Collection Selector
+            // Collection Section with toggle chips and trailing + creator
             Text(
-                text = "Shelf / Collection",
+                text = "Collection",
                 style = typography.metaText,
                 color = colors.textSecondary
             )
@@ -251,25 +334,61 @@ fun SavedItemDetailSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                CollectionSelectionChip(
-                    name = "None",
-                    isSelected = uiState.selectedCollectionId == null,
-                    onClick = { onCollectionChange(null) }
-                )
                 uiState.collections.forEach { collection ->
+                    val isSelected = uiState.selectedCollectionIds.contains(collection.id)
                     CollectionSelectionChip(
                         name = collection.name,
-                        isSelected = uiState.selectedCollectionId == collection.id,
-                        onClick = { onCollectionChange(collection.id) }
+                        isSelected = isSelected,
+                        onClick = { onToggleCollection(collection.id) }
                     )
+                }
+
+                // Trailing "+" chip to create new collection inline
+                Box(
+                    modifier = Modifier
+                        .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = "Create new collection",
+                            onClick = { showCreateCollectionDialog = true }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(LaterboxShapeTokens.Chip)
+                            .background(colors.surfaceSecondary)
+                            .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Chip)
+                            .padding(horizontal = spacing.md),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = LaterboxIcons.Plus),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = colors.accentPrimary
+                            )
+                            Text(
+                                text = "New",
+                                style = typography.metaText.copy(fontSize = 12.sp),
+                                color = colors.accentPrimary
+                            )
+                        }
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(spacing.md))
 
-            // Editable Personal Note with approaching-limit reminder [UX06]
+            // Editable Personal Note with approaching-limit reminder
             val maxNoteLength = 500
             val remainingChars = maxNoteLength - uiState.editedNote.length
             OutlinedTextField(
@@ -311,7 +430,7 @@ fun SavedItemDetailSheet(
                         containerColor = colors.surfaceSecondary,
                         contentColor = colors.accentPrimary
                     ),
-                    shape = RoundedCornerShape(spacing.radiusSmall),
+                    shape = LaterboxShapeTokens.Button,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = spacing.minTouchTarget)
@@ -328,82 +447,13 @@ fun SavedItemDetailSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(spacing.lg))
-
-            // Quick Status Actions: Mark Read, Archive, Delete with 48dp min touch target
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Read toggle button (min 48dp touch target)
-                Box(
-                    modifier = Modifier
-                        .height(spacing.minTouchTarget)
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = if (link.isRead) "Mark link as unread" else "Mark link as read",
-                            onClick = onToggleRead
-                        )
-                        .padding(horizontal = spacing.sm),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (link.isRead) "Mark Unread" else "✓ Mark Read",
-                        style = typography.uiMedium.copy(fontSize = 13.sp),
-                        color = colors.textPrimary
-                    )
-                }
-
-                // Archive toggle button (min 48dp touch target)
-                Box(
-                    modifier = Modifier
-                        .height(spacing.minTouchTarget)
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = if (link.isArchived) "Restore link to inbox" else "Archive link",
-                            onClick = onToggleArchive
-                        )
-                        .padding(horizontal = spacing.sm),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (link.isArchived) "↩ Restore" else "Archive",
-                        style = typography.uiMedium.copy(fontSize = 13.sp),
-                        color = colors.textPrimary
-                    )
-                }
-
-                // Delete button (min 48dp touch target)
-                Box(
-                    modifier = Modifier
-                        .height(spacing.minTouchTarget)
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = "Delete link",
-                            onClick = { showDeleteConfirm = true }
-                        )
-                        .padding(horizontal = spacing.sm),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Delete",
-                        style = typography.uiMedium.copy(fontSize = 13.sp),
-                        color = colors.accentPrimary
-                    )
-                }
-            }
-
-            // Compact metadata status badge with inline retry [UX05, UX09]
+            // Compact metadata status badge with inline retry
             if (link.metadataStatus == MetadataStatus.FAILED || link.metadataStatus == MetadataStatus.PARTIAL || link.metadataStatus == MetadataStatus.FETCHING) {
                 Spacer(modifier = Modifier.height(spacing.sm))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
+                        .clip(LaterboxShapeTokens.Card)
                         .background(colors.surfaceSecondary)
                         .padding(horizontal = spacing.md, vertical = spacing.xs),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -444,6 +494,64 @@ fun SavedItemDetailSheet(
                     }
                 }
             }
+        }
+
+        // New Collection inline creation dialog
+        if (showCreateCollectionDialog) {
+            var newCollectionName by remember { mutableStateOf("") }
+            AlertDialog(
+                onDismissRequest = { showCreateCollectionDialog = false },
+                containerColor = colors.surfaceElevated,
+                title = {
+                    Text(
+                        text = "New Collection",
+                        style = typography.titleSmall,
+                        color = colors.textPrimary
+                    )
+                },
+                text = {
+                    OutlinedTextField(
+                        value = newCollectionName,
+                        onValueChange = { newCollectionName = it.take(50) },
+                        label = { Text("Collection name") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.accentPrimary,
+                            unfocusedBorderColor = colors.borderSubtle,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val name = newCollectionName.trim()
+                            if (name.isNotBlank()) {
+                                onCreateCollection(name)
+                                showCreateCollectionDialog = false
+                            }
+                        },
+                        enabled = newCollectionName.isNotBlank()
+                    ) {
+                        Text(
+                            text = "Create",
+                            style = typography.uiMedium,
+                            color = colors.accentPrimary
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCreateCollectionDialog = false }) {
+                        Text(
+                            text = "Cancel",
+                            style = typography.uiMedium,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+            )
         }
 
         // Delete confirmation dialog
@@ -510,7 +618,7 @@ private fun CollectionSelectionChip(
             .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
             .clickable(
                 role = Role.Button,
-                onClickLabel = "Select $name shelf",
+                onClickLabel = "Select $name collection",
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
@@ -518,18 +626,30 @@ private fun CollectionSelectionChip(
         Box(
             modifier = Modifier
                 .height(34.dp)
-                .clip(RoundedCornerShape(spacing.radiusSmall))
+                .clip(LaterboxShapeTokens.Chip)
                 .background(bg)
-                .border(spacing.hairline, borderColor, RoundedCornerShape(spacing.radiusSmall))
+                .border(spacing.hairline, borderColor, LaterboxShapeTokens.Chip)
                 .padding(horizontal = spacing.md),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = name,
-                style = typography.metaText.copy(fontSize = 12.sp),
-                color = textColor
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (isSelected) {
+                    Icon(
+                        painter = painterResource(id = LaterboxIcons.Check),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = colors.accentPrimary
+                    )
+                }
+                Text(
+                    text = name,
+                    style = typography.metaText.copy(fontSize = 12.sp),
+                    color = textColor
+                )
+            }
         }
     }
 }
-

@@ -17,9 +17,10 @@ interface CollectionDao {
 
     @Query("""
         SELECT c.id, c.name, c.created_at, c.updated_at,
-               COUNT(l.id) AS item_count
+               COUNT(DISTINCT l.id) AS item_count
         FROM collections c
-        LEFT JOIN saved_links l ON c.id = l.collection_id AND l.is_archived = 0
+        LEFT JOIN link_collection_cross_ref xref ON c.id = xref.collection_id
+        LEFT JOIN saved_links l ON xref.link_id = l.id AND l.is_archived = 0
         GROUP BY c.id
         ORDER BY c.name ASC
     """)

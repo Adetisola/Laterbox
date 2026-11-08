@@ -20,7 +20,7 @@ data class SaveLinkUiState(
     val urlError: String? = null,
     val title: String = "",
     val personalNote: String = "",
-    val selectedCollectionId: Long? = null,
+    val selectedCollectionIds: Set<Long> = emptySet(),
     val collections: List<Collection> = emptyList(),
     val duplicateLink: SavedLink? = null,
     val isSaving: Boolean = false,
@@ -28,6 +28,9 @@ data class SaveLinkUiState(
     val maxNoteLength: Int = 500,
     val maxTitleLength: Int = 200
 ) {
+    val selectedCollectionId: Long?
+        get() = selectedCollectionIds.firstOrNull()
+
     val canSave: Boolean
         get() = !isSaving
 }
@@ -41,7 +44,7 @@ class SaveLinkViewModel(
     private val _urlError = MutableStateFlow<String?>(null)
     private val _title = MutableStateFlow("")
     private val _personalNote = MutableStateFlow("")
-    private val _selectedCollectionId = MutableStateFlow<Long?>(null)
+    private val _selectedCollectionIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _duplicateLink = MutableStateFlow<SavedLink?>(null)
     private val _isSaving = MutableStateFlow(false)
     private val _isSavedSuccess = MutableStateFlow(false)
@@ -53,7 +56,7 @@ class SaveLinkViewModel(
         _urlError,
         _title,
         _personalNote,
-        _selectedCollectionId,
+        _selectedCollectionIds,
         _duplicateLink,
         _isSaving,
         _isSavedSuccess,
@@ -64,7 +67,7 @@ class SaveLinkViewModel(
             urlError = params[1] as String?,
             title = params[2] as String,
             personalNote = params[3] as String,
-            selectedCollectionId = params[4] as Long?,
+            selectedCollectionIds = params[4] as Set<Long>,
             duplicateLink = params[5] as SavedLink?,
             isSaving = params[6] as Boolean,
             isSavedSuccess = params[7] as Boolean,
@@ -93,7 +96,30 @@ class SaveLinkViewModel(
     }
 
     fun onSelectCollection(collectionId: Long?) {
-        _selectedCollectionId.value = collectionId
+        if (collectionId == null) {
+            _selectedCollectionIds.value = emptySet()
+        } else {
+            onToggleCollection(collectionId)
+        }
+    }
+
+    fun onToggleCollection(collectionId: Long) {
+        val current = _selectedCollectionIds.value.toMutableSet()
+        if (current.contains(collectionId)) {
+            current.remove(collectionId)
+        } else {
+            current.add(collectionId)
+        }
+        _selectedCollectionIds.value = current
+    }
+
+    fun onCreateCollection(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            val newId = collectionRepository.createCollection(trimmed)
+            _selectedCollectionIds.value = _selectedCollectionIds.value + newId
+        }
     }
 
     private fun checkDuplicate(rawUrl: String) {
@@ -140,22 +166,25 @@ class SaveLinkViewModel(
             _isSaving.value = true
             try {
                 val existing = _duplicateLink.value
+                val chosenColIds = _selectedCollectionIds.value.toList()
                 if (existing != null) {
-                    // Update existing duplicate
+                    val mergedColIds = (existing.collectionIds + chosenColIds).distinct()
                     linkRepository.updateLink(
                         existing.copy(
                             title = if (_title.value.isNotBlank()) _title.value.trim() else existing.title,
                             personalNote = if (_personalNote.value.isNotBlank()) _personalNote.value.trim() else existing.personalNote,
-                            collectionId = _selectedCollectionId.value ?: existing.collectionId,
+                            collectionIds = mergedColIds,
+                            collectionId = mergedColIds.firstOrNull(),
                             isArchived = false // Restores to inbox if it was archived
                         )
                     )
+                    linkRepository.setLinkCollections(existing.id, mergedColIds)
                 } else {
                     linkRepository.saveLink(
                         originalUrl = finalUrl,
                         title = _title.value.ifBlank { null },
                         personalNote = _personalNote.value.ifBlank { null },
-                        collectionId = _selectedCollectionId.value
+                        collectionIds = chosenColIds
                     )
                 }
                 _isSavedSuccess.value = true
@@ -171,7 +200,7 @@ class SaveLinkViewModel(
         _urlError.value = null
         _title.value = ""
         _personalNote.value = ""
-        _selectedCollectionId.value = null
+        _selectedCollectionIds.value = emptySet()
         _duplicateLink.value = null
         _isSaving.value = false
         _isSavedSuccess.value = false

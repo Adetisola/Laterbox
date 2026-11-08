@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import com.laterbox.app.data.local.entity.LinkCollectionCrossRef
 import com.laterbox.app.data.local.entity.SavedLinkEntity
 import com.laterbox.app.data.local.entity.SavedLinkWithCollection
 import com.laterbox.app.domain.model.ContentType
@@ -24,7 +25,12 @@ interface SavedLinkDao {
     fun getArchivedLinks(): Flow<List<SavedLinkWithCollection>>
 
     @Transaction
-    @Query("SELECT * FROM saved_links WHERE collection_id = :collectionId AND is_archived = 0 ORDER BY created_at DESC")
+    @Query("""
+        SELECT * FROM saved_links 
+        WHERE (id IN (SELECT link_id FROM link_collection_cross_ref WHERE collection_id = :collectionId) OR collection_id = :collectionId)
+          AND is_archived = 0 
+        ORDER BY created_at DESC
+    """)
     fun getLinksByCollection(collectionId: Long): Flow<List<SavedLinkWithCollection>>
 
     @Transaction
@@ -108,4 +114,16 @@ interface SavedLinkDao {
 
     @Query("UPDATE saved_links SET metadata_status = 'PENDING' WHERE metadata_status = 'FETCHING'")
     suspend fun resetStuckFetchingLinks()
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertLinkCollectionCrossRef(crossRef: LinkCollectionCrossRef)
+
+    @Query("DELETE FROM link_collection_cross_ref WHERE link_id = :linkId AND collection_id = :collectionId")
+    suspend fun deleteLinkCollectionCrossRef(linkId: Long, collectionId: Long)
+
+    @Query("DELETE FROM link_collection_cross_ref WHERE link_id = :linkId")
+    suspend fun deleteLinkCollectionCrossRefsForLink(linkId: Long)
+
+    @Query("SELECT collection_id FROM link_collection_cross_ref WHERE link_id = :linkId")
+    suspend fun getCollectionIdsForLink(linkId: Long): List<Long>
 }

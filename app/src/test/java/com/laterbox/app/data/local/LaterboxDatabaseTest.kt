@@ -379,5 +379,99 @@ class LaterboxDatabaseTest {
         assertTrue("Expected unique constraint violation on normalized_url after MIGRATION_1_2", duplicateThrew)
         helper.close()
     }
+
+    @Test
+    fun migration2To3MigratesLegacyCollectionAndAddsReminderColumns() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(2) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `collections` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `icon_name` TEXT,
+                            `created_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `saved_links` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `original_url` TEXT NOT NULL,
+                            `normalized_url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `description` TEXT,
+                            `site_name` TEXT,
+                            `domain` TEXT NOT NULL,
+                            `favicon_url` TEXT,
+                            `preview_image_url` TEXT,
+                            `content_type` TEXT NOT NULL,
+                            `collection_id` INTEGER,
+                            `personal_note` TEXT,
+                            `is_read` INTEGER NOT NULL,
+                            `is_archived` INTEGER NOT NULL,
+                            `metadata_status` TEXT NOT NULL,
+                            `retry_count` INTEGER NOT NULL,
+                            `last_fetched_at` INTEGER,
+                            `created_at` INTEGER NOT NULL,
+                            `updated_at` INTEGER NOT NULL,
+                            FOREIGN KEY(`collection_id`) REFERENCES `collections`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_saved_links_normalized_url` ON `saved_links` (`normalized_url`)")
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+
+        // Insert collection and link in v2 schema
+        sqliteDb.execSQL("INSERT INTO `collections` (`id`, `name`, `created_at`) VALUES (42, 'News', 5000)")
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `saved_links` (
+                `id`, `original_url`, `normalized_url`, `title`, `domain`, `content_type`,
+                `collection_id`, `is_read`, `is_archived`, `metadata_status`, `retry_count`,
+                `created_at`, `updated_at`
+            ) VALUES (
+                100, 'https://news.ycombinator.com', 'https://news.ycombinator.com', 'Hacker News', 'ycombinator.com',
+                'WEBSITE', 42, 0, 0, 'SUCCESS', 0, 5000, 5000
+            )
+            """.trimIndent()
+        )
+
+        // Run MIGRATION_2_3
+        LaterboxDatabase.MIGRATION_2_3.migrate(sqliteDb)
+
+        // Verify cross-ref table was created and populated with legacy link
+        val crossRefCursor = sqliteDb.query("SELECT link_id, collection_id FROM link_collection_cross_ref WHERE link_id = 100")
+        assertTrue(crossRefCursor.moveToFirst())
+        assertEquals(100L, crossRefCursor.getLong(0))
+        assertEquals(42L, crossRefCursor.getLong(1))
+        crossRefCursor.close()
+
+        // Verify reminder columns were added with default values
+        val linkCursor = sqliteDb.query("SELECT reminder_at, last_nudged_at, nudge_count, nudge_dismissed FROM saved_links WHERE id = 100")
+        assertTrue(linkCursor.moveToFirst())
+        assertTrue(linkCursor.isNull(0))
+        assertTrue(linkCursor.isNull(1))
+        assertEquals(0, linkCursor.getInt(2))
+        assertEquals(0, linkCursor.getInt(3))
+        linkCursor.close()
+
+        helper.close()
+    }
 }
 

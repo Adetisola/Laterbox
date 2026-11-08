@@ -198,4 +198,25 @@ class SaveLinkViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun saveLinkViewModel_togglesCollectionsAndCreatesNew() = runTest(testDispatcher) {
+        val colId = collectionRepository.createCollection("Reading")
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+
+        // Toggle collection on
+        viewModel.onToggleCollection(colId)
+        runCurrent()
+        assertTrue(viewModel.uiState.value.selectedCollectionIds.contains(colId))
+
+        // Toggle collection off
+        viewModel.onToggleCollection(colId)
+        runCurrent()
+        assertFalse(viewModel.uiState.value.selectedCollectionIds.contains(colId))
+
+        // Create new collection
+        viewModel.onCreateCollection("Design")
+        runCurrent()
+        assertEquals(1, viewModel.uiState.value.selectedCollectionIds.size)
+    }
 }
