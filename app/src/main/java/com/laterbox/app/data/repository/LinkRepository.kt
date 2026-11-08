@@ -308,6 +308,8 @@ class LinkRepository(
             }
         } catch (ce: CancellationException) {
             throw ce
+        } catch (_: Exception) {
+            return false
         } finally {
             inFlightIds.remove(linkId)
         }
