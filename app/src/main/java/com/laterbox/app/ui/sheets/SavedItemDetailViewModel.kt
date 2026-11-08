@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -87,10 +88,10 @@ class SavedItemDetailViewModel(
         viewModelScope.launch {
             linkRepository.toggleLinkCollection(link.id, collectionId)
             val updatedNames = if (willHave) {
-                val col = collectionRepository.getCollectionById(collectionId)
+                val col = collectionRepository.getCollectionById(collectionId).first()
                 if (col != null) link.collectionNames + col.name else link.collectionNames
             } else {
-                val col = collectionRepository.getCollectionById(collectionId)
+                val col = collectionRepository.getCollectionById(collectionId).first()
                 if (col != null) link.collectionNames.filter { it != col.name } else link.collectionNames
             }
             _currentLink.value = link.copy(

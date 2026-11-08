@@ -144,6 +144,8 @@ class InboxViewModel(
         }
     }
 
+    fun restoreLink(link: SavedLink) = onRestore(link)
+
     fun onLinkOpened(linkId: Long) {
         viewModelScope.launch {
             val autoMark = userPreferencesRepository.userPreferences.first().autoMarkAsRead
