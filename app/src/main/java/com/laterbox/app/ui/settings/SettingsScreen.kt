@@ -321,19 +321,19 @@ fun SettingsScreen(
                         placeholder = {
                             Text(
                                 text = "Your name or nickname",
-                                style = typography.bodyMedium,
+                                style = typography.bodyPrimary,
                                 color = colors.textTertiary
                             )
                         },
                         singleLine = true,
-                        textStyle = typography.bodyMedium.copy(color = colors.textPrimary),
+                        textStyle = typography.bodyPrimary.copy(color = colors.textPrimary),
                         shape = RoundedCornerShape(spacing.radiusSmall),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = colors.brandPrimary,
+                            focusedBorderColor = colors.accentPrimary,
                             unfocusedBorderColor = colors.borderSubtle,
                             focusedContainerColor = colors.surfaceSecondary,
                             unfocusedContainerColor = colors.surfaceSecondary,
-                            cursorColor = colors.brandPrimary
+                            cursorColor = colors.accentPrimary
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
