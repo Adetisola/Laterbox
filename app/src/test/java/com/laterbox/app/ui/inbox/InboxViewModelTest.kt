@@ -152,4 +152,78 @@ class InboxViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun saveLinkDeduplicatesNormalizedUrlAndMergesNotesNonDestructively() = runTest {
+        val firstId = linkRepository.saveLink(
+            originalUrl = "https://example.com/article?utm_source=newsletter",
+            title = "Custom User Title",
+            personalNote = "Initial note"
+        )
+        val secondId = linkRepository.saveLink(
+            originalUrl = "https://example.com/article?utm_medium=social",
+            title = "example.com",
+            personalNote = "Follow-up thought"
+        )
+
+        assertEquals(firstId, secondId)
+        val saved = database.savedLinkDao().getEntityById(firstId)
+        assertEquals("Custom User Title", saved?.title)
+        assertTrue(saved?.personalNote?.contains("Initial note") == true)
+        assertTrue(saved?.personalNote?.contains("Follow-up thought") == true)
+    }
+
+    @Test
+    fun refreshEnrichesPartialAndFailedLinksAndResetsRefreshingState() = runTest {
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            val html = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta property="og:title" content="Fetched OG Title" />
+                    <meta property="og:description" content="Fetched OG Description" />
+                    <meta property="og:image" content="/images/hero.png" />
+                </head>
+                <body></body>
+                </html>
+            """.trimIndent()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setResponseCode(200).setBody(html))
+
+            val targetUrl = server.url("/post").toString()
+            val id = database.savedLinkDao().insertLink(
+                com.laterbox.app.data.local.entity.SavedLinkEntity(
+                    originalUrl = targetUrl,
+                    normalizedUrl = targetUrl,
+                    title = "User Custom Title",
+                    domain = "localhost",
+                    previewImageUrl = null,
+                    metadataStatus = com.laterbox.app.domain.model.MetadataStatus.PARTIAL
+                )
+            )
+
+            val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+            viewModel.refresh()
+
+            // Wait until repository finishes enriching the link
+            var updated = database.savedLinkDao().getEntityById(id)
+            var attempts = 0
+            while (updated?.previewImageUrl == null && attempts < 50) {
+                kotlinx.coroutines.delay(50)
+                updated = database.savedLinkDao().getEntityById(id)
+                attempts++
+            }
+
+            // Custom user title is preserved while missing description & OG image are populated
+            assertEquals("User Custom Title", updated?.title)
+            assertEquals("Fetched OG Description", updated?.description)
+            assertEquals("${server.url("/")}images/hero.png", updated?.previewImageUrl)
+            assertEquals(com.laterbox.app.domain.model.MetadataStatus.SUCCESS, updated?.metadataStatus)
+            assertFalse(viewModel.uiState.value.isRefreshing)
+        } finally {
+            server.shutdown()
+        }
+    }
 }
+

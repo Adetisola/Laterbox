@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,7 +31,23 @@ fun FaviconImage(
     modifier: Modifier = Modifier,
     size: Dp = 18.dp
 ) {
+    val context = LocalContext.current
     val initial = domain.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "•"
+    val validUrl = faviconUrl?.takeIf {
+        it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+    }
+    var loadFailed by remember(validUrl) { mutableStateOf(false) }
+
+    val request = remember(validUrl, context) {
+        validUrl?.let { url ->
+            ImageRequest.Builder(context)
+                .data(url)
+                .memoryCacheKey("favicon_$url")
+                .diskCacheKey(url)
+                .crossfade(true)
+                .build()
+        }
+    }
 
     Box(
         modifier = modifier
@@ -41,14 +61,12 @@ fun FaviconImage(
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (!faviconUrl.isNullOrBlank()) {
+        if (request != null && !loadFailed) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(faviconUrl)
-                    .crossfade(true)
-                    .build(),
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                onError = { loadFailed = true },
                 modifier = Modifier.size(size - 4.dp)
             )
         } else {

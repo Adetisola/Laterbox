@@ -152,4 +152,240 @@ class JsoupMetadataExtractorTest {
         assertEquals("Timi & Friends • Profile", metadata.title)
         assertEquals("https://example.com/jsonld-hero.jpg", metadata.previewImageUrl)
     }
+
+    @Test
+    fun mergeMetadataPreservesPrimaryTitleAndAdoptsFallbackImage() {
+        val primary = ExtractedMetadata(
+            title = "Real Article Title",
+            description = "Detailed article summary from primary request.",
+            siteName = "Ritter",
+            previewImageUrl = null,
+            faviconUrl = "https://ritterapp.site/favicon.ico",
+            contentType = ContentType.ARTICLE
+        )
+        val fallback = ExtractedMetadata(
+            title = "Just a moment...", // Generic bot-challenge title that returns null from cleanTitle in real parsing, or generic fallback
+            description = "Short desc",
+            siteName = null,
+            previewImageUrl = "https://www.ritterapp.site/og-cover.png",
+            faviconUrl = "https://www.ritterapp.site/apple-touch-icon.png",
+            contentType = ContentType.WEBSITE
+        )
+
+        val merged = JsoupMetadataExtractor.mergeMetadata(primary, fallback)
+        assertEquals("Real Article Title", merged.title)
+        assertEquals("Detailed article summary from primary request.", merged.description)
+        assertEquals("Ritter", merged.siteName)
+        assertEquals("https://www.ritterapp.site/og-cover.png", merged.previewImageUrl)
+        assertEquals("https://ritterapp.site/favicon.ico", merged.faviconUrl)
+        assertEquals(ContentType.ARTICLE, merged.contentType)
+    }
+
+    @Test
+    fun fallbackFetchEnrichesMissingImageWithoutOverwritingPrimaryTitle() = runTest {
+        val htmlWithoutImage = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta property="og:title" content="Primary Valid Title" />
+                <meta property="og:description" content="Primary valid description." />
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        val htmlWithImageAndGenericTitle = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Access Denied</title>
+                <meta property="og:image" content="/assets/hero-banner.jpg" />
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(htmlWithoutImage))
+        server.enqueue(MockResponse().setResponseCode(200).setBody(htmlWithImageAndGenericTitle))
+
+        val url = server.url("/story").toString()
+        val result = JsoupMetadataExtractor.extract(url)
+        assertTrue(result.isSuccess)
+
+        val metadata = result.getOrThrow()
+        assertEquals("Primary Valid Title", metadata.title)
+        assertEquals("Primary valid description.", metadata.description)
+        assertEquals("${server.url("/")}assets/hero-banner.jpg", metadata.previewImageUrl)
+    }
+
+    @Test
+    fun parsesComplexJsonLdGraphAndImageObjectsAndSurvivesMalformedBlock() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <script type="application/ld+json">
+                { invalid json here !!!
+                </script>
+                <script type="application/ld+json">
+                {
+                    "@context": "https://schema.org",
+                    "@graph": [
+                        {
+                            "@type": "Organization",
+                            "name": "DeepTech Journal",
+                            "logo": {
+                                "@type": "ImageObject",
+                                "url": "https://example.com/logo-small.png",
+                                "width": 32,
+                                "height": 32
+                            }
+                        },
+                        {
+                            "@type": "NewsArticle",
+                            "headline": "Structured JSON-LD Headline &amp; Insights",
+                            "description": "Extracted from @graph NewsArticle node.",
+                            "publisher": {
+                                "@type": "Organization",
+                                "name": "DeepTech Journal"
+                            },
+                            "image": [
+                                {
+                                    "@type": "ImageObject",
+                                    "url": "/images/article-hero-1200.jpg",
+                                    "width": 1200,
+                                    "height": 630
+                                }
+                            ]
+                        }
+                    ]
+                }
+                </script>
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        val doc = Jsoup.parse(html, "https://example.com/news/1")
+        val metadata = JsoupMetadataExtractor.parseDocument(doc, "https://example.com/news/1")
+
+        assertEquals("Structured JSON-LD Headline & Insights", metadata.title)
+        assertEquals("Extracted from @graph NewsArticle node.", metadata.description)
+        assertEquals("DeepTech Journal", metadata.siteName)
+        assertEquals("https://example.com/images/article-hero-1200.jpg", metadata.previewImageUrl)
+    }
+
+    @Test
+    fun filtersOutTrackingPixelsAndTinyImagesInFavorOfValidHeroImage() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Article With Tracking Pixels</title>
+                <meta property="og:image" content="https://example.com/1x1-pixel.gif" />
+                <meta property="og:image:width" content="1" />
+                <meta property="og:image:height" content="1" />
+                <meta name="twitter:image" content="//cdn.example.com/media/valid-hero.webp" />
+                <link rel="apple-touch-icon" href="//cdn.example.com/icons/apple-touch-icon.png" />
+            </head>
+            <body>
+                <article>
+                    <img src="/analytics/spacer.gif" width="1" height="1" />
+                    <img src="/content/inline-photo.jpg" width="800" height="500" />
+                </article>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val doc = Jsoup.parse(html, "https://example.com/post")
+        val metadata = JsoupMetadataExtractor.parseDocument(doc, "https://example.com/post")
+
+        assertEquals("https://cdn.example.com/media/valid-hero.webp", metadata.previewImageUrl)
+        assertEquals("https://cdn.example.com/icons/apple-touch-icon.png", metadata.faviconUrl)
+    }
+
+    @Test
+    fun selectsArticleHeroImageWhenMetaTagsHaveOnlyTinyIcons() {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Longform Essay</title>
+            </head>
+            <body>
+                <article>
+                    <img src="/icons/avatar-32x32.png" width="32" height="32" />
+                    <img data-src="/photos/featured-essay-cover.jpg" width="1024" height="576" />
+                </article>
+            </body>
+            </html>
+        """.trimIndent()
+
+        val doc = Jsoup.parse(html, "https://essays.example.org/read")
+        val metadata = JsoupMetadataExtractor.parseDocument(doc, "https://essays.example.org/read")
+
+        assertEquals("https://essays.example.org/photos/featured-essay-cover.jpg", metadata.previewImageUrl)
+    }
+
+    @Test
+    fun parsesOEmbedResponsesForYouTubeRedditAndX() {
+        val youtubeOEmbed = """
+            {
+                "title": "Kotlin Coroutines Under the Hood",
+                "author_name": "Android Developers",
+                "provider_name": "YouTube",
+                "thumbnail_url": "https://i.ytimg.com/vi/abc123xyz/hqdefault.jpg",
+                "thumbnail_width": 480,
+                "thumbnail_height": 360
+            }
+        """.trimIndent()
+
+        val ytMeta = JsoupMetadataExtractor.parseOEmbedJson(
+            jsonText = youtubeOEmbed,
+            targetUrl = "https://www.youtube.com/watch?v=abc123xyz",
+            defaultProvider = "YouTube",
+            defaultContentType = ContentType.VIDEO
+        )
+        assertNotNull(ytMeta)
+        assertEquals("Kotlin Coroutines Under the Hood", ytMeta?.title)
+        assertEquals("Android Developers", ytMeta?.description)
+        assertEquals("YouTube", ytMeta?.siteName)
+        assertEquals("https://i.ytimg.com/vi/abc123xyz/hqdefault.jpg", ytMeta?.previewImageUrl)
+        assertEquals(ContentType.VIDEO, ytMeta?.contentType)
+
+        val xOEmbed = """
+            {
+                "url": "https://twitter.com/androiddev/status/123456",
+                "author_name": "Android Developers",
+                "provider_name": "Twitter",
+                "html": "<blockquote class=\"twitter-tweet\"><p lang=\"en\" dir=\"ltr\">Excited to announce Jetpack Compose performance improvements in the latest release!</p>&mdash; Android Developers (@AndroidDev)</blockquote>"
+            }
+        """.trimIndent()
+
+        val xMeta = JsoupMetadataExtractor.parseOEmbedJson(
+            jsonText = xOEmbed,
+            targetUrl = "https://x.com/androiddev/status/123456",
+            defaultProvider = "X",
+            defaultContentType = ContentType.DISCUSSION
+        )
+        assertNotNull(xMeta)
+        assertTrue(xMeta!!.title!!.contains("Excited to announce Jetpack Compose"))
+        assertEquals("Excited to announce Jetpack Compose performance improvements in the latest release!", xMeta.description)
+        assertNull(xMeta.previewImageUrl)
+        assertEquals(ContentType.DISCUSSION, xMeta.contentType)
+    }
+
+    @Test
+    fun httpErrorExposesStatusCodeInMetadataFetchException() = runTest {
+        server.enqueue(MockResponse().setResponseCode(403).setBody("Forbidden"))
+        server.enqueue(MockResponse().setResponseCode(403).setBody("Forbidden"))
+        val url = server.url("/protected").toString()
+
+        val result = JsoupMetadataExtractor.extract(url)
+        assertTrue(result.isFailure)
+        val exception = result.exceptionOrNull()
+        assertTrue(exception is MetadataFetchException)
+        assertEquals(403, (exception as MetadataFetchException).statusCode)
+    }
 }
+

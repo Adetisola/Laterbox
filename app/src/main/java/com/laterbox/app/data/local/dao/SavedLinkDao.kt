@@ -48,13 +48,21 @@ interface SavedLinkDao {
     @Query("SELECT * FROM saved_links WHERE id = :id")
     fun getLinkById(id: Long): Flow<SavedLinkWithCollection?>
 
-    @Query("SELECT * FROM saved_links WHERE metadata_status IN ('PENDING', 'FETCHING') ORDER BY created_at ASC")
-    suspend fun getPendingLinks(): List<SavedLinkEntity>
+    @Query("SELECT * FROM saved_links WHERE id = :id LIMIT 1")
+    suspend fun getEntityById(id: Long): SavedLinkEntity?
 
-    @Query("SELECT * FROM saved_links WHERE metadata_status IN ('FAILED', 'PENDING', 'FETCHING') OR (preview_image_url IS NULL AND metadata_status != 'SUCCESS') ORDER BY created_at DESC")
-    suspend fun getLinksNeedingEnrichment(): List<SavedLinkEntity>
+    @Query("SELECT * FROM saved_links WHERE metadata_status = 'PENDING' OR (metadata_status = 'FETCHING' AND updated_at < :staleThreshold) ORDER BY created_at ASC")
+    suspend fun getPendingLinks(staleThreshold: Long = System.currentTimeMillis() - 30_000L): List<SavedLinkEntity>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Query("""
+        SELECT * FROM saved_links 
+        WHERE metadata_status IN ('FAILED', 'PENDING', 'PARTIAL') 
+           OR (metadata_status = 'FETCHING' AND updated_at < :staleThreshold)
+        ORDER BY created_at DESC
+    """)
+    suspend fun getLinksNeedingEnrichment(staleThreshold: Long = System.currentTimeMillis() - 30_000L): List<SavedLinkEntity>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertLink(link: SavedLinkEntity): Long
 
     @Update

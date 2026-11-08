@@ -13,8 +13,8 @@ android {
         applicationId = "com.laterbox.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 2
+        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -37,8 +37,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            val releaseConfig = signingConfigs.findByName("release")
-            signingConfig = if (releaseConfig?.storeFile != null) releaseConfig else signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -131,3 +130,29 @@ tasks.withType<Test> {
         systemProperty("https.proxyPort", port)
     }
 }
+
+gradle.taskGraph.whenReady {
+    val hasReleaseTask = allTasks.any { task ->
+        task.path == ":app:packageRelease" ||
+            task.path == ":app:assembleRelease" ||
+            task.path == ":app:bundleRelease"
+    }
+    if (hasReleaseTask) {
+        val keystorePath = System.getenv("KEYSTORE_PATH")
+        val keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+        val keyAlias = System.getenv("KEY_ALIAS")
+        val keyPassword = System.getenv("KEY_PASSWORD")
+        if (keystorePath.isNullOrBlank() ||
+            !file(keystorePath).exists() ||
+            keystorePassword.isNullOrBlank() ||
+            keyAlias.isNullOrBlank() ||
+            keyPassword.isNullOrBlank()
+        ) {
+            throw GradleException(
+                "Release build requires valid KEYSTORE_PATH, KEYSTORE_PASSWORD, KEY_ALIAS, and KEY_PASSWORD. " +
+                    "Refusing to fall back to debug signing."
+            )
+        }
+    }
+}
+

@@ -46,36 +46,92 @@ jobs:
       - name: Run Android Lint
         run: ./gradlew lintDebug
 
-      - name: Setup Signing Keystore
+      - name: Setup Signing Keystore & Version Metadata
         id: setup_keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 -d > /tmp/release.keystore
-            echo "KEYSTORE_PATH=/tmp/release.keystore" >> $GITHUB_ENV
-            echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
-            echo "has_keystore=true" >> $GITHUB_OUTPUT
-          else
-            echo "No signing secret provided. Release will use debug certificate."
-            echo "has_keystore=false" >> $GITHUB_OUTPUT
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Missing required release signing secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD). Refusing to fall back to debug signing."
+            exit 1
           fi
+          echo "$KEYSTORE_BASE64" | base64 -d > /tmp/release.keystore
+          echo "KEYSTORE_PATH=/tmp/release.keystore" >> $GITHUB_ENV
+          echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> $GITHUB_ENV
+          echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=$KEY_PASSWORD" >> $GITHUB_ENV
+
+          RAW_TAG="${{ github.event.inputs.version_tag || github.ref_name }}"
+          CLEAN_VERSION="${RAW_TAG#v}"
+          if [ -z "$CLEAN_VERSION" ] || [ "$CLEAN_VERSION" = "main" ]; then
+            CLEAN_VERSION="1.0.0"
+          fi
+          COMPUTED_VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))
+          echo "VERSION_CODE=$COMPUTED_VERSION_CODE" >> $GITHUB_ENV
+          echo "VERSION_NAME=$CLEAN_VERSION" >> $GITHUB_ENV
+          echo "Configured release build: versionName=$CLEAN_VERSION, versionCode=$COMPUTED_VERSION_CODE"
 
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
-      - name: Locate Release APK
+      - name: Locate & Verify Release APK
         id: locate_apk
         run: |
-          APK_PATH=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            echo "Could not find release APK, checking debug output..."
-            APK_PATH=$(find app/build/outputs/apk/ -name "*.apk" | head -n 1)
+          APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK_PATH" ]; then
+            APK_PATH=$(find app/build/outputs/apk/release/ -name "*-release.apk" | head -n 1)
           fi
-          echo "Found APK at $APK_PATH"
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "::error::Signed release APK not found in app/build/outputs/apk/release/"
+            exit 1
+          fi
+          echo "Found release APK at $APK_PATH"
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name "apksigner" | sort -V | tail -n 1)
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name "aapt2" | sort -V | tail -n 1)
+
+          echo "=== Verifying APK Badging with aapt2 ==="
+          BADGING=$("$AAPT2" dump badging "$APK_PATH")
+          PKG_LINE=$(echo "$BADGING" | grep "^package:")
+          echo "$PKG_LINE"
+
+          APK_PKG=$(echo "$PKG_LINE" | sed -n "s/.*name='\([^']*\)'.*/\1/p")
+          APK_VCODE=$(echo "$PKG_LINE" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+          APK_VNAME=$(echo "$PKG_LINE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+
+          if [ "$APK_PKG" != "com.laterbox.app" ]; then
+            echo "::error::Unexpected applicationId: $APK_PKG (expected com.laterbox.app)"
+            exit 1
+          fi
+          if [ "$APK_VCODE" != "$VERSION_CODE" ] || [ "$APK_VCODE" -le 1 ]; then
+            echo "::error::Invalid versionCode: $APK_VCODE (expected $VERSION_CODE > 1)"
+            exit 1
+          fi
+          if [ "$APK_VNAME" != "$VERSION_NAME" ]; then
+            echo "::error::Unexpected versionName: $APK_VNAME (expected $VERSION_NAME)"
+            exit 1
+          fi
+
+          echo "=== Verifying APK Signature with apksigner ==="
+          CERT_OUT=$("$APKSIGNER" verify --verbose --print-certs "$APK_PATH")
+          echo "$CERT_OUT"
+
+          if echo "$CERT_OUT" | grep -qi "Android Debug"; then
+            echo "::error::Release APK is signed with an Android Debug certificate!"
+            exit 1
+          fi
+
+          EXPECTED_SHA256="67388d12f96d7b15179ef02354842faabfaff944a49c466ad3f539d2a2063e32"
+          ACTUAL_SHA256=$(echo "$CERT_OUT" | grep -i "certificate SHA-256 digest:" | awk '{print $NF}' | tr '[:upper:]' '[:lower:]' | tr -d ':')
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::Certificate SHA-256 mismatch! Got $ACTUAL_SHA256, expected $EXPECTED_SHA256"
+            exit 1
+          fi
+          echo "Release APK verified: package=$APK_PKG versionCode=$APK_VCODE versionName=$APK_VNAME sha256=$ACTUAL_SHA256"
 
       - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
@@ -94,3 +150,4 @@ jobs:
           prerelease: false
           files: ${{ steps.locate_apk.outputs.apk_path }}
           generate_release_notes: true
+

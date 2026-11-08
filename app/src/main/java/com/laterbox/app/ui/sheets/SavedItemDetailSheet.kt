@@ -369,8 +369,8 @@ fun SavedItemDetailSheet(
                 }
             }
 
-            // Metadata retry prompt if failed
-            if (link.metadataStatus == MetadataStatus.FAILED) {
+            // Metadata retry prompt if failed or incomplete
+            if (link.metadataStatus == MetadataStatus.FAILED || link.metadataStatus == MetadataStatus.PARTIAL || link.metadataStatus == MetadataStatus.FETCHING) {
                 Spacer(modifier = Modifier.height(spacing.sm))
                 Row(
                     modifier = Modifier
@@ -382,18 +382,30 @@ fun SavedItemDetailSheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Metadata extraction failed",
+                        text = when (link.metadataStatus) {
+                            MetadataStatus.FETCHING -> "Refreshing metadata..."
+                            MetadataStatus.PARTIAL -> "Partial preview metadata"
+                            else -> "Metadata extraction failed"
+                        },
                         style = typography.metaText,
                         color = colors.textSecondary
                     )
-                    Text(
-                        text = "Retry",
-                        style = typography.uiMedium.copy(fontSize = 12.sp),
-                        color = colors.accentPrimary,
-                        modifier = Modifier
-                            .clickable(onClick = onRetryMetadata)
-                            .padding(4.dp)
-                    )
+                    if (link.metadataStatus != MetadataStatus.FETCHING) {
+                        Text(
+                            text = "Retry",
+                            style = typography.uiMedium.copy(fontSize = 12.sp),
+                            color = colors.accentPrimary,
+                            modifier = Modifier
+                                .clickable(onClick = onRetryMetadata)
+                                .padding(4.dp)
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            color = colors.accentPrimary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }

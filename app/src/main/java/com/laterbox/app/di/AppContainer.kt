@@ -22,7 +22,7 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
     }
 
     override val linkRepository: LinkRepository by lazy {
-        LinkRepository(database.savedLinkDao())
+        LinkRepository(database.savedLinkDao(), context.applicationContext)
     }
 
     override val collectionRepository: CollectionRepository by lazy {

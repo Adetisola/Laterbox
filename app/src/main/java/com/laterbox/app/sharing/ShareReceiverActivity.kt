@@ -113,13 +113,17 @@ class ShareReceiverActivity : ComponentActivity() {
                                     isArchived = false // Restore to inbox if it was archived
                                 )
                                 linkRepo.updateLink(updated)
+                                if (existing.metadataStatus != com.laterbox.app.domain.model.MetadataStatus.SUCCESS) {
+                                    com.laterbox.app.data.metadata.MetadataSyncWorker.enqueue(applicationContext)
+                                }
                             } else {
-                                // Save new link
+                                // Save new link (LinkRepository automatically enqueues MetadataSyncWorker and immediate fetch)
                                 linkRepo.saveLink(
                                     originalUrl = parsed.url,
                                     title = title,
                                     personalNote = note.ifBlank { null }
                                 )
+                                com.laterbox.app.data.metadata.MetadataSyncWorker.enqueue(applicationContext)
                             }
                             finish()
                         }

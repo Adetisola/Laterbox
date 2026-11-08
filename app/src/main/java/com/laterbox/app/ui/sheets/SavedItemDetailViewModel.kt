@@ -123,9 +123,17 @@ class SavedItemDetailViewModel(
     fun onRetryMetadata() {
         val link = _currentLink.value ?: return
         viewModelScope.launch {
-            val updated = link.copy(metadataStatus = MetadataStatus.PENDING)
-            linkRepository.updateLink(updated)
-            _currentLink.value = updated
+            _currentLink.value = link.copy(metadataStatus = MetadataStatus.FETCHING)
+            linkRepository.retrySingleLink(link.id)
+            val refreshed = linkRepository.getLinkById(link.id)
+            refreshed.collect { updated ->
+                if (updated != null) {
+                    _currentLink.value = updated
+                    if (_editedTitle.value == link.title || _editedTitle.value == link.domain) {
+                        _editedTitle.value = updated.title
+                    }
+                }
+            }
         }
     }
 }

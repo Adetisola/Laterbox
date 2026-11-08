@@ -201,4 +201,182 @@ class LaterboxDatabaseTest {
         item = linkDao.getLinkById(id).first()
         assertTrue(item?.link?.isRead ?: false)
     }
+
+    @Test
+    fun getLinksNeedingEnrichmentIncludesPendingFailedAndPartialButSkipsSuccess() = runTest {
+        linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/1",
+                normalizedUrl = "https://example.com/1",
+                title = "Complete Link",
+                domain = "example.com",
+                previewImageUrl = "https://example.com/img.jpg",
+                metadataStatus = MetadataStatus.SUCCESS
+            )
+        )
+        linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/2",
+                normalizedUrl = "https://example.com/2",
+                title = "Partial Link Without Image",
+                domain = "example.com",
+                previewImageUrl = null,
+                metadataStatus = MetadataStatus.PARTIAL
+            )
+        )
+        linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/3",
+                normalizedUrl = "https://example.com/3",
+                title = "example.com",
+                domain = "example.com",
+                metadataStatus = MetadataStatus.FAILED
+            )
+        )
+        linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/4",
+                normalizedUrl = "https://example.com/4",
+                title = "example.com",
+                domain = "example.com",
+                metadataStatus = MetadataStatus.PENDING
+            )
+        )
+
+        val needingEnrichment = linkDao.getLinksNeedingEnrichment()
+        assertEquals(3, needingEnrichment.size)
+        val statuses = needingEnrichment.map { it.metadataStatus }.toSet()
+        assertTrue(statuses.contains(MetadataStatus.PARTIAL))
+        assertTrue(statuses.contains(MetadataStatus.FAILED))
+        assertTrue(statuses.contains(MetadataStatus.PENDING))
+        assertFalse(statuses.contains(MetadataStatus.SUCCESS))
+    }
+
+    @Test
+    fun migration1To2MergesDuplicatesWithoutLosingNotesOrMetadataAndEnforcesUniqueIndex() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null) // in-memory database
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(1) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `collections` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `icon_name` TEXT,
+                            `created_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `saved_links` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `original_url` TEXT NOT NULL,
+                            `normalized_url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `description` TEXT,
+                            `site_name` TEXT,
+                            `domain` TEXT NOT NULL,
+                            `favicon_url` TEXT,
+                            `preview_image_url` TEXT,
+                            `content_type` TEXT NOT NULL,
+                            `collection_id` INTEGER,
+                            `personal_note` TEXT,
+                            `is_read` INTEGER NOT NULL,
+                            `is_archived` INTEGER NOT NULL,
+                            `metadata_status` TEXT NOT NULL,
+                            `retry_count` INTEGER NOT NULL,
+                            `created_at` INTEGER NOT NULL,
+                            `updated_at` INTEGER NOT NULL,
+                            FOREIGN KEY(`collection_id`) REFERENCES `collections`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                        """.trimIndent()
+                    )
+                    // v1 had a non-unique index on normalized_url
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_saved_links_normalized_url` ON `saved_links` (`normalized_url`)")
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+
+        // Insert a collection and two duplicate normalized_url records in v1 schema
+        sqliteDb.execSQL("INSERT INTO `collections` (`id`, `name`, `created_at`) VALUES (10, 'Tech', 1000)")
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `saved_links` (
+                `id`, `original_url`, `normalized_url`, `title`, `description`, `site_name`, `domain`,
+                `favicon_url`, `preview_image_url`, `content_type`, `collection_id`, `personal_note`,
+                `is_read`, `is_archived`, `metadata_status`, `retry_count`, `created_at`, `updated_at`
+            ) VALUES (
+                1, 'https://example.com/post?utm_source=x', 'https://example.com/post', 'example.com',
+                NULL, NULL, 'example.com', NULL, NULL, 'WEBSITE', 10, 'First note from share',
+                0, 0, 'FAILED', 1, 1000, 1000
+            )
+            """.trimIndent()
+        )
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `saved_links` (
+                `id`, `original_url`, `normalized_url`, `title`, `description`, `site_name`, `domain`,
+                `favicon_url`, `preview_image_url`, `content_type`, `collection_id`, `personal_note`,
+                `is_read`, `is_archived`, `metadata_status`, `retry_count`, `created_at`, `updated_at`
+            ) VALUES (
+                2, 'https://example.com/post', 'https://example.com/post', 'Rich Article Title',
+                'Rich description', 'Example Pub', 'example.com', 'https://example.com/fav.ico',
+                'https://example.com/hero.jpg', 'ARTICLE', NULL, 'Second note added later',
+                1, 0, 'SUCCESS', 0, 2000, 2500
+            )
+            """.trimIndent()
+        )
+
+        // Run MIGRATION_1_2
+        LaterboxDatabase.MIGRATION_1_2.migrate(sqliteDb)
+
+        // Verify only 1 row remains and all fields were merged non-destructively
+        val cursor = sqliteDb.query("SELECT id, title, description, preview_image_url, collection_id, personal_note, is_read, metadata_status FROM saved_links WHERE normalized_url = 'https://example.com/post'")
+        assertTrue(cursor.moveToFirst())
+        assertEquals(1, cursor.count)
+        assertEquals(1L, cursor.getLong(0))
+        assertEquals("Rich Article Title", cursor.getString(1))
+        assertEquals("Rich description", cursor.getString(2))
+        assertEquals("https://example.com/hero.jpg", cursor.getString(3))
+        assertEquals(10L, cursor.getLong(4))
+        val mergedNote = cursor.getString(5)
+        assertTrue(mergedNote.contains("First note from share"))
+        assertTrue(mergedNote.contains("Second note added later"))
+        assertEquals(1, cursor.getInt(6))
+        assertEquals("SUCCESS", cursor.getString(7))
+        cursor.close()
+
+        // Verify unique index rejects duplicate insert
+        var duplicateThrew = false
+        try {
+            sqliteDb.execSQL(
+                """
+                INSERT INTO `saved_links` (
+                    `original_url`, `normalized_url`, `title`, `domain`, `content_type`,
+                    `is_read`, `is_archived`, `metadata_status`, `retry_count`, `created_at`, `updated_at`
+                ) VALUES (
+                    'https://example.com/post', 'https://example.com/post', 'Dup', 'example.com', 'WEBSITE',
+                    0, 0, 'PENDING', 0, 3000, 3000
+                )
+                """.trimIndent()
+            )
+        } catch (e: Exception) {
+            duplicateThrew = true
+        }
+        assertTrue("Expected unique constraint violation on normalized_url after MIGRATION_1_2", duplicateThrew)
+        helper.close()
+    }
 }
+

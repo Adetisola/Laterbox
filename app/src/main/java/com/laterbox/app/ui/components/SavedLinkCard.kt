@@ -20,6 +20,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,8 +47,37 @@ fun SavedLinkCard(
     modifier: Modifier = Modifier,
     viewMode: InboxViewMode = InboxViewMode.HERO
 ) {
-    val hasImage = !link.previewImageUrl.isNullOrBlank()
-    val isHeroMode = viewMode == InboxViewMode.HERO && hasImage
+    val context = LocalContext.current
+    val imageUrl = link.previewImageUrl?.takeIf {
+        it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
+    }
+    var imageLoadFailed by remember(imageUrl) { mutableStateOf(false) }
+
+    val hasRenderableImage = imageUrl != null && !imageLoadFailed
+    val isHeroMode = viewMode == InboxViewMode.HERO && hasRenderableImage
+
+    val heroImageRequest = remember(imageUrl, context) {
+        imageUrl?.let { url ->
+            ImageRequest.Builder(context)
+                .data(url)
+                .memoryCacheKey("hero_$url")
+                .diskCacheKey(url)
+                .crossfade(true)
+                .build()
+        }
+    }
+
+    val compactImageRequest = remember(imageUrl, context) {
+        imageUrl?.let { url ->
+            ImageRequest.Builder(context)
+                .data(url)
+                .memoryCacheKey("thumb_$url")
+                .diskCacheKey(url)
+                .size(240, 240)
+                .crossfade(true)
+                .build()
+        }
+    }
 
     Card(
         modifier = modifier
@@ -149,7 +182,7 @@ fun SavedLinkCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                } else if (hasImage) {
+                } else if (hasRenderableImage && compactImageRequest != null) {
                     // Compact Mode Layout: Two-column asymmetrical (Title on left, 72dp thumbnail on right)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -183,16 +216,14 @@ fun SavedLinkCard(
 
                         // Thumbnail image (72.dp x 72.dp)
                         AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(link.previewImageUrl)
-                                .crossfade(true)
-                                .size(240, 240)
-                                .build(),
+                            model = compactImageRequest,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
+                            onError = { imageLoadFailed = true },
                             modifier = Modifier
                                 .size(72.dp)
                                 .clip(RoundedCornerShape(LaterboxTheme.spacing.thumbnailRadius))
+                                .background(LaterboxTheme.colors.surfaceSecondary)
                                 .border(
                                     width = LaterboxTheme.spacing.hairline,
                                     color = LaterboxTheme.colors.borderSubtle,
@@ -237,15 +268,13 @@ fun SavedLinkCard(
             }
 
             // Hero Mode: Full-width OG Image at the bottom of the card hugging aspect ratio
-            if (isHeroMode && link.previewImageUrl != null) {
+            if (isHeroMode && heroImageRequest != null) {
                 Spacer(modifier = Modifier.height(LaterboxTheme.spacing.xs))
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(link.previewImageUrl)
-                        .crossfade(true)
-                        .build(),
+                    model = heroImageRequest,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    onError = { imageLoadFailed = true },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 140.dp, max = 260.dp)
@@ -255,6 +284,7 @@ fun SavedLinkCard(
                                 bottomEnd = LaterboxTheme.spacing.cardRadius
                             )
                         )
+                        .background(LaterboxTheme.colors.surfaceSecondary)
                         .border(
                             width = LaterboxTheme.spacing.hairline,
                             color = LaterboxTheme.colors.borderSubtle,

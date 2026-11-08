@@ -19,7 +19,7 @@ import com.laterbox.app.domain.model.MetadataStatus
         )
     ],
     indices = [
-        Index(value = ["normalized_url"]),
+        Index(value = ["normalized_url"], unique = true),
         Index(value = ["collection_id", "created_at"]),
         Index(value = ["is_archived", "created_at"]),
         Index(value = ["is_archived", "updated_at"]),
