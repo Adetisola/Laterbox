@@ -49,24 +49,26 @@ class SaveLinkViewModel(
     private var duplicateCheckJob: Job? = null
 
     val uiState: StateFlow<SaveLinkUiState> = combine(
-        combine(_url, _urlError, _title, _personalNote) { u, ue, t, n ->
-            Quad(u, ue, t, n)
-        },
-        combine(_selectedCollectionId, _duplicateLink, _isSaving, _isSavedSuccess) { cId, dup, isS, isSucc ->
-            Quad(cId, dup, isS, isSucc)
-        },
+        _url,
+        _urlError,
+        _title,
+        _personalNote,
+        _selectedCollectionId,
+        _duplicateLink,
+        _isSaving,
+        _isSavedSuccess,
         collectionRepository.collections
-    ) { p1, p2, cols ->
+    ) { params ->
         SaveLinkUiState(
-            url = p1.first,
-            urlError = p1.second,
-            title = p1.third,
-            personalNote = p1.fourth,
-            selectedCollectionId = p2.first,
-            duplicateLink = p2.second,
-            isSaving = p2.third,
-            isSavedSuccess = p2.fourth,
-            collections = cols
+            url = params[0] as String,
+            urlError = params[1] as String?,
+            title = params[2] as String,
+            personalNote = params[3] as String,
+            selectedCollectionId = params[4] as Long?,
+            duplicateLink = params[5] as SavedLink?,
+            isSaving = params[6] as Boolean,
+            isSavedSuccess = params[7] as Boolean,
+            collections = (params[8] as List<*>).filterIsInstance<Collection>()
         )
     }.stateIn(
         scope = viewModelScope,
@@ -76,18 +78,18 @@ class SaveLinkViewModel(
 
     fun onUrlChange(newUrl: String) {
         _url.value = newUrl
-        if (_urlError.value != null && newUrl.trim().isNotBlank() && (newUrl.contains(".") || newUrl.startsWith("http"))) {
+        if (_urlError.value != null) {
             _urlError.value = null
         }
         checkDuplicate(newUrl)
     }
 
     fun onTitleChange(newTitle: String) {
-        _title.value = newTitle
+        _title.value = newTitle.take(200)
     }
 
     fun onPersonalNoteChange(newNote: String) {
-        _personalNote.value = newNote
+        _personalNote.value = newNote.take(500)
     }
 
     fun onSelectCollection(collectionId: Long?) {
@@ -117,12 +119,12 @@ class SaveLinkViewModel(
     fun onSave(onSuccess: () -> Unit) {
         val rawUrl = _url.value.trim()
         if (rawUrl.isBlank()) {
-            _urlError.value = "Web address cannot be blank. Enter a URL (e.g. nytimes.com/article)."
+            _urlError.value = "Please enter a website address"
             return
         }
 
         if (!rawUrl.contains(".") && !rawUrl.startsWith("http://", ignoreCase = true) && !rawUrl.startsWith("https://", ignoreCase = true)) {
-            _urlError.value = "Please enter a valid web address (e.g. nytimes.com/article)."
+            _urlError.value = "Please enter a valid website address"
             return
         }
 
@@ -175,11 +177,4 @@ class SaveLinkViewModel(
         _isSavedSuccess.value = false
     }
 }
-
-private data class Quad<A, B, C, D>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D
-)
 

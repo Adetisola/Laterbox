@@ -113,55 +113,88 @@ class SaveLinkViewModelTest {
     @Test
     fun saveLinkViewModel_emptyUrlDisplaysInlineError() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
-        var successCalled = false
+        viewModel.uiState.test {
+            runCurrent()
+            awaitItem() // initial
 
-        viewModel.onUrlChange("")
-        viewModel.onSave { successCalled = true }
-        runCurrent()
+            var successCalled = false
+            viewModel.onUrlChange("")
+            viewModel.onSave { successCalled = true }
+            runCurrent()
 
-        assertEquals("Please enter a website address", viewModel.uiState.value.urlError)
-        assertFalse(successCalled)
+            val state = awaitItem()
+            assertEquals("Please enter a website address", state.urlError)
+            assertFalse(successCalled)
+
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test
     fun saveLinkViewModel_invalidUrlDisplaysInlineError() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
-        var successCalled = false
+        viewModel.uiState.test {
+            runCurrent()
+            awaitItem() // initial
 
-        viewModel.onUrlChange("invalid url without dot")
-        viewModel.onSave { successCalled = true }
-        runCurrent()
+            var successCalled = false
+            viewModel.onUrlChange("invalid url without dot")
+            runCurrent()
+            awaitItem() // url change
 
-        assertEquals("Please enter a valid website address", viewModel.uiState.value.urlError)
-        assertFalse(successCalled)
+            viewModel.onSave { successCalled = true }
+            runCurrent()
+
+            val state = awaitItem()
+            assertEquals("Please enter a valid website address", state.urlError)
+            assertFalse(successCalled)
+
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test
     fun saveLinkViewModel_typingClearsUrlError() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        viewModel.uiState.test {
+            runCurrent()
+            awaitItem() // initial
 
-        viewModel.onUrlChange("")
-        viewModel.onSave { }
-        runCurrent()
+            viewModel.onUrlChange("")
+            viewModel.onSave { }
+            runCurrent()
+            val errorState = awaitItem()
+            assertEquals("Please enter a website address", errorState.urlError)
 
-        assertEquals("Please enter a website address", viewModel.uiState.value.urlError)
+            viewModel.onUrlChange("https://valid.com")
+            runCurrent()
+            val typingState = awaitItem()
+            assertNull(typingState.urlError)
 
-        viewModel.onUrlChange("https://valid.com")
-        runCurrent()
-
-        assertNull(viewModel.uiState.value.urlError)
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test
     fun saveLinkViewModel_characterLimitEnforced() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        viewModel.uiState.test {
+            runCurrent()
+            awaitItem() // initial
 
-        val longNote = "a".repeat(600)
-        viewModel.onPersonalNoteChange(longNote)
-        assertEquals(500, viewModel.uiState.value.personalNote.length)
+            val longNote = "a".repeat(600)
+            viewModel.onPersonalNoteChange(longNote)
+            runCurrent()
+            val noteState = awaitItem()
+            assertEquals(500, noteState.personalNote.length)
 
-        val longTitle = "b".repeat(300)
-        viewModel.onTitleChange(longTitle)
-        assertEquals(200, viewModel.uiState.value.title.length)
+            val longTitle = "b".repeat(300)
+            viewModel.onTitleChange(longTitle)
+            runCurrent()
+            val titleState = awaitItem()
+            assertEquals(200, titleState.title.length)
+
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }
