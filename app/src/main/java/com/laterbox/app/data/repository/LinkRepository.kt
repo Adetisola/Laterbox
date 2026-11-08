@@ -151,7 +151,6 @@ class LinkRepository(
                 )
             }
             if (reminderAt != null) {
-                savedLinkDao.updateReminder(linkId, reminderAt)
                 val effectiveScheduler = reminderScheduler ?: appContext?.let { com.laterbox.app.reminders.ReminderScheduler(it) }
                 effectiveScheduler?.scheduleReminder(linkId, reminderAt, title, trimmedUrl)
             }
