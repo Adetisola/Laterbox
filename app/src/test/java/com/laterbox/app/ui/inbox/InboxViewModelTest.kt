@@ -225,5 +225,77 @@ class InboxViewModelTest {
             server.shutdown()
         }
     }
+
+    @Test
+    fun dateRangeFilter_filtersLinksCorrectly() = runTest {
+        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+
+        val now = System.currentTimeMillis()
+        val oneDayAgo = now - 24 * 60 * 60 * 1000L
+        val tenDaysAgo = now - 10 * 24 * 60 * 60 * 1000L
+
+        database.savedLinkDao().insertLink(
+            com.laterbox.app.data.local.entity.SavedLinkEntity(
+                originalUrl = "https://example.com/today",
+                normalizedUrl = "https://example.com/today",
+                title = "Today Link",
+                domain = "example.com",
+                createdAt = now
+            )
+        )
+        database.savedLinkDao().insertLink(
+            com.laterbox.app.data.local.entity.SavedLinkEntity(
+                originalUrl = "https://example.com/yesterday",
+                normalizedUrl = "https://example.com/yesterday",
+                title = "Yesterday Link",
+                domain = "example.com",
+                createdAt = oneDayAgo
+            )
+        )
+        database.savedLinkDao().insertLink(
+            com.laterbox.app.data.local.entity.SavedLinkEntity(
+                originalUrl = "https://example.com/old",
+                normalizedUrl = "https://example.com/old",
+                title = "Old Link",
+                domain = "example.com",
+                createdAt = tenDaysAgo
+            )
+        )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state.isLoading || state.links.size < 3) {
+                state = awaitItem()
+            }
+            assertEquals(3, state.links.size)
+
+            // Filter Today
+            viewModel.onFilterDateRange(DateRangeFilter.TODAY)
+            state = awaitItem()
+            while (state.links.size != 1 || state.links[0].title != "Today Link") {
+                state = awaitItem()
+            }
+            assertEquals("Today Link", state.links[0].title)
+
+            // Filter Last 7 Days (Today + Yesterday)
+            viewModel.onFilterDateRange(DateRangeFilter.LAST_7_DAYS)
+            state = awaitItem()
+            while (state.links.size != 2) {
+                state = awaitItem()
+            }
+            assertEquals(2, state.links.size)
+
+            // Reset Filter
+            viewModel.onFilterDateRange(DateRangeFilter.LAST_7_DAYS) // Toggle off -> ALL
+            state = awaitItem()
+            while (state.links.size != 3) {
+                state = awaitItem()
+            }
+            assertEquals(3, state.links.size)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }
+
 

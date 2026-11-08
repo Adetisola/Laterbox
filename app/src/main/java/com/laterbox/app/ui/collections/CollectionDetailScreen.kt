@@ -57,26 +57,14 @@ fun CollectionDetailScreen(
                     .padding(horizontal = spacing.base, vertical = spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Back button (min 48dp touch target)
-                Box(
-                    modifier = Modifier
-                        .size(spacing.minTouchTarget)
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = "Back to collections",
-                            onClick = onBackClick
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "←",
-                        style = typography.uiMedium.copy(fontSize = 20.sp),
-                        color = colors.textPrimary
-                    )
-                }
+                // Back button with tactile backdrop
+                com.laterbox.app.ui.components.LaterboxIconButton(
+                    iconRes = com.laterbox.app.ui.components.LaterboxIcons.ArrowLeft,
+                    contentDescription = "Back to collections",
+                    onClick = onBackClick
+                )
 
-                Spacer(modifier = Modifier.width(spacing.xs))
+                Spacer(modifier = Modifier.width(spacing.sm))
 
                 Column {
                     Text(
@@ -124,7 +112,7 @@ fun CollectionDetailScreen(
                             start = spacing.base,
                             end = spacing.base,
                             top = spacing.sm,
-                            bottom = 80.dp
+                            bottom = 148.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(spacing.sm),
                         modifier = Modifier

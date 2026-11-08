@@ -5,9 +5,12 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,8 +46,11 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +67,8 @@ import androidx.compose.ui.unit.sp
 import com.laterbox.app.data.preferences.InboxViewMode
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.SavedLink
+import com.laterbox.app.ui.components.DateGroupHeader
+import com.laterbox.app.ui.components.DateGrouper
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.InboxSkeletonList
 import com.laterbox.app.ui.components.LaterboxIconButton
@@ -71,13 +79,14 @@ import com.laterbox.app.ui.onboarding.OnboardingSheet
 import com.laterbox.app.ui.theme.LaterboxTheme
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun InboxScreen(
     uiState: InboxUiState,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onFilterContentType: (ContentType?) -> Unit,
+    onFilterDateRange: (DateRangeFilter) -> Unit,
     onLinkClick: (SavedLink) -> Unit,
     onQuickOpenClick: (SavedLink) -> Unit,
     onAddLinkClick: () -> Unit,
@@ -85,6 +94,9 @@ fun InboxScreen(
     onToggleViewMode: () -> Unit,
     onRefresh: () -> Unit,
     onCompleteOnboarding: () -> Unit,
+    onToggleRead: (SavedLink) -> Unit,
+    onArchive: (SavedLink) -> Unit,
+    onDelete: (SavedLink) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
@@ -93,6 +105,9 @@ fun InboxScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    var showDateFilterRow by rememberSaveable { mutableStateOf(false) }
+    var collapsedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     val showJumpToTop by remember {
         derivedStateOf { listState.firstVisibleItemIndex > 6 }
@@ -109,11 +124,11 @@ fun InboxScreen(
             .background(colors.backgroundPrimary)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header: Title & Solo Settings Button
+            // Header: Brand / Title on left; Solo Settings button on right
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = spacing.base, vertical = spacing.md),
+                    .padding(horizontal = spacing.base, vertical = spacing.sm),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -124,13 +139,12 @@ fun InboxScreen(
                         color = colors.textPrimary
                     )
                     Text(
-                        text = "Your calm reading inbox",
+                        text = "For later, whenever you're ready",
                         style = typography.metaText,
                         color = colors.textSecondary
                     )
                 }
 
-                // Solo Settings button with tactile backdrop
                 LaterboxIconButton(
                     iconRes = LaterboxIcons.Settings,
                     contentDescription = "Settings",
@@ -138,14 +152,14 @@ fun InboxScreen(
                 )
             }
 
-            // Search Row: Search field + View mode toggle beside it
+            // Search Row: [Search Field (weight 1f)] [Date Filter Button] [View Toggle Button]
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = spacing.base, vertical = spacing.xs),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Search Bar Input
+                // Search Input Field
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -213,6 +227,16 @@ fun InboxScreen(
 
                 Spacer(modifier = Modifier.width(spacing.xs))
 
+                // Date Filter Toggle Button
+                LaterboxIconButton(
+                    iconRes = LaterboxIcons.Filter,
+                    contentDescription = "Filter by date",
+                    selected = uiState.activeDateRangeFilter != DateRangeFilter.ALL,
+                    onClick = { showDateFilterRow = !showDateFilterRow }
+                )
+
+                Spacer(modifier = Modifier.width(spacing.xs))
+
                 // View Mode Toggle button (Hero vs List) right beside search
                 LaterboxIconButton(
                     iconRes = if (uiState.viewMode == InboxViewMode.HERO) LaterboxIcons.ViewList else LaterboxIcons.ViewCard,
@@ -221,7 +245,30 @@ fun InboxScreen(
                 )
             }
 
-            // Filter Chips Row
+            // Expandable Date Filter Chips Row
+            AnimatedVisibility(
+                visible = showDateFilterRow || uiState.activeDateRangeFilter != DateRangeFilter.ALL,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = spacing.base, vertical = spacing.xxs),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                ) {
+                    DateRangeFilter.entries.forEach { filter ->
+                        FilterChip(
+                            text = filter.label,
+                            isSelected = uiState.activeDateRangeFilter == filter,
+                            onClick = { onFilterDateRange(filter) }
+                        )
+                    }
+                }
+            }
+
+            // Content Type Filter Chips Row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -261,38 +308,31 @@ fun InboxScreen(
                 )
             }
 
-            // Background Metadata Sync Progress Banner
-            AnimatedVisibility(
-                visible = uiState.pendingMetadataCount > 0,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
+            // Background Metadata Sync Banner (Quiet editorial bar)
+            if (uiState.pendingMetadataCount > 0) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = spacing.base, vertical = spacing.xs)
-                        .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .background(colors.accentContainer.copy(alpha = 0.35f))
-                        .border(spacing.hairline, colors.accentPrimary.copy(alpha = 0.25f), RoundedCornerShape(spacing.radiusSmall))
-                        .padding(horizontal = spacing.sm, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .background(colors.accentSecondary.copy(alpha = 0.5f))
+                        .padding(horizontal = spacing.base, vertical = spacing.xxs),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(6.dp)
-                            .clip(CircleShape)
-                            .background(colors.accentPrimary)
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(10.dp),
+                        strokeWidth = 1.5.dp,
+                        color = colors.accentPrimary
                     )
                     Spacer(modifier = Modifier.width(spacing.xs))
                     Text(
-                        text = "Updating metadata for ${uiState.pendingMetadataCount} item(s) in background...",
+                        text = "Enriching ${uiState.pendingMetadataCount} ${if (uiState.pendingMetadataCount == 1) "link" else "links"} in the background…",
                         style = typography.metaText,
-                        color = colors.accentPrimary
+                        color = colors.textSecondary
                     )
                 }
             }
 
-            // Main Content Area with Pull-To-Refresh
+            // Main Content Area with Pull-to-Refresh
             PullToRefreshBox(
                 isRefreshing = uiState.isRefreshing,
                 onRefresh = onRefresh,
@@ -358,12 +398,17 @@ fun InboxScreen(
                                 onActionClick = {
                                     onClearSearch()
                                     onFilterContentType(null)
+                                    onFilterDateRange(DateRangeFilter.ALL)
                                 }
                             )
                         }
                     }
 
                     else -> {
+                        val groupedLinks = remember(uiState.links) {
+                            DateGrouper.groupLinks(uiState.links)
+                        }
+
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
@@ -375,17 +420,40 @@ fun InboxScreen(
                             ),
                             verticalArrangement = Arrangement.spacedBy(spacing.sm)
                         ) {
-                            items(
-                                items = uiState.links,
-                                key = { it.id },
-                                contentType = { "link_card" }
-                            ) { link ->
-                                SavedLinkCard(
-                                    link = link,
-                                    onClick = { onLinkClick(link) },
-                                    onQuickOpenClick = { onQuickOpenClick(link) },
-                                    viewMode = uiState.viewMode
-                                )
+                            groupedLinks.forEach { group ->
+                                stickyHeader(key = "header_${group.title}", contentType = "date_header") {
+                                    val isCollapsed = collapsedGroups.contains(group.title)
+                                    DateGroupHeader(
+                                        title = group.title,
+                                        count = group.links.size,
+                                        isCollapsed = isCollapsed,
+                                        onToggleCollapse = {
+                                            collapsedGroups = if (isCollapsed) {
+                                                collapsedGroups - group.title
+                                            } else {
+                                                collapsedGroups + group.title
+                                            }
+                                        }
+                                    )
+                                }
+
+                                if (!collapsedGroups.contains(group.title)) {
+                                    items(
+                                        items = group.links,
+                                        key = { it.id },
+                                        contentType = { "link_card" }
+                                    ) { link ->
+                                        SavedLinkCard(
+                                            link = link,
+                                            onClick = { onLinkClick(link) },
+                                            onQuickOpenClick = { onQuickOpenClick(link) },
+                                            viewMode = uiState.viewMode,
+                                            onToggleRead = { onToggleRead(link) },
+                                            onArchive = { onArchive(link) },
+                                            onDelete = { onDelete(link) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -463,7 +531,9 @@ fun InboxScreen(
 
         // Onboarding Sheet on First Launch
         if (!uiState.hasCompletedOnboarding) {
-            OnboardingSheet(onDismiss = onCompleteOnboarding)
+            OnboardingSheet(
+                onDismiss = onCompleteOnboarding
+            )
         }
     }
 }
@@ -478,9 +548,9 @@ private fun FilterChip(
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
 
-    val bg = if (isSelected) colors.surfaceSecondary else colors.backgroundPrimary
+    val bg = if (isSelected) colors.accentPrimary else colors.surfacePrimary
+    val textColor = if (isSelected) colors.surfaceElevated else colors.textSecondary
     val borderColor = if (isSelected) colors.accentPrimary else colors.borderSubtle
-    val textColor = if (isSelected) colors.accentPrimary else colors.textSecondary
 
     Box(
         modifier = Modifier
@@ -494,8 +564,10 @@ private fun FilterChip(
     ) {
         Text(
             text = text,
-            style = typography.metaText.copy(fontSize = 12.sp),
-            color = textColor
+            style = typography.uiMedium,
+            color = textColor,
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
         )
     }
 }

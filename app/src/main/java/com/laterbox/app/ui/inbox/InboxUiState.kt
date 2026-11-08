@@ -10,13 +10,14 @@ data class InboxUiState(
     val isRefreshing: Boolean = false,
     val searchQuery: String = "",
     val activeFilterType: ContentType? = null,
+    val activeDateRangeFilter: DateRangeFilter = DateRangeFilter.ALL,
     val pendingMetadataCount: Int = 0,
     val viewMode: InboxViewMode = InboxViewMode.HERO,
     val hasCompletedOnboarding: Boolean = true
 ) {
     val isEmpty: Boolean
-        get() = !isLoading && links.isEmpty() && searchQuery.isBlank() && activeFilterType == null
+        get() = !isLoading && links.isEmpty() && searchQuery.isBlank() && activeFilterType == null && activeDateRangeFilter == DateRangeFilter.ALL
 
     val isSearchEmpty: Boolean
-        get() = !isLoading && links.isEmpty() && (searchQuery.isNotBlank() || activeFilterType != null)
+        get() = !isLoading && links.isEmpty() && (searchQuery.isNotBlank() || activeFilterType != null || activeDateRangeFilter != DateRangeFilter.ALL)
 }

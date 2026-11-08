@@ -452,6 +452,34 @@ class LinkRepository(
         savedLinkDao.deleteLink(id)
     }
 
+    suspend fun restoreLink(link: SavedLink) {
+        val existing = savedLinkDao.getEntityById(link.id)
+        if (existing == null) {
+            val entity = SavedLinkEntity(
+                id = link.id,
+                originalUrl = link.originalUrl,
+                normalizedUrl = link.normalizedUrl,
+                title = link.title,
+                description = link.description,
+                siteName = link.siteName,
+                domain = link.domain,
+                faviconUrl = link.faviconUrl,
+                previewImageUrl = link.previewImageUrl,
+                contentType = link.contentType,
+                personalNote = link.personalNote,
+                collectionId = link.collectionId,
+                isRead = link.isRead,
+                isArchived = link.isArchived,
+                metadataStatus = link.metadataStatus,
+                retryCount = link.retryCount,
+                lastFetchedAt = link.lastFetchedAt,
+                createdAt = link.createdAt,
+                updatedAt = System.currentTimeMillis()
+            )
+            savedLinkDao.insertLink(entity)
+        }
+    }
+
     suspend fun setArchived(id: Long, isArchived: Boolean) {
         savedLinkDao.setArchived(id, isArchived)
     }

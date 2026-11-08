@@ -1,5 +1,6 @@
 package com.laterbox.app.ui.archive
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,21 +25,28 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material3.Icon
-import androidx.compose.ui.res.painterResource
 import com.laterbox.app.domain.model.SavedLink
+import com.laterbox.app.ui.components.DateGroupHeader
+import com.laterbox.app.ui.components.DateGrouper
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.InboxSkeletonList
 import com.laterbox.app.ui.components.LaterboxIconButton
@@ -47,6 +55,7 @@ import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.components.SavedLinkCard
 import com.laterbox.app.ui.theme.LaterboxTheme
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ArchiveScreen(
     uiState: ArchiveUiState,
@@ -64,6 +73,8 @@ fun ArchiveScreen(
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    var collapsedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     Box(
         modifier = modifier
@@ -160,20 +171,21 @@ fun ArchiveScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(spacing.xs))
+
+            // Main Content Area
             when {
                 uiState.isLoading -> {
                     InboxSkeletonList(
                         isHero = false,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
 
                 uiState.isEmpty -> {
                     EmptyStateView(
-                        title = "No archived links",
-                        subtitle = "When you finish an article or video, archive it to keep your Inbox calm and focused.",
+                        title = "Archive is empty",
+                        subtitle = "When you finish an article or clean up your inbox, archive items here to keep them safe.",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -189,6 +201,10 @@ fun ArchiveScreen(
                 }
 
                 else -> {
+                    val groupedLinks = remember(uiState.links) {
+                        DateGrouper.groupLinks(uiState.links)
+                    }
+
                     LazyColumn(
                         contentPadding = PaddingValues(
                             start = spacing.base,
@@ -201,66 +217,108 @@ fun ArchiveScreen(
                             .fillMaxWidth()
                             .weight(1f)
                     ) {
-                        items(
-                            items = uiState.links,
-                            key = { it.id },
-                            contentType = { "archived_card" }
-                        ) { link ->
-                            Column {
-                                SavedLinkCard(
-                                    link = link,
-                                    onClick = { onLinkClick(link) },
-                                    onQuickOpenClick = { onQuickOpenClick(link) }
-                                )
-
-                                // Action row underneath archived card: Restore & Delete
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = spacing.xs, vertical = spacing.xxs),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Restore button (min 48dp touch target)
-                                    Box(
-                                        modifier = Modifier
-                                            .height(spacing.minTouchTarget)
-                                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                                            .clickable(
-                                                role = Role.Button,
-                                                onClickLabel = "Restore link to Inbox",
-                                                onClick = { onRestoreLink(link.id) }
-                                            )
-                                            .padding(horizontal = spacing.sm),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "↩ Restore to Inbox",
-                                            style = typography.uiMedium.copy(fontSize = 12.sp),
-                                            color = colors.accentPrimary
-                                        )
+                        groupedLinks.forEach { group ->
+                            stickyHeader(key = "header_${group.title}", contentType = "date_header") {
+                                val isCollapsed = collapsedGroups.contains(group.title)
+                                DateGroupHeader(
+                                    title = group.title,
+                                    count = group.links.size,
+                                    isCollapsed = isCollapsed,
+                                    onToggleCollapse = {
+                                        collapsedGroups = if (isCollapsed) {
+                                            collapsedGroups - group.title
+                                        } else {
+                                            collapsedGroups + group.title
+                                        }
                                     }
+                                )
+                            }
 
-                                    Spacer(modifier = Modifier.width(spacing.xs))
-
-                                    // Delete button (min 48dp touch target)
-                                    Box(
-                                        modifier = Modifier
-                                            .height(spacing.minTouchTarget)
-                                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                                            .clickable(
-                                                role = Role.Button,
-                                                onClickLabel = "Delete permanently",
-                                                onClick = { onOpenDeleteDialog(link) }
-                                            )
-                                            .padding(horizontal = spacing.sm),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = "Delete",
-                                            style = typography.uiMedium.copy(fontSize = 12.sp),
-                                            color = colors.textSecondary
+                            if (!collapsedGroups.contains(group.title)) {
+                                items(
+                                    items = group.links,
+                                    key = { it.id },
+                                    contentType = { "archived_card" }
+                                ) { link ->
+                                    Column {
+                                        SavedLinkCard(
+                                            link = link,
+                                            onClick = { onLinkClick(link) },
+                                            onQuickOpenClick = { onQuickOpenClick(link) },
+                                            onArchive = { onRestoreLink(link.id) },
+                                            onDelete = { onOpenDeleteDialog(link) }
                                         )
+
+                                        // Action row underneath archived card: Restore & Delete
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = spacing.xs, vertical = spacing.xxs),
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            // Restore button
+                                            Box(
+                                                modifier = Modifier
+                                                    .height(34.dp)
+                                                    .clip(LaterboxShapeTokens.Button)
+                                                    .background(colors.surfaceSecondary.copy(alpha = 0.5f))
+                                                    .clickable(
+                                                        role = Role.Button,
+                                                        onClickLabel = "Restore link to Inbox",
+                                                        onClick = { onRestoreLink(link.id) }
+                                                    )
+                                                    .padding(horizontal = spacing.sm),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        painter = painterResource(id = LaterboxIcons.Inbox),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp),
+                                                        tint = colors.accentPrimary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "Restore to Inbox",
+                                                        style = typography.uiMedium.copy(fontSize = 12.sp),
+                                                        color = colors.accentPrimary
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(spacing.xs))
+
+                                            // Delete permanently button
+                                            Box(
+                                                modifier = Modifier
+                                                    .height(34.dp)
+                                                    .clip(LaterboxShapeTokens.Button)
+                                                    .background(colors.surfaceSecondary.copy(alpha = 0.5f))
+                                                    .clickable(
+                                                        role = Role.Button,
+                                                        onClickLabel = "Delete permanently",
+                                                        onClick = { onOpenDeleteDialog(link) }
+                                                    )
+                                                    .padding(horizontal = spacing.sm),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        painter = painterResource(id = LaterboxIcons.Delete),
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(14.dp),
+                                                        tint = colors.textSecondary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "Delete",
+                                                        style = typography.uiMedium.copy(fontSize = 12.sp),
+                                                        color = colors.textSecondary
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -278,22 +336,23 @@ fun ArchiveScreen(
                 title = {
                     Text(
                         text = "Delete Link Permanently?",
-                        style = typography.titleSmall,
+                        style = typography.modalTitle,
                         color = colors.textPrimary
                     )
                 },
                 text = {
                     Text(
-                        text = "\"${link.title}\" will be permanently deleted from your device. This cannot be undone.",
-                        style = typography.bodySecondary,
+                        text = "This will permanently remove \"${link.title.ifBlank { link.domain }}\" and its metadata. This action cannot be undone.",
+                        style = typography.bodyPrimary,
                         color = colors.textSecondary
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = { onPermanentDelete(link.id) }) {
+                    TextButton(
+                        onClick = { onPermanentDelete(link.id) }
+                    ) {
                         Text(
-                            text = "Delete Permanently",
-                            style = typography.uiMedium,
+                            text = "Delete permanently",
                             color = colors.accentPrimary
                         )
                     }
@@ -302,7 +361,6 @@ fun ArchiveScreen(
                     TextButton(onClick = onCloseDeleteDialog) {
                         Text(
                             text = "Cancel",
-                            style = typography.uiMedium,
                             color = colors.textSecondary
                         )
                     }

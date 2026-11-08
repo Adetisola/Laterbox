@@ -137,6 +137,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         onSearchQueryChange = inboxViewModel::onSearchQueryChange,
                         onClearSearch = inboxViewModel::onClearSearch,
                         onFilterContentType = inboxViewModel::onFilterContentType,
+                        onFilterDateRange = inboxViewModel::onFilterDateRange,
                         onLinkClick = { link ->
                             savedItemDetailViewModel.setLink(link)
                             selectedLinkForDetails = link
@@ -151,7 +152,36 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         },
                         onToggleViewMode = inboxViewModel::onToggleViewMode,
                         onRefresh = inboxViewModel::refresh,
-                        onCompleteOnboarding = inboxViewModel::onCompleteOnboarding
+                        onCompleteOnboarding = inboxViewModel::onCompleteOnboarding,
+                        onToggleRead = { link ->
+                            inboxViewModel.onToggleRead(link.id, link.isRead)
+                        },
+                        onArchive = { link ->
+                            inboxViewModel.onArchive(link.id)
+                            coroutineScope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Link archived",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    inboxViewModel.unarchive(link.id)
+                                }
+                            }
+                        },
+                        onDelete = { link ->
+                            inboxViewModel.onDelete(link.id)
+                            coroutineScope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "Link deleted",
+                                    actionLabel = "Undo",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    inboxViewModel.onRestore(link)
+                                }
+                            }
+                        }
                     )
                 }
 
