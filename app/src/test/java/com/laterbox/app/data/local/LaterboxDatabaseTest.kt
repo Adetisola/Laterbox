@@ -288,6 +288,7 @@ class LaterboxDatabaseTest {
                             `is_archived` INTEGER NOT NULL,
                             `metadata_status` TEXT NOT NULL,
                             `retry_count` INTEGER NOT NULL,
+                            `last_fetched_at` INTEGER,
                             `created_at` INTEGER NOT NULL,
                             `updated_at` INTEGER NOT NULL,
                             FOREIGN KEY(`collection_id`) REFERENCES `collections`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL

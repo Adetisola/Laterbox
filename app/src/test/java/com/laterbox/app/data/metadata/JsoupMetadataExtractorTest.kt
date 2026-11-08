@@ -341,14 +341,13 @@ class JsoupMetadataExtractorTest {
         """.trimIndent()
 
         val ytMeta = JsoupMetadataExtractor.parseOEmbedJson(
-            jsonText = youtubeOEmbed,
-            targetUrl = "https://www.youtube.com/watch?v=abc123xyz",
-            defaultProvider = "YouTube",
-            defaultContentType = ContentType.VIDEO
+            jsonBody = youtubeOEmbed,
+            originalUrl = "https://www.youtube.com/watch?v=abc123xyz",
+            domain = "youtube.com"
         )
         assertNotNull(ytMeta)
         assertEquals("Kotlin Coroutines Under the Hood", ytMeta?.title)
-        assertEquals("Android Developers", ytMeta?.description)
+        assertEquals("By Android Developers", ytMeta?.description)
         assertEquals("YouTube", ytMeta?.siteName)
         assertEquals("https://i.ytimg.com/vi/abc123xyz/hqdefault.jpg", ytMeta?.previewImageUrl)
         assertEquals(ContentType.VIDEO, ytMeta?.contentType)
@@ -363,10 +362,9 @@ class JsoupMetadataExtractorTest {
         """.trimIndent()
 
         val xMeta = JsoupMetadataExtractor.parseOEmbedJson(
-            jsonText = xOEmbed,
-            targetUrl = "https://x.com/androiddev/status/123456",
-            defaultProvider = "X",
-            defaultContentType = ContentType.DISCUSSION
+            jsonBody = xOEmbed,
+            originalUrl = "https://x.com/androiddev/status/123456",
+            domain = "x.com"
         )
         assertNotNull(xMeta)
         assertTrue(xMeta!!.title!!.contains("Excited to announce Jetpack Compose"))
@@ -385,7 +383,8 @@ class JsoupMetadataExtractorTest {
         assertTrue(result.isFailure)
         val exception = result.exceptionOrNull()
         assertTrue(exception is MetadataFetchException)
-        assertEquals(403, (exception as MetadataFetchException).statusCode)
+        assertEquals(403, (exception as MetadataFetchException).httpStatusCode)
     }
 }
+
 

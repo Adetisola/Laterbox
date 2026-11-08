@@ -192,9 +192,9 @@ class LinkRepository(
                         !currentLink.title.startsWith("http://", ignoreCase = true) &&
                         !currentLink.title.startsWith("https://", ignoreCase = true)
 
-                    val resolvedTitle = when {
+                    val resolvedTitle: String = when {
                         userHasCustomTitle -> currentLink.title
-                        JsoupMetadataExtractor.isMeaningfulTitle(meta.title, currentLink.domain) -> meta.title
+                        JsoupMetadataExtractor.isMeaningfulTitle(meta.title, currentLink.domain) -> meta.title ?: currentLink.domain
                         currentLink.title.isNotBlank() -> currentLink.title
                         else -> currentLink.domain
                     }

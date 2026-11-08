@@ -172,8 +172,8 @@ object JsoupMetadataExtractor {
         val resolvedTitle = when {
             isMeaningfulTitle(primary.title, domain) -> primary.title
             isMeaningfulTitle(secondary.title, domain) -> secondary.title
-            primary.title.isNotBlank() -> primary.title
-            secondary.title.isNotBlank() -> secondary.title
+            !primary.title.isNullOrBlank() -> primary.title
+            !secondary.title.isNullOrBlank() -> secondary.title
             else -> domain
         }
 
@@ -281,7 +281,10 @@ object JsoupMetadataExtractor {
             // For X/Twitter or oEmbeds that return blockquote HTML without a title field
             var extractedHtmlText: String? = null
             if (embedHtml.isNotEmpty()) {
-                val parsedText = Jsoup.parse(embedHtml).text().trim()
+                val embedDoc = Jsoup.parse(embedHtml)
+                val parsedText = embedDoc.selectFirst("p")?.text()?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?: embedDoc.text().trim()
                 if (parsedText.isNotEmpty()) {
                     extractedHtmlText = parsedText
                 }
