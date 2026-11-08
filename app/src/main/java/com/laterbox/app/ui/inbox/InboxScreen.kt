@@ -313,7 +313,7 @@ fun InboxScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(colors.accentSecondary.copy(alpha = 0.5f))
+                        .background(colors.accentContainer.copy(alpha = 0.5f))
                         .padding(horizontal = spacing.base, vertical = spacing.xxs),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center

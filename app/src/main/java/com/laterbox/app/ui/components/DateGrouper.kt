@@ -115,7 +115,7 @@ fun DateGroupHeader(
         ) {
             Text(
                 text = "$title · $count",
-                style = LaterboxTheme.typography.sectionHeader,
+                style = LaterboxTheme.typography.uiMedium,
                 color = LaterboxTheme.colors.textSecondary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold

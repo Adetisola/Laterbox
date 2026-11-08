@@ -336,7 +336,7 @@ fun ArchiveScreen(
                 title = {
                     Text(
                         text = "Delete Link Permanently?",
-                        style = typography.modalTitle,
+                        style = typography.detailTitle,
                         color = colors.textPrimary
                     )
                 },
