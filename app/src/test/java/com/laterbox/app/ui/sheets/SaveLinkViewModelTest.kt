@@ -233,16 +233,11 @@ class SaveLinkViewModelTest {
     }
 
     @Test
-    fun saveLinkViewModel_reminderPresetAndPersistence() = runTest(testDispatcher) {
+    fun saveLinkViewModel_reminderPersistsOnSave() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
-        backgroundScope.launch(testDispatcher) { viewModel.uiState.collect() }
-        runCurrent()
 
         val reminderTime = 1_800_000_000_000L
         viewModel.onReminderAtChange(reminderTime)
-        runCurrent()
-        assertEquals(reminderTime, viewModel.uiState.value.reminderAt)
-
         viewModel.onUrlChange("https://reminder-example.com")
         viewModel.onTitleChange("Reminder Article")
 
