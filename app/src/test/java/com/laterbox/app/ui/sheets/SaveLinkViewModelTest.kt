@@ -235,6 +235,8 @@ class SaveLinkViewModelTest {
     @Test
     fun saveLinkViewModel_reminderPresetAndPersistence() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        backgroundScope.launch(testDispatcher) { viewModel.uiState.collect() }
+        runCurrent()
 
         val reminderTime = 1_800_000_000_000L
         viewModel.onReminderAtChange(reminderTime)
@@ -257,6 +259,8 @@ class SaveLinkViewModelTest {
     @Test
     fun saveLinkViewModel_resetClearsReminder() = runTest(testDispatcher) {
         val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        backgroundScope.launch(testDispatcher) { viewModel.uiState.collect() }
+        runCurrent()
 
         viewModel.onReminderAtChange(1_800_000_000_000L)
         runCurrent()
