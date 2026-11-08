@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -107,5 +108,60 @@ class SaveLinkViewModelTest {
         assertEquals("Kotlin Programming Language", duplicate?.title)
         assertEquals("Official documentation", duplicate?.personalNote)
         assertTrue(successCalled)
+    }
+
+    @Test
+    fun saveLinkViewModel_emptyUrlDisplaysInlineError() = runTest(testDispatcher) {
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        var successCalled = false
+
+        viewModel.onUrlChange("")
+        viewModel.onSave { successCalled = true }
+        runCurrent()
+
+        assertEquals("Please enter a website address", viewModel.uiState.value.urlError)
+        assertFalse(successCalled)
+    }
+
+    @Test
+    fun saveLinkViewModel_invalidUrlDisplaysInlineError() = runTest(testDispatcher) {
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        var successCalled = false
+
+        viewModel.onUrlChange("invalid url without dot")
+        viewModel.onSave { successCalled = true }
+        runCurrent()
+
+        assertEquals("Please enter a valid website address", viewModel.uiState.value.urlError)
+        assertFalse(successCalled)
+    }
+
+    @Test
+    fun saveLinkViewModel_typingClearsUrlError() = runTest(testDispatcher) {
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+
+        viewModel.onUrlChange("")
+        viewModel.onSave { }
+        runCurrent()
+
+        assertEquals("Please enter a website address", viewModel.uiState.value.urlError)
+
+        viewModel.onUrlChange("https://valid.com")
+        runCurrent()
+
+        assertNull(viewModel.uiState.value.urlError)
+    }
+
+    @Test
+    fun saveLinkViewModel_characterLimitEnforced() = runTest(testDispatcher) {
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+
+        val longNote = "a".repeat(600)
+        viewModel.onPersonalNoteChange(longNote)
+        assertEquals(500, viewModel.uiState.value.personalNote.length)
+
+        val longTitle = "b".repeat(300)
+        viewModel.onTitleChange(longTitle)
+        assertEquals(200, viewModel.uiState.value.title.length)
     }
 }

@@ -37,6 +37,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.laterbox.app.data.preferences.InboxViewMode
 import com.laterbox.app.domain.model.SavedLink
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.laterbox.app.ui.theme.LaterboxTheme
 
 @Composable
@@ -148,7 +150,11 @@ fun SavedLinkCard(
                     // Quick Open External Launch Button (min 48dp touch target)
                     IconButton(
                         onClick = onQuickOpenClick,
-                        modifier = Modifier.size(LaterboxTheme.spacing.minTouchTarget)
+                        modifier = Modifier
+                            .size(LaterboxTheme.spacing.minTouchTarget)
+                            .semantics {
+                                contentDescription = "Open ${link.title.ifBlank { link.domain }} in browser"
+                            }
                     ) {
                         Text(
                             text = "↗",

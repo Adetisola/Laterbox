@@ -51,6 +51,7 @@ import com.laterbox.app.data.preferences.InboxViewMode
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.components.EmptyStateView
+import com.laterbox.app.ui.components.InboxSkeletonList
 import com.laterbox.app.ui.components.SavedLinkCard
 import com.laterbox.app.ui.onboarding.OnboardingSheet
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -223,9 +224,13 @@ fun InboxScreen(
                     if (uiState.searchQuery.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(spacing.minTouchTarget)
                                 .clip(CircleShape)
-                                .clickable { onClearSearch() },
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = "Clear search",
+                                    onClick = onClearSearch
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -319,15 +324,10 @@ fun InboxScreen(
             ) {
                 when {
                     uiState.isLoading -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                color = colors.accentPrimary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
+                        InboxSkeletonList(
+                            isHero = uiState.viewMode == InboxViewMode.HERO,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
 
                     uiState.isEmpty -> {
@@ -347,6 +347,14 @@ fun InboxScreen(
                     }
 
                     uiState.isSearchEmpty -> {
+                        val filterLabel = when (uiState.activeFilterType) {
+                            ContentType.ARTICLE -> "articles"
+                            ContentType.VIDEO -> "videos"
+                            ContentType.DISCUSSION -> "discussions"
+                            ContentType.PRODUCT -> "products"
+                            ContentType.WEBSITE -> "websites"
+                            null -> null
+                        }
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -354,13 +362,21 @@ fun InboxScreen(
                             verticalArrangement = Arrangement.Center
                         ) {
                             EmptyStateView(
-                                title = "No matching links",
-                                subtitle = if (uiState.searchQuery.isNotBlank()) {
+                                title = if (filterLabel != null && uiState.searchQuery.isBlank()) {
+                                    "No ${filterLabel.replaceFirstChar { it.uppercase() }} saved"
+                                } else {
+                                    "No matching links"
+                                },
+                                subtitle = if (uiState.searchQuery.isNotBlank() && filterLabel != null) {
+                                    "No $filterLabel matching \"${uiState.searchQuery}\""
+                                } else if (uiState.searchQuery.isNotBlank()) {
                                     "Nothing saved matching \"${uiState.searchQuery}\""
+                                } else if (filterLabel != null) {
+                                    "You don't have any links categorized as $filterLabel yet."
                                 } else {
                                     "No links found for this filter."
                                 },
-                                actionText = "Clear filters",
+                                actionText = "Show all links",
                                 onActionClick = {
                                     onClearSearch()
                                     onFilterContentType(null)

@@ -97,6 +97,12 @@ class InboxViewModel(
         }
     }
 
+    fun unarchive(linkId: Long) {
+        viewModelScope.launch {
+            linkRepository.setArchived(linkId, false)
+        }
+    }
+
     fun onDelete(linkId: Long) {
         viewModelScope.launch {
             linkRepository.deleteLink(linkId)

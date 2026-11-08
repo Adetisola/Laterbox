@@ -45,10 +45,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.collectAsState
 import com.laterbox.app.LaterboxApplication
+import com.laterbox.app.data.preferences.ThemeMode
+import com.laterbox.app.data.preferences.UserPreferences
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.domain.util.SharedTextParser
 import com.laterbox.app.domain.util.UrlNormalizer
+import com.laterbox.app.ui.theme.LaterboxTheme
 import kotlinx.coroutines.launch
 
 class ShareReceiverActivity : ComponentActivity() {
@@ -66,9 +72,23 @@ class ShareReceiverActivity : ComponentActivity() {
         val app = application as LaterboxApplication
         val linkRepo = app.container.linkRepository
         val collectionRepo = app.container.collectionRepository
+        val userPrefsRepo = app.container.userPreferencesRepository
 
         setContent {
-            val scope = rememberCoroutineScope()
+            val preferences by userPrefsRepo.userPreferences.collectAsState(
+                initial = UserPreferences()
+            )
+
+            val darkTheme = when (preferences.themeMode) {
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+
+            val fontScale = preferences.fontSizeScale.scaleFactor
+
+            LaterboxTheme(darkTheme = darkTheme, fontScale = fontScale) {
+                val scope = rememberCoroutineScope()
             var title by remember { mutableStateOf(parsed.title ?: UrlNormalizer.extractDomain(parsed.url)) }
             var note by remember { mutableStateOf(parsed.note ?: "") }
             var duplicateLink by remember { mutableStateOf<SavedLink?>(null) }
@@ -130,6 +150,7 @@ class ShareReceiverActivity : ComponentActivity() {
                     }
                 }
             )
+            }
         }
     }
 
@@ -162,11 +183,15 @@ private fun ShareSheetOverlay(
     onDismiss: () -> Unit,
     onSave: () -> Unit
 ) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
     // Backdrop Scrim
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0x77000000))
+            .background(colors.scrim)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -184,14 +209,14 @@ private fun ShareSheetOverlay(
                     indication = null,
                     onClick = { /* prevent dismiss */ }
                 ),
-            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-            color = Color(0xFFFDFCF9),
+            shape = RoundedCornerShape(topStart = spacing.radiusLarge, topEnd = spacing.radiusLarge),
+            color = colors.surfaceElevated,
             tonalElevation = 8.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 20.dp)
+                    .padding(horizontal = spacing.base, vertical = spacing.base)
             ) {
                 // Header & Domain indicator
                 Row(
@@ -200,27 +225,25 @@ private fun ShareSheetOverlay(
                 ) {
                     Text(
                         text = "Save to Laterbox",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF191919)
+                        style = typography.titleSmall,
+                        color = colors.textPrimary
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
                         text = domain,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color(0xFF66645E)
+                        style = typography.metadataMono,
+                        color = colors.textSecondary
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(spacing.sm))
 
                 // Duplicate notice if item already exists
                 if (duplicateLink != null) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF9EBE5)),
-                        shape = RoundedCornerShape(8.dp)
+                        colors = CardDefaults.cardColors(containerColor = colors.accentContainer),
+                        shape = RoundedCornerShape(spacing.radiusSmall)
                     ) {
                         Text(
                             text = if (duplicateLink.isArchived) {
@@ -228,54 +251,68 @@ private fun ShareSheetOverlay(
                             } else {
                                 "Already saved in your library."
                             },
-                            fontSize = 13.sp,
-                            color = Color(0xFFC85A32),
-                            modifier = Modifier.padding(10.dp)
+                            style = typography.bodySecondary,
+                            color = colors.accentPrimary,
+                            modifier = Modifier.padding(spacing.sm)
                         )
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(spacing.sm))
                 }
 
                 // URL preview
                 Text(
                     text = url,
-                    fontSize = 12.sp,
-                    color = Color(0xFF94918A),
+                    style = typography.metadataMono,
+                    color = colors.textTertiary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(spacing.sm))
 
                 // Title input field
                 OutlinedTextField(
                     value = title,
                     onValueChange = onTitleChange,
-                    label = { Text("Title") },
+                    label = { Text("Title", style = typography.bodySecondary) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF191919),
-                        unfocusedBorderColor = Color(0xFFE6E4DD)
+                        focusedBorderColor = colors.accentPrimary,
+                        unfocusedBorderColor = colors.borderSubtle,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary
                     )
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(spacing.sm))
 
                 // Personal Note input field
+                val remainingChars = 500 - note.length
                 OutlinedTextField(
                     value = note,
-                    onValueChange = onNoteChange,
-                    label = { Text("Personal note (optional)") },
+                    onValueChange = { if (it.length <= 500) onNoteChange(it) },
+                    label = { Text("Personal note (optional)", style = typography.bodySecondary) },
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 3,
+                    supportingText = if (remainingChars <= 50) {
+                        {
+                            Text(
+                                text = "$remainingChars characters remaining",
+                                style = typography.metaText,
+                                color = if (remainingChars <= 0) colors.accentPrimary else colors.textTertiary
+                            )
+                        }
+                    } else null,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF191919),
-                        unfocusedBorderColor = Color(0xFFE6E4DD)
+                        focusedBorderColor = colors.accentPrimary,
+                        unfocusedBorderColor = colors.borderSubtle,
+                        focusedTextColor = colors.textPrimary,
+                        unfocusedTextColor = colors.textPrimary
                     )
                 )
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(spacing.md))
 
                 // Action Buttons
                 Row(
@@ -284,33 +321,37 @@ private fun ShareSheetOverlay(
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = spacing.minTouchTarget),
                         enabled = !isSaving
                     ) {
-                        Text("Cancel", color = Color(0xFF66645E))
+                        Text("Cancel", style = typography.uiMedium, color = colors.textSecondary)
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(spacing.sm))
 
                     Button(
                         onClick = onSave,
-                        modifier = Modifier.weight(1.5f),
+                        modifier = Modifier
+                            .weight(1.5f)
+                            .heightIn(min = spacing.minTouchTarget),
                         enabled = !isSaving && !isCheckingDuplicate,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF191919),
-                            contentColor = Color(0xFFFDFCF9)
+                            containerColor = colors.accentPrimary,
+                            contentColor = colors.surfaceElevated
                         )
                     ) {
                         if (isSaving) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                color = Color.White,
+                                modifier = Modifier.size(18.dp),
+                                color = colors.surfaceElevated,
                                 strokeWidth = 2.dp
                             )
                         } else {
                             Text(
                                 text = if (duplicateLink != null) "Update Existing" else "Save to Inbox",
-                                fontWeight = FontWeight.Medium
+                                style = typography.uiMedium
                             )
                         }
                     }

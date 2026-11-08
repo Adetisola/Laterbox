@@ -17,16 +17,19 @@ import kotlinx.coroutines.launch
 
 data class SaveLinkUiState(
     val url: String = "",
+    val urlError: String? = null,
     val title: String = "",
     val personalNote: String = "",
     val selectedCollectionId: Long? = null,
     val collections: List<Collection> = emptyList(),
     val duplicateLink: SavedLink? = null,
     val isSaving: Boolean = false,
-    val isSavedSuccess: Boolean = false
+    val isSavedSuccess: Boolean = false,
+    val maxNoteLength: Int = 500,
+    val maxTitleLength: Int = 200
 ) {
     val canSave: Boolean
-        get() = url.isNotBlank() && !isSaving
+        get() = !isSaving
 }
 
 class SaveLinkViewModel(
@@ -35,6 +38,7 @@ class SaveLinkViewModel(
 ) : ViewModel() {
 
     private val _url = MutableStateFlow("")
+    private val _urlError = MutableStateFlow<String?>(null)
     private val _title = MutableStateFlow("")
     private val _personalNote = MutableStateFlow("")
     private val _selectedCollectionId = MutableStateFlow<Long?>(null)
@@ -45,24 +49,24 @@ class SaveLinkViewModel(
     private var duplicateCheckJob: Job? = null
 
     val uiState: StateFlow<SaveLinkUiState> = combine(
-        _url,
-        _title,
-        _personalNote,
-        _selectedCollectionId,
-        _duplicateLink,
-        _isSaving,
-        _isSavedSuccess,
+        combine(_url, _urlError, _title, _personalNote) { u, ue, t, n ->
+            Quad(u, ue, t, n)
+        },
+        combine(_selectedCollectionId, _duplicateLink, _isSaving, _isSavedSuccess) { cId, dup, isS, isSucc ->
+            Quad(cId, dup, isS, isSucc)
+        },
         collectionRepository.collections
-    ) { params ->
+    ) { p1, p2, cols ->
         SaveLinkUiState(
-            url = params[0] as String,
-            title = params[1] as String,
-            personalNote = params[2] as String,
-            selectedCollectionId = params[3] as Long?,
-            duplicateLink = params[4] as SavedLink?,
-            isSaving = params[5] as Boolean,
-            isSavedSuccess = params[6] as Boolean,
-            collections = (params[7] as List<*>).filterIsInstance<Collection>()
+            url = p1.first,
+            urlError = p1.second,
+            title = p1.third,
+            personalNote = p1.fourth,
+            selectedCollectionId = p2.first,
+            duplicateLink = p2.second,
+            isSaving = p2.third,
+            isSavedSuccess = p2.fourth,
+            collections = cols
         )
     }.stateIn(
         scope = viewModelScope,
@@ -72,6 +76,9 @@ class SaveLinkViewModel(
 
     fun onUrlChange(newUrl: String) {
         _url.value = newUrl
+        if (_urlError.value != null && newUrl.trim().isNotBlank() && (newUrl.contains(".") || newUrl.startsWith("http"))) {
+            _urlError.value = null
+        }
         checkDuplicate(newUrl)
     }
 
@@ -109,7 +116,17 @@ class SaveLinkViewModel(
 
     fun onSave(onSuccess: () -> Unit) {
         val rawUrl = _url.value.trim()
-        if (rawUrl.isBlank()) return
+        if (rawUrl.isBlank()) {
+            _urlError.value = "Web address cannot be blank. Enter a URL (e.g. nytimes.com/article)."
+            return
+        }
+
+        if (!rawUrl.contains(".") && !rawUrl.startsWith("http://", ignoreCase = true) && !rawUrl.startsWith("https://", ignoreCase = true)) {
+            _urlError.value = "Please enter a valid web address (e.g. nytimes.com/article)."
+            return
+        }
+
+        _urlError.value = null
 
         val finalUrl = if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
             "https://$rawUrl"
@@ -149,6 +166,7 @@ class SaveLinkViewModel(
 
     fun reset() {
         _url.value = ""
+        _urlError.value = null
         _title.value = ""
         _personalNote.value = ""
         _selectedCollectionId.value = null
@@ -157,3 +175,11 @@ class SaveLinkViewModel(
         _isSavedSuccess.value = false
     }
 }
+
+private data class Quad<A, B, C, D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)
+

@@ -224,18 +224,25 @@ fun SavedItemDetailSheet(
 
                 Spacer(modifier = Modifier.width(spacing.sm))
 
-                Text(
-                    text = "Copy",
-                    style = typography.uiMedium.copy(fontSize = 12.sp),
-                    color = colors.accentPrimary,
+                Box(
                     modifier = Modifier
-                        .clickable {
+                        .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = "Copy URL to clipboard"
+                        ) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(ClipData.newPlainText("URL", link.originalUrl))
                             Toast.makeText(context, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
-                        }
-                        .padding(4.dp)
-                )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Copy",
+                        style = typography.uiMedium.copy(fontSize = 12.sp),
+                        color = colors.accentPrimary
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(spacing.md))
@@ -269,14 +276,28 @@ fun SavedItemDetailSheet(
 
             Spacer(modifier = Modifier.height(spacing.md))
 
-            // Editable Personal Note
+            // Editable Personal Note with approaching-limit reminder [UX06]
+            val maxNoteLength = 500
+            val remainingChars = maxNoteLength - uiState.editedNote.length
             OutlinedTextField(
                 value = uiState.editedNote,
-                onValueChange = onNoteChange,
+                onValueChange = {
+                    if (it.length <= maxNoteLength + 20) onNoteChange(it)
+                },
                 label = { Text("Personal Note") },
                 placeholder = { Text("Add takeaways, quotes, or thoughts...") },
                 minLines = 2,
                 maxLines = 4,
+                supportingText = if (remainingChars <= 50) {
+                    {
+                        Text(
+                            text = if (remainingChars >= 0) "$remainingChars characters remaining" else "Exceeded by ${-remainingChars} characters",
+                            color = if (remainingChars >= 0) colors.textTertiary else colors.statusDanger,
+                            style = typography.metaText
+                        )
+                    }
+                } else null,
+                isError = remainingChars < 0,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = colors.accentPrimary,
@@ -298,7 +319,9 @@ fun SavedItemDetailSheet(
                         contentColor = colors.accentPrimary
                     ),
                     shape = RoundedCornerShape(spacing.radiusSmall),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = spacing.minTouchTarget)
                 ) {
                     if (uiState.isSaving) {
                         CircularProgressIndicator(
@@ -314,7 +337,7 @@ fun SavedItemDetailSheet(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
-            // Quick Status Actions: Mark Read, Archive, Delete
+            // Quick Status Actions: Mark Read, Archive, Delete with 48dp min touch target
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -325,7 +348,11 @@ fun SavedItemDetailSheet(
                     modifier = Modifier
                         .height(spacing.minTouchTarget)
                         .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(onClick = onToggleRead)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = if (link.isRead) "Mark link as unread" else "Mark link as read",
+                            onClick = onToggleRead
+                        )
                         .padding(horizontal = spacing.sm),
                     contentAlignment = Alignment.Center
                 ) {
@@ -341,7 +368,11 @@ fun SavedItemDetailSheet(
                     modifier = Modifier
                         .height(spacing.minTouchTarget)
                         .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(onClick = onToggleArchive)
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = if (link.isArchived) "Restore link to inbox" else "Archive link",
+                            onClick = onToggleArchive
+                        )
                         .padding(horizontal = spacing.sm),
                     contentAlignment = Alignment.Center
                 ) {
@@ -357,7 +388,11 @@ fun SavedItemDetailSheet(
                     modifier = Modifier
                         .height(spacing.minTouchTarget)
                         .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .clickable(onClick = { showDeleteConfirm = true })
+                        .clickable(
+                            role = Role.Button,
+                            onClickLabel = "Delete link",
+                            onClick = { showDeleteConfirm = true }
+                        )
                         .padding(horizontal = spacing.sm),
                     contentAlignment = Alignment.Center
                 ) {
@@ -369,7 +404,7 @@ fun SavedItemDetailSheet(
                 }
             }
 
-            // Metadata retry prompt if failed or incomplete
+            // Compact metadata status badge with inline retry [UX05, UX09]
             if (link.metadataStatus == MetadataStatus.FAILED || link.metadataStatus == MetadataStatus.PARTIAL || link.metadataStatus == MetadataStatus.FETCHING) {
                 Spacer(modifier = Modifier.height(spacing.sm))
                 Row(
@@ -377,28 +412,36 @@ fun SavedItemDetailSheet(
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(spacing.radiusSmall))
                         .background(colors.surfaceSecondary)
-                        .padding(spacing.md),
+                        .padding(horizontal = spacing.md, vertical = spacing.xs),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = when (link.metadataStatus) {
-                            MetadataStatus.FETCHING -> "Refreshing metadata..."
-                            MetadataStatus.PARTIAL -> "Partial preview metadata"
-                            else -> "Metadata extraction failed"
+                            MetadataStatus.FETCHING -> "Fetching metadata..."
+                            MetadataStatus.PARTIAL -> "Partial preview"
+                            else -> "Preview fetch failed"
                         },
                         style = typography.metaText,
                         color = colors.textSecondary
                     )
                     if (link.metadataStatus != MetadataStatus.FETCHING) {
-                        Text(
-                            text = "Retry",
-                            style = typography.uiMedium.copy(fontSize = 12.sp),
-                            color = colors.accentPrimary,
+                        Box(
                             modifier = Modifier
-                                .clickable(onClick = onRetryMetadata)
-                                .padding(4.dp)
-                        )
+                                .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = "Retry fetching link preview metadata",
+                                    onClick = onRetryMetadata
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "⟳ Retry",
+                                style = typography.uiMedium.copy(fontSize = 12.sp),
+                                color = colors.accentPrimary
+                            )
+                        }
                     } else {
                         CircularProgressIndicator(
                             color = colors.accentPrimary,
@@ -471,18 +514,29 @@ private fun CollectionSelectionChip(
 
     Box(
         modifier = Modifier
-            .height(32.dp)
-            .clip(RoundedCornerShape(spacing.radiusSmall))
-            .background(bg)
-            .border(spacing.hairline, borderColor, RoundedCornerShape(spacing.radiusSmall))
-            .clickable(onClick = onClick)
-            .padding(horizontal = spacing.md),
+            .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
+            .clickable(
+                role = Role.Button,
+                onClickLabel = "Select $name shelf",
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = name,
-            style = typography.metaText.copy(fontSize = 12.sp),
-            color = textColor
-        )
+        Box(
+            modifier = Modifier
+                .height(34.dp)
+                .clip(RoundedCornerShape(spacing.radiusSmall))
+                .background(bg)
+                .border(spacing.hairline, borderColor, RoundedCornerShape(spacing.radiusSmall))
+                .padding(horizontal = spacing.md),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = name,
+                style = typography.metaText.copy(fontSize = 12.sp),
+                color = textColor
+            )
+        }
     }
 }
+

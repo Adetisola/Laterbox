@@ -3,8 +3,14 @@ package com.laterbox.app.ui.navigation
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -77,6 +83,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
     var selectedLinkForDetails by remember { mutableStateOf<SavedLink?>(null) }
     val saveSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val handleOpenLink: (SavedLink) -> Unit = { link ->
         BrowserLauncher.openUrl(context, link.originalUrl, colors)
@@ -86,6 +93,20 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = colors.backgroundPrimary,
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                snackbar = { data ->
+                    Snackbar(
+                        snackbarData = data,
+                        containerColor = colors.surfaceElevated,
+                        contentColor = colors.textPrimary,
+                        actionColor = colors.accentPrimary,
+                        shape = RoundedCornerShape(LaterboxTheme.spacing.radiusMedium)
+                    )
+                }
+            )
+        },
         bottomBar = {
             if (currentRoute != LaterboxDestination.Settings.route) {
                 LaterboxBottomBar(
@@ -284,10 +305,23 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
             },
             onToggleRead = savedItemDetailViewModel::onToggleRead,
             onToggleArchive = {
+                val item = selectedLinkForDetails
+                val wasArchived = item?.isArchived == true
+                val linkId = item?.id
                 savedItemDetailViewModel.onToggleArchive {
                     coroutineScope.launch {
                         detailSheetState.hide()
                         selectedLinkForDetails = null
+                        if (!wasArchived && linkId != null) {
+                            val result = snackbarHostState.showSnackbar(
+                                message = "Archived",
+                                actionLabel = "Undo",
+                                duration = SnackbarDuration.Short
+                            )
+                            if (result == SnackbarResult.ActionPerformed) {
+                                inboxViewModel.unarchive(linkId)
+                            }
+                        }
                     }
                 }
             },

@@ -113,13 +113,29 @@ fun SaveLinkBottomSheet(
                 }
             }
 
-            // URL input
+            // URL input with inline field validation [UX06, UX18]
             OutlinedTextField(
                 value = uiState.url,
                 onValueChange = onUrlChange,
                 label = { Text("Web address (URL)") },
                 placeholder = { Text("example.com/article") },
                 singleLine = true,
+                isError = uiState.urlError != null,
+                supportingText = {
+                    if (uiState.urlError != null) {
+                        Text(
+                            text = uiState.urlError,
+                            color = colors.statusDanger,
+                            style = typography.metaText
+                        )
+                    } else {
+                        Text(
+                            text = "e.g. nytimes.com/article",
+                            color = colors.textTertiary,
+                            style = typography.metaText
+                        )
+                    }
+                },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Uri,
                     autoCorrectEnabled = false
@@ -127,13 +143,14 @@ fun SaveLinkBottomSheet(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = colors.accentPrimary,
                     unfocusedBorderColor = colors.borderSubtle,
+                    errorBorderColor = colors.statusDanger,
                     focusedTextColor = colors.textPrimary,
                     unfocusedTextColor = colors.textPrimary
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(spacing.sm))
+            Spacer(modifier = Modifier.height(spacing.xs))
 
             // Optional Title input
             OutlinedTextField(
@@ -183,14 +200,27 @@ fun SaveLinkBottomSheet(
 
             Spacer(modifier = Modifier.height(spacing.sm))
 
-            // Personal Note input
+            // Personal Note input with limit reminder when approaching limit [UX06]
+            val remainingChars = uiState.maxNoteLength - uiState.personalNote.length
             OutlinedTextField(
                 value = uiState.personalNote,
-                onValueChange = onPersonalNoteChange,
+                onValueChange = {
+                    if (it.length <= uiState.maxNoteLength + 20) onPersonalNoteChange(it)
+                },
                 label = { Text("Personal note (Optional)") },
                 placeholder = { Text("Why are you saving this? Key takeaway...") },
                 minLines = 2,
                 maxLines = 4,
+                supportingText = if (remainingChars <= 50) {
+                    {
+                        Text(
+                            text = if (remainingChars >= 0) "$remainingChars characters remaining" else "Exceeded by ${-remainingChars} characters",
+                            color = if (remainingChars >= 0) colors.textTertiary else colors.statusDanger,
+                            style = typography.metaText
+                        )
+                    }
+                } else null,
+                isError = remainingChars < 0,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = colors.accentPrimary,
@@ -203,13 +233,16 @@ fun SaveLinkBottomSheet(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
-            // Actions
+            // Actions with 48dp minimum touch targets [UX18, UX19]
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                TextButton(onClick = onDismissRequest) {
+                TextButton(
+                    onClick = onDismissRequest,
+                    modifier = Modifier.heightIn(min = spacing.minTouchTarget)
+                ) {
                     Text(
                         text = "Cancel",
                         style = typography.uiMedium,
@@ -227,7 +260,7 @@ fun SaveLinkBottomSheet(
                         contentColor = colors.surfaceElevated
                     ),
                     shape = RoundedCornerShape(spacing.radiusSmall),
-                    modifier = Modifier.height(44.dp)
+                    modifier = Modifier.heightIn(min = spacing.minTouchTarget)
                 ) {
                     if (uiState.isSaving) {
                         CircularProgressIndicator(
@@ -263,18 +296,29 @@ private fun CollectionChip(
 
     Box(
         modifier = Modifier
-            .height(32.dp)
-            .clip(RoundedCornerShape(spacing.radiusSmall))
-            .background(bg)
-            .border(spacing.hairline, borderColor, RoundedCornerShape(spacing.radiusSmall))
-            .clickable(onClick = onClick)
-            .padding(horizontal = spacing.md),
+            .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
+            .clickable(
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClickLabel = "Select $name shelf",
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = name,
-            style = typography.metaText.copy(fontSize = 12.sp),
-            color = textColor
-        )
+        Box(
+            modifier = Modifier
+                .height(34.dp)
+                .clip(RoundedCornerShape(spacing.radiusSmall))
+                .background(bg)
+                .border(spacing.hairline, borderColor, RoundedCornerShape(spacing.radiusSmall))
+                .padding(horizontal = spacing.md),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = name,
+                style = typography.metaText.copy(fontSize = 12.sp),
+                color = textColor
+            )
+        }
     }
 }
+

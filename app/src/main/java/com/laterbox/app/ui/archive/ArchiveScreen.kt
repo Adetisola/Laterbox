@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.components.EmptyStateView
+import com.laterbox.app.ui.components.InboxSkeletonList
 import com.laterbox.app.ui.components.SavedLinkCard
 import com.laterbox.app.ui.theme.LaterboxTheme
 
@@ -133,9 +134,13 @@ fun ArchiveScreen(
                     if (uiState.searchQuery.isNotEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(spacing.minTouchTarget)
                                 .clip(CircleShape)
-                                .clickable { onClearSearch() },
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = "Clear search",
+                                    onClick = onClearSearch
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -150,18 +155,12 @@ fun ArchiveScreen(
 
             when {
                 uiState.isLoading -> {
-                    Box(
+                    InboxSkeletonList(
+                        isHero = false,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = colors.accentPrimary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                            .weight(1f)
+                    )
                 }
 
                 uiState.isEmpty -> {

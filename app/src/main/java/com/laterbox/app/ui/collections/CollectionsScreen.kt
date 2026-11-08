@@ -35,10 +35,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.sizeIn
 import com.laterbox.app.domain.model.Collection
 import com.laterbox.app.domain.model.CollectionWithCount
+import com.laterbox.app.ui.components.CollectionsSkeletonGrid
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.theme.LaterboxTheme
 
@@ -91,7 +95,7 @@ fun CollectionsScreen(
                 // + New collection button
                 Box(
                     modifier = Modifier
-                        .height(36.dp)
+                        .sizeIn(minHeight = spacing.minTouchTarget, minWidth = spacing.minTouchTarget)
                         .clip(RoundedCornerShape(spacing.radiusSmall))
                         .background(colors.surfaceSecondary)
                         .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
@@ -100,7 +104,7 @@ fun CollectionsScreen(
                             onClickLabel = "New collection",
                             onClick = onOpenCreateDialog
                         )
-                        .padding(horizontal = spacing.md),
+                        .padding(horizontal = spacing.md, vertical = spacing.xs),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -113,18 +117,11 @@ fun CollectionsScreen(
 
             when {
                 uiState.isLoading -> {
-                    Box(
+                    CollectionsSkeletonGrid(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = colors.accentPrimary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                            .weight(1f)
+                    )
                 }
 
                 uiState.isEmpty -> {
@@ -269,15 +266,26 @@ private fun CollectionCard(
                 )
 
                 Box {
-                    Text(
-                        text = "⋮",
-                        style = typography.uiMedium.copy(fontSize = 18.sp),
-                        color = colors.textSecondary,
+                    Box(
                         modifier = Modifier
                             .size(spacing.minTouchTarget)
-                            .clickable { showMenu = true }
-                            .padding(4.dp)
-                    )
+                            .clip(RoundedCornerShape(spacing.radiusSmall))
+                            .clickable(
+                                role = Role.Button,
+                                onClickLabel = "Collection options",
+                                onClick = { showMenu = true }
+                            )
+                            .semantics {
+                                contentDescription = "Options for ${item.collection.name}"
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "⋮",
+                            style = typography.uiMedium.copy(fontSize = 18.sp),
+                            color = colors.textSecondary
+                        )
+                    }
 
                     DropdownMenu(
                         expanded = showMenu,
