@@ -31,6 +31,12 @@ class SettingsViewModel(
         }
     }
 
+    fun setFontSizeScale(scale: com.laterbox.app.data.preferences.FontSizeScale) {
+        viewModelScope.launch {
+            userPreferencesRepository.setFontSizeScale(scale)
+        }
+    }
+
     fun setAutoMarkAsRead(enabled: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setAutoMarkAsRead(enabled)

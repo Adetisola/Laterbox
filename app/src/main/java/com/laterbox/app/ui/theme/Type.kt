@@ -108,3 +108,28 @@ val DefaultLaterboxTypography = LaterboxTypography(
 )
 
 val LocalLaterboxTypography = staticCompositionLocalOf { DefaultLaterboxTypography }
+
+fun LaterboxTypography.scaled(scaleFactor: Float): LaterboxTypography {
+    if (scaleFactor == 1.0f) return this
+    fun TextStyle.scale(): TextStyle = this.copy(
+        fontSize = (this.fontSize.value * scaleFactor).sp,
+        lineHeight = (this.lineHeight.value * scaleFactor).sp
+    )
+
+    return LaterboxTypography(
+        editorialDisplay = editorialDisplay.scale(),
+        editorialTitle = editorialTitle.scale(),
+        wordmark = wordmark.scale(),
+        cardTitle = cardTitle.scale(),
+        detailTitle = detailTitle.scale(),
+        bodyPrimary = bodyPrimary.scale(),
+        uiLabel = uiLabel.scale(),
+        metadataMono = metadataMono.scale(),
+        displayLarge = displayLarge.scale(),
+        titleSmall = titleSmall.scale(),
+        bodySecondary = bodySecondary.scale(),
+        uiMedium = uiMedium.scale(),
+        metaText = metaText.scale(),
+        codeText = codeText.scale()
+    )
+}

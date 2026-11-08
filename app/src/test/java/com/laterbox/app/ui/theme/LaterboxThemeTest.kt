@@ -119,4 +119,13 @@ class LaterboxThemeTest {
         composeTestRule.onNodeWithText("Collections").assertExists()
         composeTestRule.onNodeWithText("Archive").assertExists()
     }
+
+    @Test
+    fun verifiesFontScalingAppliesCorrectly() {
+        val original = DefaultLaterboxTypography
+        val scaled = original.scaled(1.15f)
+        assertTrue(scaled.cardTitle.fontSize.value > original.cardTitle.fontSize.value)
+        val small = original.scaled(0.85f)
+        assertTrue(small.cardTitle.fontSize.value < original.cardTitle.fontSize.value)
+    }
 }

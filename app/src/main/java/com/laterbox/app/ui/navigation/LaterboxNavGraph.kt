@@ -141,7 +141,10 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         },
                         onSettingsClick = {
                             navController.navigate(LaterboxDestination.Settings.route)
-                        }
+                        },
+                        onToggleViewMode = inboxViewModel::onToggleViewMode,
+                        onRefresh = inboxViewModel::refresh,
+                        onCompleteOnboarding = inboxViewModel::onCompleteOnboarding
                     )
                 }
 
@@ -225,6 +228,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         onThemeModeChange = settingsViewModel::setThemeMode,
                         onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
                         onAllowSystemBackupChange = settingsViewModel::setAllowSystemBackup,
+                        onFontSizeScaleChange = settingsViewModel::setFontSizeScale,
                         onExportBackup = settingsViewModel::exportBackup,
                         onImportBackup = settingsViewModel::importBackup,
                         onBackClick = { navController.popBackStack() }

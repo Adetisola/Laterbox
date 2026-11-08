@@ -51,6 +51,9 @@ interface SavedLinkDao {
     @Query("SELECT * FROM saved_links WHERE metadata_status IN ('PENDING', 'FETCHING') ORDER BY created_at ASC")
     suspend fun getPendingLinks(): List<SavedLinkEntity>
 
+    @Query("SELECT * FROM saved_links WHERE metadata_status IN ('FAILED', 'PENDING', 'FETCHING') OR (preview_image_url IS NULL AND metadata_status != 'SUCCESS') ORDER BY created_at DESC")
+    suspend fun getLinksNeedingEnrichment(): List<SavedLinkEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLink(link: SavedLinkEntity): Long
 

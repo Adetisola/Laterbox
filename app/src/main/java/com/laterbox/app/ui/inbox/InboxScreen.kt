@@ -28,11 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -47,13 +47,16 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.laterbox.app.data.preferences.InboxViewMode
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.SavedLinkCard
+import com.laterbox.app.ui.onboarding.OnboardingSheet
 import com.laterbox.app.ui.theme.LaterboxTheme
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InboxScreen(
     uiState: InboxUiState,
@@ -64,6 +67,9 @@ fun InboxScreen(
     onQuickOpenClick: (SavedLink) -> Unit,
     onAddLinkClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onToggleViewMode: () -> Unit,
+    onRefresh: () -> Unit,
+    onCompleteOnboarding: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
@@ -105,6 +111,27 @@ fun InboxScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // View Mode Toggle button (Hero vs Compact)
+                    Box(
+                        modifier = Modifier
+                            .size(spacing.minTouchTarget)
+                            .clip(RoundedCornerShape(spacing.radiusSmall))
+                            .clickable(
+                                role = Role.Button,
+                                onClickLabel = if (uiState.viewMode == InboxViewMode.HERO) "Switch to compact view" else "Switch to hero view",
+                                onClick = onToggleViewMode
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (uiState.viewMode == InboxViewMode.HERO) "▤" else "☰",
+                            style = typography.uiMedium.copy(fontSize = 18.sp),
+                            color = colors.textSecondary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(spacing.xs))
+
                     // Settings icon button (min 48dp touch target)
                     Box(
                         modifier = Modifier
@@ -224,104 +251,147 @@ fun InboxScreen(
                     isSelected = uiState.activeFilterType == null,
                     onClick = { onFilterContentType(null) }
                 )
-                ContentType.entries.forEach { type ->
-                    FilterChip(
-                        text = type.displayName,
-                        isSelected = uiState.activeFilterType == type,
-                        onClick = { onFilterContentType(type) }
-                    )
-                }
+                FilterChip(
+                    text = "Articles",
+                    isSelected = uiState.activeFilterType == ContentType.ARTICLE,
+                    onClick = { onFilterContentType(ContentType.ARTICLE) }
+                )
+                FilterChip(
+                    text = "Videos",
+                    isSelected = uiState.activeFilterType == ContentType.VIDEO,
+                    onClick = { onFilterContentType(ContentType.VIDEO) }
+                )
+                FilterChip(
+                    text = "Discussions",
+                    isSelected = uiState.activeFilterType == ContentType.DISCUSSION,
+                    onClick = { onFilterContentType(ContentType.DISCUSSION) }
+                )
+                FilterChip(
+                    text = "Products",
+                    isSelected = uiState.activeFilterType == ContentType.PRODUCT,
+                    onClick = { onFilterContentType(ContentType.PRODUCT) }
+                )
+                FilterChip(
+                    text = "Websites",
+                    isSelected = uiState.activeFilterType == ContentType.WEBSITE,
+                    onClick = { onFilterContentType(ContentType.WEBSITE) }
+                )
             }
 
-            // Pending metadata notice banner
-            if (uiState.pendingMetadataCount > 0) {
+            // Background Metadata Sync Progress Banner
+            AnimatedVisibility(
+                visible = uiState.pendingMetadataCount > 0,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = spacing.base, vertical = spacing.xs)
                         .clip(RoundedCornerShape(spacing.radiusSmall))
-                        .background(colors.accentContainer.copy(alpha = 0.5f))
-                        .border(spacing.hairline, colors.accentPrimary.copy(alpha = 0.3f), RoundedCornerShape(spacing.radiusSmall))
-                        .padding(horizontal = spacing.md, vertical = spacing.sm),
+                        .background(colors.accentContainer.copy(alpha = 0.35f))
+                        .border(spacing.hairline, colors.accentPrimary.copy(alpha = 0.25f), RoundedCornerShape(spacing.radiusSmall))
+                        .padding(horizontal = spacing.sm, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
                             .size(6.dp)
-                            .background(colors.accentPrimary, CircleShape)
+                            .clip(CircleShape)
+                            .background(colors.accentPrimary)
                     )
-                    Spacer(modifier = Modifier.width(spacing.sm))
+                    Spacer(modifier = Modifier.width(spacing.xs))
                     Text(
-                        text = "Updating metadata for ${uiState.pendingMetadataCount} item${if (uiState.pendingMetadataCount > 1) "s" else ""} in background...",
+                        text = "Updating metadata for ${uiState.pendingMetadataCount} item(s) in background...",
                         style = typography.metaText,
                         color = colors.accentPrimary
                     )
                 }
             }
 
-            // Content Area
-            when {
-                uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(
-                            color = colors.accentPrimary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-
-                uiState.isEmpty -> {
-                    EmptyStateView(
-                        title = "Nothing saved. Yet.",
-                        subtitle = "When something catches your attention online, send it here with Android's share sheet.",
-                        actionText = "+ Add link manually",
-                        onActionClick = onAddLinkClick,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                uiState.isSearchEmpty -> {
-                    EmptyStateView(
-                        title = "No matching links",
-                        subtitle = if (uiState.searchQuery.isNotBlank()) "Nothing saved matching \"${uiState.searchQuery}\"" else "No links found for this filter.",
-                        actionText = "Clear filters",
-                        onActionClick = {
-                            onClearSearch()
-                            onFilterContentType(null)
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                else -> {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        contentPadding = PaddingValues(
-                            start = spacing.base,
-                            end = spacing.base,
-                            top = spacing.sm,
-                            bottom = 80.dp // Leave room for bottom bar & FAB
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(spacing.sm)
-                    ) {
-                        items(
-                            items = uiState.links,
-                            key = { it.id }
-                        ) { link ->
-                            SavedLinkCard(
-                                link = link,
-                                onClick = { onLinkClick(link) },
-                                onQuickOpenClick = { onQuickOpenClick(link) }
+            // Main Content Area with Pull-To-Refresh
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = onRefresh,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                when {
+                    uiState.isLoading -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                color = colors.accentPrimary,
+                                modifier = Modifier.size(32.dp)
                             )
+                        }
+                    }
+
+                    uiState.isEmpty -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            EmptyStateView(
+                                title = "Nothing saved. Yet.",
+                                subtitle = "When something catches your attention online, send it here with Android's share sheet.",
+                                actionText = "+ Add link manually",
+                                onActionClick = onAddLinkClick
+                            )
+                        }
+                    }
+
+                    uiState.isSearchEmpty -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            EmptyStateView(
+                                title = "No matching links",
+                                subtitle = if (uiState.searchQuery.isNotBlank()) {
+                                    "Nothing saved matching \"${uiState.searchQuery}\""
+                                } else {
+                                    "No links found for this filter."
+                                },
+                                actionText = "Clear filters",
+                                onActionClick = {
+                                    onClearSearch()
+                                    onFilterContentType(null)
+                                }
+                            )
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = spacing.base,
+                                end = spacing.base,
+                                top = spacing.sm,
+                                bottom = 80.dp // Leave room for bottom bar & FAB
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(spacing.sm)
+                        ) {
+                            items(
+                                items = uiState.links,
+                                key = { it.id }
+                            ) { link ->
+                                SavedLinkCard(
+                                    link = link,
+                                    onClick = { onLinkClick(link) },
+                                    onQuickOpenClick = { onQuickOpenClick(link) },
+                                    viewMode = uiState.viewMode
+                                )
+                            }
                         }
                     }
                 }
@@ -354,6 +424,11 @@ fun InboxScreen(
                     color = colors.textPrimary
                 )
             }
+        }
+
+        // Onboarding Sheet on First Launch
+        if (!uiState.hasCompletedOnboarding) {
+            OnboardingSheet(onDismiss = onCompleteOnboarding)
         }
     }
 }

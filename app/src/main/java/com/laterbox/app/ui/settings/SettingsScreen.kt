@@ -56,6 +56,7 @@ fun SettingsScreen(
     onThemeModeChange: (ThemeMode) -> Unit,
     onAutoMarkAsReadChange: (Boolean) -> Unit,
     onAllowSystemBackupChange: (Boolean) -> Unit,
+    onFontSizeScaleChange: (com.laterbox.app.data.preferences.FontSizeScale) -> Unit,
     onExportBackup: suspend (OutputStream) -> Result<Int>,
     onImportBackup: suspend (InputStream) -> Result<com.laterbox.app.data.backup.BackupRestoreResult>,
     onBackClick: () -> Unit,
@@ -213,6 +214,62 @@ fun SettingsScreen(
                             onClick = { onThemeModeChange(ThemeMode.DARK) },
                             modifier = Modifier.weight(1f)
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(spacing.sm))
+
+                    Text(
+                        text = "Font Size",
+                        style = typography.uiMedium,
+                        color = colors.textPrimary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                    ) {
+                        ThemeOptionChip(
+                            label = "Small",
+                            isSelected = preferences.fontSizeScale == com.laterbox.app.data.preferences.FontSizeScale.SMALL,
+                            onClick = { onFontSizeScaleChange(com.laterbox.app.data.preferences.FontSizeScale.SMALL) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        ThemeOptionChip(
+                            label = "System",
+                            isSelected = preferences.fontSizeScale == com.laterbox.app.data.preferences.FontSizeScale.SYSTEM,
+                            onClick = { onFontSizeScaleChange(com.laterbox.app.data.preferences.FontSizeScale.SYSTEM) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        ThemeOptionChip(
+                            label = "Large",
+                            isSelected = preferences.fontSizeScale == com.laterbox.app.data.preferences.FontSizeScale.LARGE,
+                            onClick = { onFontSizeScaleChange(com.laterbox.app.data.preferences.FontSizeScale.LARGE) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    // Live Typography Preview Box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(spacing.radiusSmall))
+                            .background(colors.surfaceSecondary)
+                            .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
+                            .padding(spacing.sm)
+                    ) {
+                        Column {
+                            Text(
+                                text = "Preview (${preferences.fontSizeScale.label})",
+                                style = typography.metaText,
+                                color = colors.accentPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Find something interesting. Save it. Get back to it later.",
+                                style = typography.bodyPrimary,
+                                color = colors.textPrimary
+                            )
+                        }
                     }
                 }
             }

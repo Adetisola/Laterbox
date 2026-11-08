@@ -130,4 +130,26 @@ class InboxViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun inboxViewModel_togglesViewMode() = runTest {
+        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertEquals(com.laterbox.app.data.preferences.InboxViewMode.HERO, state.viewMode)
+
+            viewModel.onToggleViewMode()
+            state = awaitItem()
+            while (state.viewMode != com.laterbox.app.data.preferences.InboxViewMode.COMPACT) {
+                state = awaitItem()
+            }
+            assertEquals(com.laterbox.app.data.preferences.InboxViewMode.COMPACT, state.viewMode)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }

@@ -16,10 +16,13 @@ import androidx.core.view.WindowCompat
 @Composable
 fun LaterboxTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    fontScale: Float = 1.0f,
     content: @Composable () -> Unit
 ) {
     val colors = if (darkTheme) DarkLaterboxColors else LightLaterboxColors
-    val typography = DefaultLaterboxTypography
+    val typography = androidx.compose.runtime.remember(fontScale) {
+        DefaultLaterboxTypography.scaled(fontScale)
+    }
 
     val materialColors = if (darkTheme) {
         darkColorScheme(

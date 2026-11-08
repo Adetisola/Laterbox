@@ -2,6 +2,7 @@ package com.laterbox.app.ui.inbox
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laterbox.app.data.preferences.InboxViewMode
 import com.laterbox.app.data.preferences.UserPreferencesRepository
 import com.laterbox.app.data.repository.LinkRepository
 import com.laterbox.app.domain.model.ContentType
@@ -28,6 +29,9 @@ class InboxViewModel(
     private val _activeFilterType = MutableStateFlow<ContentType?>(null)
     val activeFilterType: StateFlow<ContentType?> = _activeFilterType
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
     private val baseLinksFlow = _searchQuery.flatMapLatest { query ->
         if (query.isBlank()) {
             linkRepository.inboxLinks
@@ -39,8 +43,10 @@ class InboxViewModel(
     val uiState: StateFlow<InboxUiState> = combine(
         baseLinksFlow,
         _searchQuery,
-        _activeFilterType
-    ) { rawLinks, query, filterType ->
+        _activeFilterType,
+        _isRefreshing,
+        userPreferencesRepository.userPreferences
+    ) { rawLinks, query, filterType, refreshing, prefs ->
         // If searching, filter out archived links since searchLinks searches all
         val unarchived = rawLinks.filter { !it.isArchived }
         val filtered = if (filterType != null) {
@@ -54,9 +60,12 @@ class InboxViewModel(
         InboxUiState(
             links = filtered,
             isLoading = false,
+            isRefreshing = refreshing,
             searchQuery = query,
             activeFilterType = filterType,
-            pendingMetadataCount = pendingCount
+            pendingMetadataCount = pendingCount,
+            viewMode = prefs.inboxViewMode,
+            hasCompletedOnboarding = prefs.hasCompletedOnboarding
         )
     }.stateIn(
         scope = viewModelScope,
@@ -100,6 +109,33 @@ class InboxViewModel(
             if (autoMark) {
                 linkRepository.setRead(linkId, true)
             }
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                linkRepository.retryPendingAndFailedFetches()
+            } catch (_: Exception) {
+                // Ensure pull-to-refresh spinner always finishes gracefully
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
+    fun onToggleViewMode() {
+        viewModelScope.launch {
+            val currentMode = userPreferencesRepository.userPreferences.first().inboxViewMode
+            val nextMode = if (currentMode == InboxViewMode.HERO) InboxViewMode.COMPACT else InboxViewMode.HERO
+            userPreferencesRepository.setInboxViewMode(nextMode)
+        }
+    }
+
+    fun onCompleteOnboarding() {
+        viewModelScope.launch {
+            userPreferencesRepository.setHasCompletedOnboarding(true)
         }
     }
 }

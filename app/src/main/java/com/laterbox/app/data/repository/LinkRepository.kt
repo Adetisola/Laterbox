@@ -132,6 +132,14 @@ class LinkRepository(
         }
     }
 
+    suspend fun retryPendingAndFailedFetches() {
+        val linksToRetry = savedLinkDao.getLinksNeedingEnrichment()
+        for (link in linksToRetry) {
+            savedLinkDao.updateMetadataStatus(link.id, MetadataStatus.PENDING)
+            fetchMetadataNow(link.id)
+        }
+    }
+
     suspend fun updateLink(link: SavedLink) {
         val entity = SavedLinkEntity(
             id = link.id,

@@ -17,11 +17,25 @@ enum class ThemeMode {
     DARK
 }
 
+enum class InboxViewMode {
+    HERO,
+    COMPACT
+}
+
+enum class FontSizeScale(val scaleFactor: Float, val label: String) {
+    SMALL(0.85f, "Small"),
+    SYSTEM(1.0f, "System"),
+    LARGE(1.15f, "Large")
+}
+
 data class UserPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val autoMarkAsRead: Boolean = true,
     val includeInBackup: Boolean = true,
-    val defaultCollectionId: Long? = null
+    val defaultCollectionId: Long? = null,
+    val inboxViewMode: InboxViewMode = InboxViewMode.HERO,
+    val fontSizeScale: FontSizeScale = FontSizeScale.SYSTEM,
+    val hasCompletedOnboarding: Boolean = false
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 }
@@ -35,6 +49,9 @@ class UserPreferencesRepository(private val context: Context) {
         val AUTO_MARK_AS_READ = booleanPreferencesKey("auto_mark_as_read")
         val INCLUDE_IN_BACKUP = booleanPreferencesKey("include_in_backup")
         val DEFAULT_COLLECTION_ID = longPreferencesKey("default_collection_id")
+        val INBOX_VIEW_MODE = stringPreferencesKey("inbox_view_mode")
+        val FONT_SIZE_SCALE = stringPreferencesKey("font_size_scale")
+        val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -44,15 +61,35 @@ class UserPreferencesRepository(private val context: Context) {
         } catch (e: Exception) {
             ThemeMode.SYSTEM
         }
+
         val autoMarkAsRead = preferences[PreferencesKeys.AUTO_MARK_AS_READ] ?: true
         val includeInBackup = preferences[PreferencesKeys.INCLUDE_IN_BACKUP] ?: true
         val defaultCollectionId = preferences[PreferencesKeys.DEFAULT_COLLECTION_ID]
+
+        val viewModeStr = preferences[PreferencesKeys.INBOX_VIEW_MODE] ?: InboxViewMode.HERO.name
+        val inboxViewMode = try {
+            InboxViewMode.valueOf(viewModeStr)
+        } catch (e: Exception) {
+            InboxViewMode.HERO
+        }
+
+        val fontScaleStr = preferences[PreferencesKeys.FONT_SIZE_SCALE] ?: FontSizeScale.SYSTEM.name
+        val fontSizeScale = try {
+            FontSizeScale.valueOf(fontScaleStr)
+        } catch (e: Exception) {
+            FontSizeScale.SYSTEM
+        }
+
+        val hasCompletedOnboarding = preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] ?: false
 
         UserPreferences(
             themeMode = themeMode,
             autoMarkAsRead = autoMarkAsRead,
             includeInBackup = includeInBackup,
-            defaultCollectionId = defaultCollectionId
+            defaultCollectionId = defaultCollectionId,
+            inboxViewMode = inboxViewMode,
+            fontSizeScale = fontSizeScale,
+            hasCompletedOnboarding = hasCompletedOnboarding
         )
     }
 
@@ -86,6 +123,24 @@ class UserPreferencesRepository(private val context: Context) {
             } else {
                 preferences.remove(PreferencesKeys.DEFAULT_COLLECTION_ID)
             }
+        }
+    }
+
+    suspend fun setInboxViewMode(mode: InboxViewMode) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.INBOX_VIEW_MODE] = mode.name
+        }
+    }
+
+    suspend fun setFontSizeScale(scale: FontSizeScale) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.FONT_SIZE_SCALE] = scale.name
+        }
+    }
+
+    suspend fun setHasCompletedOnboarding(completed: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] = completed
         }
     }
 }

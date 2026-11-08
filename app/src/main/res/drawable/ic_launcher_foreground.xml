@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Saved editorial card slipping into the box -->
+    <path
+        android:fillColor="#C85A32"
+        android:pathData="M37,28 L71,28 A4,4 0 0 1 75,32 L75,54 L33,54 L33,32 A4,4 0 0 1 37,28 Z" />
+
+    <!-- Editorial accent line on saved card -->
+    <path
+        android:fillColor="#F8F7F3"
+        android:pathData="M43,36 L65,36 A1.5,1.5 0 0 1 65,39 L43,39 A1.5,1.5 0 0 1 43,36 Z" />
+    <path
+        android:fillColor="#E6D3CB"
+        android:pathData="M43,43 L57,43 A1.2,1.2 0 0 1 57,45.4 L43,45.4 A1.2,1.2 0 0 1 43,43 Z" />
+
+    <!-- Archive Box Body -->
+    <path
+        android:fillColor="#282623"
+        android:pathData="M31,48 L46,48 L48,54 L60,54 L62,48 L77,48 A4,4 0 0 1 81,52 L81,74 A6,6 0 0 1 75,80 L33,80 A6,6 0 0 1 27,74 L27,52 A4,4 0 0 1 31,48 Z" />
+
+    <!-- Archive Box Hairline Border -->
+    <path
+        android:strokeColor="#3F3C37"
+        android:strokeWidth="1.5"
+        android:pathData="M31,48 L46,48 L48,54 L60,54 L62,48 L77,48 A4,4 0 0 1 81,52 L81,74 A6,6 0 0 1 75,80 L33,80 A6,6 0 0 1 27,74 L27,52 A4,4 0 0 1 31,48 Z" />
+
+    <!-- Laterbox Monogram L on Archive Box -->
+    <path
+        android:fillColor="#F0EFEA"
+        android:pathData="M49,61 L52.5,61 L52.5,69 L59,69 L59,71.5 L49,71.5 Z" />
+</vector>

@@ -14,6 +14,7 @@ import com.laterbox.app.ui.theme.LaterboxTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        setTheme(R.style.Theme_Laterbox)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as LaterboxApplication).container
@@ -29,7 +30,9 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
 
-            LaterboxTheme(darkTheme = darkTheme) {
+            val fontScale = preferences.fontSizeScale.scaleFactor
+
+            LaterboxTheme(darkTheme = darkTheme, fontScale = fontScale) {
                 LaterboxApp()
             }
         }

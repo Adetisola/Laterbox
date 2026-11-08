@@ -122,4 +122,34 @@ class JsoupMetadataExtractorTest {
         val result = JsoupMetadataExtractor.extract(url)
         assertTrue(result.isFailure)
     }
+
+    @Test
+    fun extractsJsonLdImageAndUnescapesEntities() = runTest {
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Timi &amp; Friends &#x2022; Profile</title>
+                <script type="application/ld+json">
+                {
+                    "@context": "https://schema.org",
+                    "@type": "Article",
+                    "image": "https://example.com/jsonld-hero.jpg"
+                }
+                </script>
+            </head>
+            <body></body>
+            </html>
+        """.trimIndent()
+
+        server.enqueue(MockResponse().setResponseCode(200).setBody(html))
+        val url = server.url("/profile").toString()
+
+        val result = JsoupMetadataExtractor.extract(url)
+        assertTrue(result.isSuccess)
+
+        val metadata = result.getOrThrow()
+        assertEquals("Timi & Friends • Profile", metadata.title)
+        assertEquals("https://example.com/jsonld-hero.jpg", metadata.previewImageUrl)
+    }
 }
