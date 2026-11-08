@@ -173,7 +173,8 @@ fun SavedLinkCardSkeleton(
 
 @Composable
 fun InboxSkeletonList(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isHero: Boolean = true
 ) {
     val spacing = LaterboxTheme.spacing
     LazyColumn(
@@ -187,9 +188,9 @@ fun InboxSkeletonList(
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
         userScrollEnabled = false
     ) {
-        item { SavedLinkCardSkeleton(isHero = true) }
-        item { SavedLinkCardSkeleton(isHero = false) }
-        item { SavedLinkCardSkeleton(isHero = true) }
+        item { SavedLinkCardSkeleton(isHero = isHero) }
+        item { SavedLinkCardSkeleton(isHero = isHero) }
+        item { SavedLinkCardSkeleton(isHero = isHero) }
     }
 }
 

@@ -191,7 +191,7 @@ private fun ShareSheetOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.scrim)
+            .background(Color(0x88000000))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
