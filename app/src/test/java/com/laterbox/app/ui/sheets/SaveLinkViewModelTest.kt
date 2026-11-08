@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -75,9 +76,9 @@ class SaveLinkViewModelTest {
             val typing = awaitItem()
             assertEquals("example.com/unique-article", typing.url)
 
-            // Advance debounce timer (250ms)
+            // Advance debounce timer (250ms) and complete work
             advanceTimeBy(300)
-            runCurrent()
+            advanceUntilIdle()
 
             val detected = awaitItem()
             assertNotNull(detected.duplicateLink)
