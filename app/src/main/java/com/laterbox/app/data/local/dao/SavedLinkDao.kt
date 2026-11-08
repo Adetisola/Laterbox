@@ -126,4 +126,21 @@ interface SavedLinkDao {
 
     @Query("SELECT collection_id FROM link_collection_cross_ref WHERE link_id = :linkId")
     suspend fun getCollectionIdsForLink(linkId: Long): List<Long>
+
+    @Query("UPDATE saved_links SET reminder_at = :reminderAt, nudge_dismissed = 0, updated_at = :updatedAt WHERE id = :linkId")
+    suspend fun updateReminder(linkId: Long, reminderAt: Long?, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE saved_links SET nudge_dismissed = 1, updated_at = :updatedAt WHERE id = :linkId")
+    suspend fun dismissReminder(linkId: Long, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE saved_links SET nudge_count = nudge_count + 1, last_nudged_at = :now, updated_at = :now WHERE id = :linkId")
+    suspend fun recordNudge(linkId: Long, now: Long = System.currentTimeMillis())
+
+    @Transaction
+    @Query("SELECT * FROM saved_links WHERE reminder_at IS NOT NULL AND reminder_at <= :now AND nudge_dismissed = 0 AND is_archived = 0")
+    suspend fun getDueReminders(now: Long = System.currentTimeMillis()): List<SavedLinkWithCollection>
+
+    @Transaction
+    @Query("SELECT * FROM saved_links WHERE reminder_at IS NOT NULL AND reminder_at > :now AND nudge_dismissed = 0 AND is_archived = 0")
+    suspend fun getScheduledReminders(now: Long = System.currentTimeMillis()): List<SavedLinkWithCollection>
 }

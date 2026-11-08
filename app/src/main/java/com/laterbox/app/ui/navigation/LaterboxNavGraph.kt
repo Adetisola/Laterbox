@@ -263,6 +263,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                     SettingsScreen(
                         preferences = preferences,
                         onThemeModeChange = settingsViewModel::setThemeMode,
+                        onUserNameChange = settingsViewModel::setUserName,
                         onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
                         onAllowSystemBackupChange = settingsViewModel::setAllowSystemBackup,
                         onFontSizeScaleChange = settingsViewModel::setFontSizeScale,
@@ -312,6 +313,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
             onPersonalNoteChange = saveLinkViewModel::onPersonalNoteChange,
             onToggleCollection = saveLinkViewModel::onToggleCollection,
             onCreateCollection = saveLinkViewModel::onCreateCollection,
+            onReminderAtChange = saveLinkViewModel::onReminderAtChange,
             onSaveClick = {
                 saveLinkViewModel.onSave {
                     coroutineScope.launch {
@@ -339,6 +341,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
             onNoteChange = savedItemDetailViewModel::onNoteChange,
             onToggleCollection = savedItemDetailViewModel::onToggleCollection,
             onCreateCollection = savedItemDetailViewModel::onCreateAndAssignCollection,
+            onSetReminder = savedItemDetailViewModel::onSetReminder,
             onSaveEdits = {
                 savedItemDetailViewModel.onSaveEdits {
                     coroutineScope.launch {

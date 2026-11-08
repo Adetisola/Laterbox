@@ -13,6 +13,7 @@ interface AppContainer {
     val collectionRepository: CollectionRepository
     val userPreferencesRepository: UserPreferencesRepository
     val backupManager: BackupManager
+    val reminderScheduler: com.laterbox.app.reminders.ReminderScheduler
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -35,5 +36,9 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val backupManager: BackupManager by lazy {
         BackupManager(database)
+    }
+
+    override val reminderScheduler: com.laterbox.app.reminders.ReminderScheduler by lazy {
+        com.laterbox.app.reminders.ReminderScheduler(context)
     }
 }

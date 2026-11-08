@@ -49,6 +49,12 @@ class SettingsViewModel(
         }
     }
 
+    fun setUserName(name: String) {
+        viewModelScope.launch {
+            userPreferencesRepository.setUserName(name)
+        }
+    }
+
     suspend fun exportBackup(outputStream: OutputStream): Result<Int> {
         return backupManager.exportToJson(outputStream)
     }

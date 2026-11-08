@@ -188,4 +188,12 @@ class SavedItemDetailViewModel(
             }
         }
     }
+
+    fun onSetReminder(reminderAt: Long?) {
+        val link = _currentLink.value ?: return
+        viewModelScope.launch {
+            linkRepository.setReminder(link.id, reminderAt)
+            _currentLink.value = link.copy(reminderAt = reminderAt, nudgeDismissed = false)
+        }
+    }
 }

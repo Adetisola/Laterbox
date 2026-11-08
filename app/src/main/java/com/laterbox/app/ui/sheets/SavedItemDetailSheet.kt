@@ -74,6 +74,7 @@ fun SavedItemDetailSheet(
     onNoteChange: (String) -> Unit,
     onToggleCollection: (Long) -> Unit,
     onCreateCollection: (String) -> Unit,
+    onSetReminder: (Long?) -> Unit = {},
     onSaveEdits: () -> Unit,
     onToggleRead: () -> Unit,
     onToggleArchive: () -> Unit,
@@ -447,6 +448,93 @@ fun SavedItemDetailSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(spacing.md))
+
+            // Reminder section
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = LaterboxIcons.Clock),
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = colors.textSecondary
+                )
+                Text(
+                    text = "Reminder",
+                    style = typography.metaText,
+                    color = colors.textSecondary
+                )
+            }
+            Spacer(modifier = Modifier.height(spacing.xs))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(spacing.xs),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val tonightMillis = remember { com.laterbox.app.reminders.ReminderPresets.getTonightMillis() }
+                val tomorrowMillis = remember { com.laterbox.app.reminders.ReminderPresets.getTomorrowMorningMillis() }
+                val weekendMillis = remember { com.laterbox.app.reminders.ReminderPresets.getWeekendMillis() }
+
+                if (link.reminderAt != null) {
+                    Box(
+                        modifier = Modifier
+                            .height(34.dp)
+                            .clip(LaterboxShapeTokens.Chip)
+                            .background(colors.surfaceSecondary)
+                            .border(1.dp, colors.accentPrimary, LaterboxShapeTokens.Chip)
+                            .padding(start = spacing.sm, end = spacing.xs),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(spacing.xxs)
+                        ) {
+                            Text(
+                                text = com.laterbox.app.reminders.ReminderPresets.formatReminderTime(link.reminderAt),
+                                style = typography.metaText.copy(fontSize = 12.sp),
+                                color = colors.accentPrimary
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(RoundedCornerShape(spacing.radiusSmall))
+                                    .clickable(
+                                        role = Role.Button,
+                                        onClickLabel = "Clear reminder",
+                                        onClick = { onSetReminder(null) }
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = LaterboxIcons.Close),
+                                    contentDescription = "Clear reminder",
+                                    tint = colors.accentPrimary,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    ReminderDetailChip(
+                        label = "Tonight (8 PM)",
+                        onClick = { onSetReminder(tonightMillis) }
+                    )
+                    ReminderDetailChip(
+                        label = "Tomorrow (9 AM)",
+                        onClick = { onSetReminder(tomorrowMillis) }
+                    )
+                    ReminderDetailChip(
+                        label = "Weekend",
+                        onClick = { onSetReminder(weekendMillis) }
+                    )
+                }
+            }
+
             // Compact metadata status badge with inline retry
             if (link.metadataStatus == MetadataStatus.FAILED || link.metadataStatus == MetadataStatus.PARTIAL || link.metadataStatus == MetadataStatus.FETCHING) {
                 Spacer(modifier = Modifier.height(spacing.sm))
@@ -650,6 +738,39 @@ private fun CollectionSelectionChip(
                     color = textColor
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ReminderDetailChip(
+    label: String,
+    onClick: () -> Unit
+) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
+    Box(
+        modifier = Modifier
+            .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .height(34.dp)
+                .clip(LaterboxShapeTokens.Chip)
+                .background(colors.surfaceSecondary)
+                .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Chip)
+                .padding(horizontal = spacing.md),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                style = typography.metaText.copy(fontSize = 12.sp),
+                color = colors.textPrimary
+            )
         }
     }
 }

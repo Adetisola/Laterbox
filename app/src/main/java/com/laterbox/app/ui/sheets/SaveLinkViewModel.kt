@@ -25,6 +25,7 @@ data class SaveLinkUiState(
     val duplicateLink: SavedLink? = null,
     val isSaving: Boolean = false,
     val isSavedSuccess: Boolean = false,
+    val reminderAt: Long? = null,
     val maxNoteLength: Int = 500,
     val maxTitleLength: Int = 200
 ) {
@@ -48,6 +49,7 @@ class SaveLinkViewModel(
     private val _duplicateLink = MutableStateFlow<SavedLink?>(null)
     private val _isSaving = MutableStateFlow(false)
     private val _isSavedSuccess = MutableStateFlow(false)
+    private val _reminderAt = MutableStateFlow<Long?>(null)
 
     private var duplicateCheckJob: Job? = null
 
@@ -60,6 +62,7 @@ class SaveLinkViewModel(
         _duplicateLink,
         _isSaving,
         _isSavedSuccess,
+        _reminderAt,
         collectionRepository.collections
     ) { params ->
         SaveLinkUiState(
@@ -71,7 +74,8 @@ class SaveLinkViewModel(
             duplicateLink = params[5] as SavedLink?,
             isSaving = params[6] as Boolean,
             isSavedSuccess = params[7] as Boolean,
-            collections = (params[8] as List<*>).filterIsInstance<Collection>()
+            reminderAt = params[8] as Long?,
+            collections = (params[9] as List<*>).filterIsInstance<Collection>()
         )
     }.stateIn(
         scope = viewModelScope,
@@ -142,6 +146,10 @@ class SaveLinkViewModel(
         }
     }
 
+    fun onReminderAtChange(reminderAt: Long?) {
+        _reminderAt.value = reminderAt
+    }
+
     fun onSave(onSuccess: () -> Unit) {
         val rawUrl = _url.value.trim()
         if (rawUrl.isBlank()) {
@@ -167,6 +175,7 @@ class SaveLinkViewModel(
             try {
                 val existing = _duplicateLink.value
                 val chosenColIds = _selectedCollectionIds.value.toList()
+                val chosenReminder = _reminderAt.value
                 if (existing != null) {
                     val mergedColIds = (existing.collectionIds + chosenColIds).distinct()
                     linkRepository.updateLink(
@@ -175,16 +184,21 @@ class SaveLinkViewModel(
                             personalNote = if (_personalNote.value.isNotBlank()) _personalNote.value.trim() else existing.personalNote,
                             collectionIds = mergedColIds,
                             collectionId = mergedColIds.firstOrNull(),
+                            reminderAt = chosenReminder ?: existing.reminderAt,
                             isArchived = false // Restores to inbox if it was archived
                         )
                     )
                     linkRepository.setLinkCollections(existing.id, mergedColIds)
+                    if (chosenReminder != null) {
+                        linkRepository.setReminder(existing.id, chosenReminder)
+                    }
                 } else {
                     linkRepository.saveLink(
                         originalUrl = finalUrl,
                         title = _title.value.ifBlank { null },
                         personalNote = _personalNote.value.ifBlank { null },
-                        collectionIds = chosenColIds
+                        collectionIds = chosenColIds,
+                        reminderAt = chosenReminder
                     )
                 }
                 _isSavedSuccess.value = true
@@ -202,6 +216,7 @@ class SaveLinkViewModel(
         _personalNote.value = ""
         _selectedCollectionIds.value = emptySet()
         _duplicateLink.value = null
+        _reminderAt.value = null
         _isSaving.value = false
         _isSavedSuccess.value = false
     }

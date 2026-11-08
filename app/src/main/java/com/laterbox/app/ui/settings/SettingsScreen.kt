@@ -23,6 +23,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -37,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +61,7 @@ import java.util.Locale
 fun SettingsScreen(
     preferences: UserPreferences,
     onThemeModeChange: (ThemeMode) -> Unit,
+    onUserNameChange: (String) -> Unit,
     onAutoMarkAsReadChange: (Boolean) -> Unit,
     onAllowSystemBackupChange: (Boolean) -> Unit,
     onFontSizeScaleChange: (com.laterbox.app.data.preferences.FontSizeScale) -> Unit,
@@ -267,6 +272,76 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
+            // Section: Profile & Personalisation
+            SectionHeader(title = "Profile & Personalisation")
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = spacing.base)
+                    .clip(RoundedCornerShape(spacing.radiusMedium))
+                    .background(colors.surfacePrimary)
+                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
+                    .padding(spacing.md)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = LaterboxIcons.User),
+                            contentDescription = null,
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "What should we call you?",
+                            style = typography.uiMedium,
+                            color = colors.textPrimary
+                        )
+                    }
+
+                    Text(
+                        text = "Optional. Used for smart notifications and quiet background reminders.",
+                        style = typography.metaText,
+                        color = colors.textSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(spacing.xxs))
+
+                    var nameInput by remember(preferences.userName) { mutableStateOf(preferences.userName) }
+
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { newValue ->
+                            nameInput = newValue.take(50)
+                            onUserNameChange(newValue)
+                        },
+                        placeholder = {
+                            Text(
+                                text = "Your name or nickname",
+                                style = typography.bodyMedium,
+                                color = colors.textTertiary
+                            )
+                        },
+                        singleLine = true,
+                        textStyle = typography.bodyMedium.copy(color = colors.textPrimary),
+                        shape = RoundedCornerShape(spacing.radiusSmall),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = colors.brandPrimary,
+                            unfocusedBorderColor = colors.borderSubtle,
+                            focusedContainerColor = colors.surfaceSecondary,
+                            unfocusedContainerColor = colors.surfaceSecondary,
+                            cursorColor = colors.brandPrimary
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.lg))
+
             // Section: Reading & Behavior
             SectionHeader(title = "Reading & Behavior")
 
@@ -441,7 +516,7 @@ fun SettingsScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
                     Text(
-                        text = "Laterbox v1.0.0",
+                        text = "Laterbox v1.0.4",
                         style = typography.uiMedium,
                         color = colors.textPrimary
                     )

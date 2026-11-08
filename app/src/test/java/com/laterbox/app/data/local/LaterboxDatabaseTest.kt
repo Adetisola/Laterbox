@@ -473,5 +473,86 @@ class LaterboxDatabaseTest {
 
         helper.close()
     }
+
+    @Test
+    fun reminderDao_updateAndDismissQueries() = runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/reminder-test",
+            normalizedUrl = "https://example.com/reminder-test",
+            title = "Reminder Test Article",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        // Set reminder
+        val reminderTime = System.currentTimeMillis() + 3600_000L
+        linkDao.updateReminder(linkId, reminderTime)
+
+        var entity = linkDao.getEntityById(linkId)
+        assertNotNull(entity)
+        assertEquals(reminderTime, entity?.reminderAt)
+        assertEquals(false, entity?.nudgeDismissed)
+
+        // Dismiss reminder
+        linkDao.dismissReminder(linkId)
+        entity = linkDao.getEntityById(linkId)
+        assertEquals(true, entity?.nudgeDismissed)
+
+        // Record nudge
+        val now = System.currentTimeMillis()
+        linkDao.recordNudge(linkId, now)
+        entity = linkDao.getEntityById(linkId)
+        assertEquals(1, entity?.nudgeCount)
+        assertEquals(now, entity?.lastNudgedAt)
+    }
+
+    @Test
+    fun reminderDao_dueAndScheduledQueries() = runTest {
+        val now = 1_000_000L
+
+        // Past reminder (due)
+        val pastId = linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/past",
+                normalizedUrl = "https://example.com/past",
+                title = "Past",
+                domain = "example.com",
+                reminderAt = now - 500L,
+                nudgeDismissed = false
+            )
+        )
+
+        // Future reminder (scheduled)
+        val futureId = linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/future",
+                normalizedUrl = "https://example.com/future",
+                title = "Future",
+                domain = "example.com",
+                reminderAt = now + 5000L,
+                nudgeDismissed = false
+            )
+        )
+
+        // Dismissed reminder (should not show in either)
+        linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/dismissed",
+                normalizedUrl = "https://example.com/dismissed",
+                title = "Dismissed",
+                domain = "example.com",
+                reminderAt = now - 500L,
+                nudgeDismissed = true
+            )
+        )
+
+        val due = linkDao.getDueReminders(now)
+        assertEquals(1, due.size)
+        assertEquals(pastId, due[0].link.id)
+
+        val scheduled = linkDao.getScheduledReminders(now)
+        assertEquals(1, scheduled.size)
+        assertEquals(futureId, scheduled[0].link.id)
+    }
 }
 

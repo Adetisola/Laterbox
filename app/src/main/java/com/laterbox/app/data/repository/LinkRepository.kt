@@ -35,7 +35,8 @@ import java.util.concurrent.ConcurrentHashMap
 class LinkRepository(
     private val savedLinkDao: SavedLinkDao,
     private val appContext: Context? = null,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val reminderScheduler: com.laterbox.app.reminders.ReminderScheduler? = null
 ) {
 
     private val saveMutex = Mutex()
@@ -79,7 +80,8 @@ class LinkRepository(
         collectionId: Long? = null,
         collectionIds: List<Long> = emptyList(),
         contentType: ContentType = ContentType.WEBSITE,
-        autoFetchMetadata: Boolean = true
+        autoFetchMetadata: Boolean = true,
+        reminderAt: Long? = null
     ): Long {
         val trimmedUrl = originalUrl.trim()
         val normalized = UrlNormalizer.normalize(trimmedUrl)
@@ -146,6 +148,11 @@ class LinkRepository(
                     com.laterbox.app.data.local.entity.LinkCollectionCrossRef(linkId, cId)
                 )
             }
+            if (reminderAt != null) {
+                savedLinkDao.updateReminder(linkId, reminderAt)
+                val effectiveScheduler = reminderScheduler ?: appContext?.let { com.laterbox.app.reminders.ReminderScheduler(it) }
+                effectiveScheduler?.scheduleReminder(linkId, reminderAt, title, trimmedUrl)
+            }
             if (autoFetchMetadata) {
                 appContext?.let { MetadataSyncWorker.enqueue(it) }
                 scope.launch {
@@ -155,6 +162,40 @@ class LinkRepository(
         }
 
         return linkId
+    }
+
+    suspend fun setReminder(linkId: Long, reminderAt: Long?) {
+        savedLinkDao.updateReminder(linkId, reminderAt)
+        val effectiveScheduler = reminderScheduler ?: appContext?.let { com.laterbox.app.reminders.ReminderScheduler(it) }
+        if (reminderAt != null) {
+            val entity = savedLinkDao.getEntityById(linkId)
+            effectiveScheduler?.scheduleReminder(
+                linkId = linkId,
+                triggerAtMillis = reminderAt,
+                title = entity?.title,
+                url = entity?.originalUrl
+            )
+        } else {
+            effectiveScheduler?.cancelReminder(linkId)
+        }
+    }
+
+    suspend fun dismissReminder(linkId: Long) {
+        savedLinkDao.dismissReminder(linkId)
+        val effectiveScheduler = reminderScheduler ?: appContext?.let { com.laterbox.app.reminders.ReminderScheduler(it) }
+        effectiveScheduler?.cancelReminder(linkId)
+    }
+
+    suspend fun recordNudge(linkId: Long) {
+        savedLinkDao.recordNudge(linkId)
+    }
+
+    suspend fun getDueReminders(): List<SavedLink> {
+        return savedLinkDao.getDueReminders().map { it.toDomain() }
+    }
+
+    suspend fun getScheduledReminders(): List<SavedLink> {
+        return savedLinkDao.getScheduledReminders().map { it.toDomain() }
     }
 
     /**

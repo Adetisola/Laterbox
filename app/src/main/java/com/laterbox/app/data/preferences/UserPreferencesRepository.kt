@@ -35,7 +35,8 @@ data class UserPreferences(
     val defaultCollectionId: Long? = null,
     val inboxViewMode: InboxViewMode = InboxViewMode.HERO,
     val fontSizeScale: FontSizeScale = FontSizeScale.SYSTEM,
-    val hasCompletedOnboarding: Boolean = false
+    val hasCompletedOnboarding: Boolean = false,
+    val userName: String = ""
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 }
@@ -52,6 +53,7 @@ class UserPreferencesRepository(private val context: Context) {
         val INBOX_VIEW_MODE = stringPreferencesKey("inbox_view_mode")
         val FONT_SIZE_SCALE = stringPreferencesKey("font_size_scale")
         val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
+        val USER_NAME = stringPreferencesKey("user_name")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -81,6 +83,7 @@ class UserPreferencesRepository(private val context: Context) {
         }
 
         val hasCompletedOnboarding = preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] ?: false
+        val userName = preferences[PreferencesKeys.USER_NAME] ?: ""
 
         UserPreferences(
             themeMode = themeMode,
@@ -89,7 +92,8 @@ class UserPreferencesRepository(private val context: Context) {
             defaultCollectionId = defaultCollectionId,
             inboxViewMode = inboxViewMode,
             fontSizeScale = fontSizeScale,
-            hasCompletedOnboarding = hasCompletedOnboarding
+            hasCompletedOnboarding = hasCompletedOnboarding,
+            userName = userName
         )
     }
 
@@ -141,6 +145,17 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setHasCompletedOnboarding(completed: Boolean) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] = completed
+        }
+    }
+
+    suspend fun setUserName(name: String) {
+        context.userDataStore.edit { preferences ->
+            val trimmed = name.trim().take(50)
+            if (trimmed.isNotBlank()) {
+                preferences[PreferencesKeys.USER_NAME] = trimmed
+            } else {
+                preferences.remove(PreferencesKeys.USER_NAME)
+            }
         }
     }
 }

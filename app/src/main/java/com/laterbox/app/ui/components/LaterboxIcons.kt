@@ -32,4 +32,5 @@ object LaterboxIcons {
     @DrawableRes val Refresh = R.drawable.ic_huge_refresh
     @DrawableRes val Filter = R.drawable.ic_huge_filter
     @DrawableRes val Sparkles = R.drawable.ic_huge_sparkles
+    @DrawableRes val User = R.drawable.ic_huge_user
 }

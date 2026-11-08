@@ -231,4 +231,58 @@ class SaveLinkViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun saveLinkViewModel_reminderPresetAndPersistence() = runTest(testDispatcher) {
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+
+        viewModel.uiState.test {
+            runCurrent()
+            val initial = awaitItem()
+            assertNull(initial.reminderAt)
+
+            val reminderTime = 1_800_000_000_000L
+            viewModel.onReminderAtChange(reminderTime)
+            runCurrent()
+            val updated = awaitItem()
+            assertEquals(reminderTime, updated.reminderAt)
+
+            viewModel.onUrlChange("https://reminder-example.com")
+            runCurrent()
+            awaitItem()
+
+            var saved = false
+            viewModel.onSave { saved = true }
+            runCurrent()
+            assertTrue(saved)
+
+            val savedLink = linkRepository.findDuplicate("https://reminder-example.com")
+            assertNotNull(savedLink)
+            assertEquals(reminderTime, savedLink?.reminderAt)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun saveLinkViewModel_resetClearsReminder() = runTest(testDispatcher) {
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+
+        viewModel.uiState.test {
+            runCurrent()
+            awaitItem()
+
+            viewModel.onReminderAtChange(1_800_000_000_000L)
+            runCurrent()
+            val withReminder = awaitItem()
+            assertNotNull(withReminder.reminderAt)
+
+            viewModel.reset()
+            runCurrent()
+            val resetState = awaitItem()
+            assertNull(resetState.reminderAt)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }
