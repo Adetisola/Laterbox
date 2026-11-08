@@ -99,9 +99,9 @@ jobs:
           PKG_LINE=$(echo "$BADGING" | grep "^package:")
           echo "$PKG_LINE"
 
-          APK_PKG=$(echo "$PKG_LINE" | sed -n "s/.*name='\([^']*\)'.*/\1/p")
-          APK_VCODE=$(echo "$PKG_LINE" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
-          APK_VNAME=$(echo "$PKG_LINE" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
+          APK_PKG=$(echo "$PKG_LINE" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          APK_VCODE=$(echo "$PKG_LINE" | sed -n "s/.* versionCode='\([^']*\)'.*/\1/p")
+          APK_VNAME=$(echo "$PKG_LINE" | sed -n "s/.* versionName='\([^']*\)'.*/\1/p")
 
           if [ "$APK_PKG" != "com.laterbox.app" ]; then
             echo "::error::Unexpected applicationId: $APK_PKG (expected com.laterbox.app)"
