@@ -87,56 +87,52 @@ class LinkRepository(
         val cleanedNote = personalNote?.trim()?.ifEmpty { null }
 
         val linkId: Long = saveMutex.withLock {
-            val existingWithCol = if (normalized.isNotEmpty()) {
-                savedLinkDao.findLinkByNormalizedUrl(normalized)
-            } else {
-                null
-            }
-
-            if (existingWithCol != null) {
-                val existing = existingWithCol.link
-                val mergedTitle = if (!title.isNullOrBlank() && title.trim() != domain) {
-                    title.trim()
+            val entity = SavedLinkEntity(
+                originalUrl = trimmedUrl,
+                normalizedUrl = normalized,
+                title = resolvedTitle,
+                domain = domain,
+                contentType = contentType,
+                personalNote = cleanedNote,
+                collectionId = collectionId,
+                isRead = false,
+                isArchived = false,
+                metadataStatus = MetadataStatus.PENDING,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis()
+            )
+            try {
+                savedLinkDao.insertLink(entity)
+            } catch (_: Exception) {
+                val existing = if (normalized.isNotEmpty()) {
+                    savedLinkDao.findLinkByNormalizedUrl(normalized)?.link
                 } else {
-                    existing.title
+                    null
                 }
-                val mergedNote = when {
-                    cleanedNote == null -> existing.personalNote
-                    existing.personalNote.isNullOrBlank() -> cleanedNote
-                    existing.personalNote.contains(cleanedNote) -> existing.personalNote
-                    else -> "${existing.personalNote}\n\n$cleanedNote"
-                }
-                val mergedCollectionId = collectionId ?: existing.collectionId
-                val updated = existing.copy(
-                    title = mergedTitle,
-                    personalNote = mergedNote,
-                    collectionId = mergedCollectionId,
-                    isArchived = false,
-                    updatedAt = System.currentTimeMillis()
-                )
-                savedLinkDao.updateLink(updated)
-                existing.id
-            } else {
-                val entity = SavedLinkEntity(
-                    originalUrl = trimmedUrl,
-                    normalizedUrl = normalized,
-                    title = resolvedTitle,
-                    domain = domain,
-                    contentType = contentType,
-                    personalNote = cleanedNote,
-                    collectionId = collectionId,
-                    isRead = false,
-                    isArchived = false,
-                    metadataStatus = MetadataStatus.PENDING,
-                    createdAt = System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis()
-                )
-                try {
-                    savedLinkDao.insertLink(entity)
-                } catch (_: Exception) {
-                    // Fallback in case of concurrent unique constraint race
-                    val concurrent = savedLinkDao.findLinkByNormalizedUrl(normalized)?.link
-                    concurrent?.id ?: -1L
+                if (existing != null) {
+                    val mergedTitle = if (!title.isNullOrBlank() && title.trim() != domain) {
+                        title.trim()
+                    } else {
+                        existing.title
+                    }
+                    val mergedNote = when {
+                        cleanedNote == null -> existing.personalNote
+                        existing.personalNote.isNullOrBlank() -> cleanedNote
+                        existing.personalNote.contains(cleanedNote) -> existing.personalNote
+                        else -> "${existing.personalNote}\n\n$cleanedNote"
+                    }
+                    val mergedCollectionId = collectionId ?: existing.collectionId
+                    val updated = existing.copy(
+                        title = mergedTitle,
+                        personalNote = mergedNote,
+                        collectionId = mergedCollectionId,
+                        isArchived = false,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    savedLinkDao.updateLink(updated)
+                    existing.id
+                } else {
+                    -1L
                 }
             }
         }

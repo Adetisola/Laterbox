@@ -489,6 +489,26 @@ object JsoupMetadataExtractor {
             }
         }
 
+        // 5. Fallback to large hero/article <img> in <article>, <main>, or <figure>
+        for (elem in doc.select("article img, main img, figure img, [role=main] img")) {
+            val raw = elem.absUrl("src").ifBlank { elem.attr("src") }
+                .ifBlank { elem.absUrl("data-src").ifBlank { elem.attr("data-src") } }
+                .ifBlank { elem.absUrl("data-lazy-src").ifBlank { elem.attr("data-lazy-src") } }
+            val resolved = resolveAbsoluteUrl(effectiveUrl, raw)
+            if (isValidHttpUrl(resolved)) {
+                val imgW = elem.attr("width").trim().toIntOrNull()
+                val imgH = elem.attr("height").trim().toIntOrNull()
+                candidates.add(
+                    ImageCandidate(
+                        url = resolved,
+                        width = imgW,
+                        height = imgH,
+                        sourcePriority = 55
+                    )
+                )
+            }
+        }
+
         if (candidates.isEmpty()) return null
 
         // Filter out obvious tracking pixels, spacer gifs, and tiny icons
@@ -756,7 +776,11 @@ object JsoupMetadataExtractor {
         return try {
             val uri = URI(trimmed)
             val host = uri.host
-            !host.isNullOrBlank() && host.contains(".")
+            !host.isNullOrBlank() && (
+                host.contains(".") ||
+                    host.equals("localhost", ignoreCase = true) ||
+                    host.contains(":")
+                )
         } catch (_: Exception) {
             false
         }

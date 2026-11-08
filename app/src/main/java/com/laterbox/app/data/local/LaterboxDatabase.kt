@@ -51,7 +51,8 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     val rowCursor = db.query(
                         """
                         SELECT id, title, domain, description, site_name, favicon_url, 
-                               preview_image_url, personal_note, collection_id, is_read, is_archived
+                               preview_image_url, personal_note, collection_id, is_read, is_archived,
+                               metadata_status, content_type
                         FROM saved_links
                         WHERE normalized_url = ?
                         ORDER BY id ASC
@@ -68,9 +69,19 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     var bestImage: String? = null
                     val notes = mutableListOf<String>()
                     var bestCollectionId: Long? = null
-                    var anyUnread = false
+                    var anyRead = false
                     var anyUnarchived = false
+                    var bestStatus = "FAILED"
+                    var bestContentType = "WEBSITE"
                     val duplicateIdsToDelete = mutableListOf<Long>()
+
+                    fun statusRank(status: String?): Int = when (status) {
+                        "SUCCESS" -> 4
+                        "PARTIAL" -> 3
+                        "PENDING" -> 2
+                        "FETCHING" -> 1
+                        else -> 0
+                    }
 
                     rowCursor.use { rc ->
                         while (rc.moveToNext()) {
@@ -85,10 +96,14 @@ abstract class LaterboxDatabase : RoomDatabase() {
                             val colId = if (rc.isNull(8)) null else rc.getLong(8)
                             val isRead = rc.getInt(9) != 0
                             val isArchived = rc.getInt(10) != 0
+                            val status = rc.getString(11) ?: "PENDING"
+                            val contentType = rc.getString(12) ?: "WEBSITE"
 
                             if (keeperId == null) {
                                 keeperId = id
                                 domain = rowDomain
+                                bestStatus = status
+                                bestContentType = contentType
                             } else {
                                 duplicateIdsToDelete.add(id)
                             }
@@ -114,8 +129,14 @@ abstract class LaterboxDatabase : RoomDatabase() {
                             if (bestCollectionId == null && colId != null) {
                                 bestCollectionId = colId
                             }
-                            if (!isRead) anyUnread = true
+                            if (isRead) anyRead = true
                             if (!isArchived) anyUnarchived = true
+                            if (statusRank(status) > statusRank(bestStatus)) {
+                                bestStatus = status
+                            }
+                            if (bestContentType == "WEBSITE" && contentType != "WEBSITE") {
+                                bestContentType = contentType
+                            }
                         }
                     }
 
@@ -133,7 +154,9 @@ abstract class LaterboxDatabase : RoomDatabase() {
                                 personal_note = ?,
                                 collection_id = ?,
                                 is_read = ?,
-                                is_archived = ?
+                                is_archived = ?,
+                                metadata_status = ?,
+                                content_type = ?
                             WHERE id = ?
                             """.trimIndent(),
                             arrayOf<Any?>(
@@ -144,8 +167,10 @@ abstract class LaterboxDatabase : RoomDatabase() {
                                 bestImage,
                                 mergedNote,
                                 bestCollectionId,
-                                if (anyUnread) 0 else 1,
+                                if (anyRead) 1 else 0,
                                 if (anyUnarchived) 0 else 1,
+                                bestStatus,
+                                bestContentType,
                                 finalKeeperId
                             )
                         )
