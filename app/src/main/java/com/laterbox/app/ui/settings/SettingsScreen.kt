@@ -116,6 +116,11 @@ fun SettingsScreen(
     onAccessibilityCaptureEnabledChange: (Boolean) -> Unit = {},
     onClipboardSuggestionEnabledChange: (Boolean) -> Unit = {},
     onToggleExcludedPackage: (String) -> Unit = {},
+    isCheckingUpdate: Boolean = false,
+    availableUpdateInfo: com.laterbox.app.update.AppUpdateInfo? = null,
+    onCheckForUpdates: () -> Unit = {},
+    onDismissUpdateDialog: () -> Unit = {},
+    onPostponeUpdate: (String) -> Unit = {},
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1058,6 +1063,13 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(spacing.xs))
 
                     LaterboxSecondaryButton(
+                        text = if (isCheckingUpdate) "Checking for updates..." else "Check for updates",
+                        enabled = !isCheckingUpdate,
+                        onClick = onCheckForUpdates,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    LaterboxSecondaryButton(
                         text = "Open Source Licenses & Typography",
                         onClick = { showLicensesDialog = true },
                         modifier = Modifier.fillMaxWidth()
@@ -1066,6 +1078,15 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(80.dp))
+        }
+
+        // App Update Dialog
+        if (availableUpdateInfo != null) {
+            com.laterbox.app.update.AppUpdateDialog(
+                updateInfo = availableUpdateInfo,
+                onDismiss = onDismissUpdateDialog,
+                onPostpone = onPostponeUpdate
+            )
         }
 
         // Licenses Dialog

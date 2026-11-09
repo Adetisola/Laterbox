@@ -65,7 +65,7 @@ class SelectionPromptDeduplicator {
         }
     }
 
-    fun shouldDismissOnWindowStateChange(newPackageName: String?): Boolean {
+    fun shouldDismissOnWindowStateChange(newPackageName: String?, ownPackageName: String? = null): Boolean {
         if (newPackageName == null) return false
         if (currentlyShownUrl == null) return false
 
@@ -74,8 +74,8 @@ class SelectionPromptDeduplicator {
             return false
         }
 
-        // Do not dismiss if the same app package is active
-        if (newPackageName == activeSourcePackage) {
+        // Do not dismiss if the same app package is active or if Laterbox itself is showing
+        if (newPackageName == activeSourcePackage || (ownPackageName != null && newPackageName == ownPackageName)) {
             return false
         }
 

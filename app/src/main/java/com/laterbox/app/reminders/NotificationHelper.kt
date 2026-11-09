@@ -126,18 +126,36 @@ object NotificationHelper {
             createdAt = System.currentTimeMillis()
         ) ?: -1L
 
-        // 4. Intent routing: routes via NotificationOpenActivity to mark link & history as read
-        val openIntent = NotificationOpenActivity.createIntent(
+        // 4. Intent routing:
+        // Body tap routes to in-app link detail sheet in Laterbox
+        val openDetailIntent = NotificationOpenActivity.createIntent(
             context = context,
             linkId = effectiveLink.id,
             url = effectiveLink.originalUrl,
             notificationRecordId = notificationRecordId,
-            notificationId = notificationId
+            notificationId = notificationId,
+            mode = NotificationOpenActivity.MODE_OPEN_LINK_DETAIL
         )
         val contentPendingIntent = PendingIntent.getActivity(
             context,
             effectiveLink.id.hashCode(),
-            openIntent,
+            openDetailIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action: "Open Link" button routes directly to external browser
+        val openBrowserIntent = NotificationOpenActivity.createIntent(
+            context = context,
+            linkId = effectiveLink.id,
+            url = effectiveLink.originalUrl,
+            notificationRecordId = notificationRecordId,
+            notificationId = notificationId,
+            mode = NotificationOpenActivity.MODE_OPEN_BROWSER
+        )
+        val openBrowserPendingIntent = PendingIntent.getActivity(
+            context,
+            (effectiveLink.id + 200_000L).hashCode(),
+            openBrowserIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -178,7 +196,7 @@ object NotificationHelper {
             .addAction(
                 R.drawable.ic_huge_arrow_up_right,
                 "Open Link",
-                contentPendingIntent
+                openBrowserPendingIntent
             )
             .addAction(
                 R.drawable.ic_huge_close,

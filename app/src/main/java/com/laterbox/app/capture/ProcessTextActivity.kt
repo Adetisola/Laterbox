@@ -153,18 +153,17 @@ class ProcessTextActivity : ComponentActivity() {
                                         onReminderAtChange = saveLinkViewModel::onReminderAtChange,
                                         onSaveClick = {
                                             saveLinkViewModel.onSave(
-                                                onSuccess = {
+                                                onSuccess = { isUpdate ->
                                                     coroutineScope.launch {
                                                         selectedCandidateUrl?.let { url ->
                                                             userPrefsRepo.recordHandledClipboardHash(
                                                                 ClipboardSuggestionManager.computeHash(url)
                                                             )
                                                         }
-                                                        Toast.makeText(
+                                                        com.laterbox.app.ui.util.SaveFeedbackHelper.showSaveSuccess(
                                                             this@ProcessTextActivity,
-                                                            "Saved to Laterbox",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
+                                                            isUpdate
+                                                        )
                                                         finish()
                                                     }
                                                 }

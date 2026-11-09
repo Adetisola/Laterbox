@@ -142,9 +142,9 @@ class QuickSaveActivity : ComponentActivity() {
                                     onToggleCollection = saveLinkViewModel::onToggleCollection,
                                     onCreateCollection = saveLinkViewModel::onCreateCollection,
                                     onReminderAtChange = saveLinkViewModel::onReminderAtChange,
-                                    onSaveClick = {
+                                     onSaveClick = {
                                         saveLinkViewModel.onSave(
-                                            onSuccess = {
+                                            onSuccess = { isUpdate ->
                                                 coroutineScope.launch {
                                                     val savedUrl = detectedUrl ?: uiState.url
                                                     if (savedUrl.isNotBlank()) {
@@ -152,11 +152,10 @@ class QuickSaveActivity : ComponentActivity() {
                                                             ClipboardSuggestionManager.computeHash(savedUrl)
                                                         )
                                                     }
-                                                    Toast.makeText(
+                                                    com.laterbox.app.ui.util.SaveFeedbackHelper.showSaveSuccess(
                                                         this@QuickSaveActivity,
-                                                        "Saved to Laterbox",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
+                                                        isUpdate
+                                                    )
                                                     finish()
                                                 }
                                             }

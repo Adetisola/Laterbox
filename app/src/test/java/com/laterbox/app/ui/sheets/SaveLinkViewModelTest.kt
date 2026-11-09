@@ -303,5 +303,32 @@ class SaveLinkViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun saveLinkViewModel_reportsIsUpdateCorrectly() = runTest(testDispatcher) {
+        val viewModel = createViewModel()
+        viewModel.onUrlChange("https://example.com/new-entry")
+        advanceUntilIdle()
+
+        var isUpdateReceived: Boolean? = null
+        viewModel.onSave { isUpdate ->
+            isUpdateReceived = isUpdate
+        }
+        advanceUntilIdle()
+        assertEquals(false, isUpdateReceived)
+
+        // Now save with duplicate URL
+        val viewModel2 = createViewModel()
+        viewModel2.onUrlChange("https://example.com/new-entry")
+        advanceTimeBy(300)
+        advanceUntilIdle()
+
+        var isUpdateReceived2: Boolean? = null
+        viewModel2.onSave { isUpdate ->
+            isUpdateReceived2 = isUpdate
+        }
+        advanceUntilIdle()
+        assertEquals(true, isUpdateReceived2)
+    }
 }
 

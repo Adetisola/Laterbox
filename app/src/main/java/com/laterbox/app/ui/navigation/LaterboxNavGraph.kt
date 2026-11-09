@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
+import com.laterbox.app.ui.util.SaveFeedbackHelper
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -27,7 +28,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.laterbox.app.update.AppUpdateDialog
+import com.laterbox.app.update.AppUpdateInfo
+import com.laterbox.app.update.GitHubUpdateChecker
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -53,12 +58,17 @@ import com.laterbox.app.ui.sheets.SaveLinkViewModel
 import com.laterbox.app.ui.sheets.SavedItemDetailSheet
 import com.laterbox.app.ui.sheets.SavedItemDetailViewModel
 import com.laterbox.app.ui.theme.LaterboxTheme
-import com.laterbox.app.ui.util.BrowserLauncher
+import com.laterbox.app.LaterboxApplication
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LaterboxApp(modifier: Modifier = Modifier) {
+fun LaterboxApp(
+    modifier: Modifier = Modifier,
+    initialOpenLinkId: Long? = null,
+    onClearOpenLinkId: () -> Unit = {}
+) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -90,6 +100,47 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
     val saveSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(initialOpenLinkId) {
+        val targetId = initialOpenLinkId ?: return@LaunchedEffect
+        val app = context.applicationContext as? LaterboxApplication
+        try {
+            val link = app?.container?.linkRepository?.getLinkById(targetId)?.first()
+            if (link != null) {
+                savedItemDetailViewModel.setLink(link)
+                selectedLinkForDetails = link
+            }
+        } catch (_: Exception) {}
+        onClearOpenLinkId()
+    }
+
+    var appUpdateInfoToPrompt by remember { mutableStateOf<AppUpdateInfo?>(null) }
+
+    LifecycleResumeEffect(Unit) {
+        val checkJob = coroutineScope.launch {
+            val sixHoursMs = 6L * 60 * 60 * 1000L
+            val oneDayMs = 24L * 60 * 60 * 1000L
+            val now = System.currentTimeMillis()
+            val app = context.applicationContext as? LaterboxApplication
+            val prefsRepo = app?.container?.userPreferencesRepository
+            val prefs = prefsRepo?.userPreferencesFlow?.first() ?: return@launch
+            if (now - prefs.lastUpdateCheckTime >= sixHoursMs) {
+                prefsRepo.recordUpdateCheck(now)
+                val result = GitHubUpdateChecker.checkForUpdate(com.laterbox.app.BuildConfig.VERSION_NAME)
+                val info = result.getOrNull()
+                if (info != null && info.isNewer) {
+                    val isDismissedRecently = prefs.dismissedUpdateVersion == info.versionName &&
+                        (now - prefs.dismissedUpdateTimestamp < oneDayMs)
+                    if (!isDismissedRecently) {
+                        appUpdateInfoToPrompt = info
+                    }
+                }
+            }
+        }
+        onPauseOrDispose {
+            checkJob.cancel()
+        }
+    }
 
     val handleOpenLink: (SavedLink) -> Unit = { link ->
         BrowserLauncher.openUrl(context, link.originalUrl, colors)
@@ -191,12 +242,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                             inboxViewModel.saveClipboardSuggestion(
                                 suggestion = suggestion,
                                 onSuccess = {
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            message = "Saved to Laterbox",
-                                            duration = SnackbarDuration.Short
-                                        )
-                                    }
+                                    SaveFeedbackHelper.showSaveSuccess(context, isUpdate = false)
                                 }
                             )
                         },
@@ -280,8 +326,20 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                 composable(LaterboxDestination.Settings.route) {
                     val preferences by settingsViewModel.preferences.collectAsState()
                     val aiConnectionStatus by settingsViewModel.aiConnectionStatus.collectAsState()
+                    val isCheckingUpdate by settingsViewModel.isCheckingUpdate.collectAsState()
+                    val availableUpdateInfo by settingsViewModel.updateCheckResult.collectAsState()
+
                     SettingsScreen(
                         preferences = preferences,
+                        isCheckingUpdate = isCheckingUpdate,
+                        availableUpdateInfo = availableUpdateInfo,
+                        onCheckForUpdates = {
+                            settingsViewModel.checkForUpdates { msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDismissUpdateDialog = settingsViewModel::dismissUpdateDialog,
+                        onPostponeUpdate = settingsViewModel::postponeUpdate,
                         onThemeModeChange = settingsViewModel::setThemeMode,
                         onUserNameChange = settingsViewModel::setUserName,
                         onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
@@ -369,7 +427,8 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
             onCreateCollection = saveLinkViewModel::onCreateCollection,
             onReminderAtChange = saveLinkViewModel::onReminderAtChange,
             onSaveClick = {
-                saveLinkViewModel.onSave {
+                saveLinkViewModel.onSave { isUpdate ->
+                    SaveFeedbackHelper.showSaveSuccess(context, isUpdate)
                     coroutineScope.launch {
                         saveSheetState.hide()
                         showSaveSheet = false
@@ -398,6 +457,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
             onSetReminder = savedItemDetailViewModel::onSetReminder,
             onSaveEdits = {
                 savedItemDetailViewModel.onSaveEdits {
+                    SaveFeedbackHelper.showSaveSuccess(context, isUpdate = true)
                     coroutineScope.launch {
                         detailSheetState.hide()
                         selectedLinkForDetails = null
@@ -451,6 +511,20 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                 coroutineScope.launch {
                     detailSheetState.hide()
                     selectedLinkForDetails = null
+                }
+            }
+        )
+    }
+
+    if (appUpdateInfoToPrompt != null) {
+        AppUpdateDialog(
+            updateInfo = appUpdateInfoToPrompt!!,
+            onDismiss = { appUpdateInfoToPrompt = null },
+            onPostpone = { version ->
+                appUpdateInfoToPrompt = null
+                coroutineScope.launch {
+                    val app = context.applicationContext as? LaterboxApplication
+                    app?.container?.userPreferencesRepository?.dismissUpdate(version)
                 }
             }
         )

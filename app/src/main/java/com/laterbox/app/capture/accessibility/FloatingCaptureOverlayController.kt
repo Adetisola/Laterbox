@@ -2,26 +2,38 @@ package com.laterbox.app.capture.accessibility
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Rect
-import android.graphics.drawable.GradientDrawable
+import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
-import com.laterbox.app.R
 import com.laterbox.app.ui.components.LaterboxIcons
+import kotlin.math.hypot
+
+enum class OverlayState {
+    IDLE,
+    PRESENTING,
+    DRAGGING,
+    DISMISSED
+}
 
 /**
- * Manages the floating contextual capture prompt overlaid via WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY.
+ * Manages the draggable, contextual capture prompt overlaid via WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY.
  */
 class FloatingCaptureOverlayController(
     private val context: Context,
@@ -29,24 +41,36 @@ class FloatingCaptureOverlayController(
 ) {
 
     companion object {
-        private const val AUTO_DISMISS_DELAY_MS = 5000L
+        const val AUTO_DISMISS_DELAY_MS = 5000L
     }
 
     private var currentView: View? = null
-    private val handler = Handler(Looper.getMainLooper())
-    private var dismissRunnable: Runnable? = null
+    private var countdownAnimator: ValueAnimator? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var sessionGeneration: Long = 0L
+    var currentState: OverlayState = OverlayState.IDLE
+        private set
 
     val isShowing: Boolean
-        get() = currentView != null
+        get() = currentState == OverlayState.PRESENTING || currentState == OverlayState.DRAGGING
 
+    @SuppressLint("ClickableViewAccessibility")
     fun showPrompt(
         domain: String,
         url: String,
-        boundsInScreen: Rect?,
+        boundsInScreen: Rect? = null,
+        initialXRatio: Float = 0.5f,
+        initialYRatio: Float = 0.82f,
+        onPositionChanged: ((xRatio: Float, yRatio: Float) -> Unit)? = null,
         onSave: () -> Unit,
         onDismiss: () -> Unit
     ) {
         dismissImmediately()
+
+        sessionGeneration++
+        val sessionId = sessionGeneration
+        currentState = OverlayState.PRESENTING
 
         val density = context.resources.displayMetrics.density
         val screenWidth = context.resources.displayMetrics.widthPixels
@@ -54,29 +78,32 @@ class FloatingCaptureOverlayController(
 
         fun dp(value: Float): Int = (value * density + 0.5f).toInt()
 
-        // Create Root Pill Layout
+        // Create Clockwise Countdown Border Drawable
+        val borderDrawable = CountdownBorderDrawable(
+            cornerRadius = dp(24f).toFloat(),
+            strokeWidth = dp(1.5f).toFloat(),
+            backgroundColor = Color.parseColor("#22201D"),
+            baseBorderColor = Color.parseColor("#3D3934"),
+            progressBorderColor = Color.parseColor("#E0A96D")
+        )
+
+        // Root Pill Layout
         val rootLayout = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12f), dp(6f), dp(8f), dp(6f))
             elevation = dp(6f).toFloat()
-
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(24f).toFloat()
-                setColor(Color.parseColor("#22201D")) // Laterbox dark surface
-                setStroke(dp(1f), Color.parseColor("#3D3934")) // Laterbox border subtle
-            }
+            background = borderDrawable
         }
 
-        // Leading Globe / Link Icon
+        // Leading Drag Affordance / Globe Icon
         val iconView = ImageView(context).apply {
             val size = dp(18f)
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
                 marginEnd = dp(8f)
             }
             setImageResource(LaterboxIcons.Globe)
-            setColorFilter(Color.parseColor("#E0A96D")) // Laterbox accent primary
+            setColorFilter(Color.parseColor("#E0A96D"))
         }
         rootLayout.addView(iconView)
 
@@ -92,7 +119,7 @@ class FloatingCaptureOverlayController(
             text = "Save to Laterbox"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
             setTextColor(Color.parseColor("#F5F2EB"))
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTypeface(typeface, Typeface.BOLD)
             maxLines = 1
         }
         textContainer.addView(titleView)
@@ -102,7 +129,7 @@ class FloatingCaptureOverlayController(
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
             setTextColor(Color.parseColor("#B3ABA0"))
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            ellipsize = TextUtils.TruncateAt.END
         }
         textContainer.addView(domainView)
 
@@ -113,15 +140,16 @@ class FloatingCaptureOverlayController(
             text = "Save"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setTextColor(Color.parseColor("#1B1A18"))
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             setPadding(dp(12f), dp(5f), dp(12f), dp(5f))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.RECTANGLE
                 cornerRadius = dp(14f).toFloat()
-                setColor(Color.parseColor("#E0A96D")) // Accent primary
+                setColor(Color.parseColor("#E0A96D"))
             }
             setOnClickListener {
+                if (sessionId != sessionGeneration) return@setOnClickListener
                 dismissImmediately()
                 onSave()
             }
@@ -136,15 +164,34 @@ class FloatingCaptureOverlayController(
             gravity = Gravity.CENTER
             setPadding(dp(8f), dp(4f), dp(6f), dp(4f))
             setOnClickListener {
-                dismissImmediately()
-                onDismiss()
+                if (sessionId != sessionGeneration) return@setOnClickListener
+                dismissWithAnimation(onDismiss)
             }
         }
         rootLayout.addView(closeButton)
 
-        // Window Layout Parameters
-        val estimatedPillWidth = dp(270f)
-        val estimatedPillHeight = dp(52f)
+        // Boundaries calculation
+        val safeSideMargin = dp(16f)
+        val safeTopMargin = dp(48f)
+        val safeBottomMargin = dp(76f)
+
+        // Estimated initial bounds before first layout pass
+        var currentPillWidth = dp(270f)
+        var currentPillHeight = dp(52f)
+
+        fun calculateClampedX(ratio: Float, pillWidth: Int): Int {
+            val minX = safeSideMargin
+            val maxX = (screenWidth - pillWidth - safeSideMargin).coerceAtLeast(minX)
+            val range = maxX - minX
+            return (minX + range * ratio).toInt().coerceIn(minX, maxX)
+        }
+
+        fun calculateClampedY(ratio: Float, pillHeight: Int): Int {
+            val minY = safeTopMargin
+            val maxY = (screenHeight - pillHeight - safeBottomMargin).coerceAtLeast(minY)
+            val range = maxY - minY
+            return (minY + range * ratio).toInt().coerceIn(minY, maxY)
+        }
 
         val layoutParams = WindowManager.LayoutParams().apply {
             type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
@@ -154,37 +201,103 @@ class FloatingCaptureOverlayController(
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
             width = WindowManager.LayoutParams.WRAP_CONTENT
             height = WindowManager.LayoutParams.WRAP_CONTENT
+            gravity = Gravity.TOP or Gravity.START
+            x = calculateClampedX(initialXRatio, currentPillWidth)
+            y = calculateClampedY(initialYRatio, currentPillHeight)
         }
 
-        // Calculate Position: Relative to selection bounds if reliable, safe bottom fallback otherwise
-        val safeBottomMargin = dp(76f)
-        val safeSideMargin = dp(16f)
-
-        if (boundsInScreen != null &&
-            !boundsInScreen.isEmpty &&
-            boundsInScreen.width() > 0 &&
-            boundsInScreen.width() < (screenWidth * 0.90f) &&
-            boundsInScreen.height() > 0 &&
-            boundsInScreen.height() < (screenHeight * 0.80f)
-        ) {
-            layoutParams.gravity = Gravity.TOP or Gravity.START
-
-            // Center horizontally on selection bounds, clamped within safe margins
-            val targetX = boundsInScreen.centerX() - (estimatedPillWidth / 2)
-            layoutParams.x = targetX.coerceIn(safeSideMargin, screenWidth - estimatedPillWidth - safeSideMargin)
-
-            // Prefer below selection; if too close to bottom, position above selection
-            val spaceBelow = screenHeight - boundsInScreen.bottom - safeBottomMargin
-            if (spaceBelow >= estimatedPillHeight + dp(12f)) {
-                layoutParams.y = boundsInScreen.bottom + dp(10f)
-            } else {
-                layoutParams.y = (boundsInScreen.top - estimatedPillHeight - dp(10f)).coerceAtLeast(dp(40f))
+        // Post-layout measurement listener to adjust clamping to exact rendered size
+        rootLayout.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (sessionId != sessionGeneration || currentState == OverlayState.DISMISSED) return@addOnLayoutChangeListener
+            val measuredWidth = right - left
+            val measuredHeight = bottom - top
+            if (measuredWidth > 0 && measuredHeight > 0 && (measuredWidth != currentPillWidth || measuredHeight != currentPillHeight)) {
+                currentPillWidth = measuredWidth
+                currentPillHeight = measuredHeight
+                if (currentState != OverlayState.DRAGGING) {
+                    layoutParams.x = calculateClampedX(initialXRatio, currentPillWidth)
+                    layoutParams.y = calculateClampedY(initialYRatio, currentPillHeight)
+                    try {
+                        windowManager.updateViewLayout(rootLayout, layoutParams)
+                    } catch (_: Exception) {}
+                }
             }
-        } else {
-            // Safe bottom fallback positioned above navigation bar
-            layoutParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            layoutParams.x = 0
-            layoutParams.y = safeBottomMargin
+        }
+
+        // Drag handling on the pill body
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var initialLayoutX = 0
+        var initialLayoutY = 0
+        var isDraggingPill = false
+
+        rootLayout.setOnTouchListener { _, event ->
+            if (sessionId != sessionGeneration || currentState == OverlayState.DISMISSED) return@setOnTouchListener false
+
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    initialLayoutX = layoutParams.x
+                    initialLayoutY = layoutParams.y
+                    isDraggingPill = false
+                    false // Allow child views to receive down
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - initialTouchX
+                    val dy = event.rawY - initialTouchY
+
+                    if (!isDraggingPill && hypot(dx, dy) > touchSlop) {
+                        isDraggingPill = true
+                        currentState = OverlayState.DRAGGING
+                        countdownAnimator?.pause()
+                    }
+
+                    if (isDraggingPill) {
+                        val minX = safeSideMargin
+                        val maxX = (screenWidth - currentPillWidth - safeSideMargin).coerceAtLeast(minX)
+                        val minY = safeTopMargin
+                        val maxY = (screenHeight - currentPillHeight - safeBottomMargin).coerceAtLeast(minY)
+
+                        layoutParams.x = (initialLayoutX + dx.toInt()).coerceIn(minX, maxX)
+                        layoutParams.y = (initialLayoutY + dy.toInt()).coerceIn(minY, maxY)
+                        try {
+                            windowManager.updateViewLayout(rootLayout, layoutParams)
+                        } catch (_: Exception) {}
+                        true
+                    } else {
+                        false
+                    }
+                }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isDraggingPill) {
+                        isDraggingPill = false
+                        currentState = OverlayState.PRESENTING
+
+                        val minX = safeSideMargin
+                        val maxX = (screenWidth - currentPillWidth - safeSideMargin).coerceAtLeast(minX)
+                        val minY = safeTopMargin
+                        val maxY = (screenHeight - currentPillHeight - safeBottomMargin).coerceAtLeast(minY)
+
+                        val rangeX = (maxX - minX).coerceAtLeast(1)
+                        val rangeY = (maxY - minY).coerceAtLeast(1)
+
+                        val newXRatio = ((layoutParams.x - minX).toFloat() / rangeX).coerceIn(0f, 1f)
+                        val newYRatio = ((layoutParams.y - minY).toFloat() / rangeY).coerceIn(0f, 1f)
+
+                        onPositionChanged?.invoke(newXRatio, newYRatio)
+                        countdownAnimator?.resume()
+                        true
+                    } else {
+                        false
+                    }
+                }
+
+                else -> false
+            }
         }
 
         // Entrance animation
@@ -201,21 +314,37 @@ class FloatingCaptureOverlayController(
                 .setDuration(180)
                 .start()
 
-            // Schedule auto-dismiss
-            val autoDismissRunnable = Runnable {
-                dismissWithAnimation(onDismiss)
+            // Synchronized Countdown Animator (single timing source for border and dismissal)
+            val animator = ValueAnimator.ofFloat(1f, 0f).apply {
+                duration = AUTO_DISMISS_DELAY_MS
+                interpolator = LinearInterpolator()
+                addUpdateListener { va ->
+                    if (sessionId == sessionGeneration && currentState != OverlayState.DISMISSED) {
+                        borderDrawable.progress = va.animatedValue as Float
+                    }
+                }
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        if (sessionId == sessionGeneration && currentState == OverlayState.PRESENTING) {
+                            dismissWithAnimation(onDismiss)
+                        }
+                    }
+                })
             }
-            dismissRunnable = autoDismissRunnable
-            handler.postDelayed(autoDismissRunnable, AUTO_DISMISS_DELAY_MS)
+            countdownAnimator = animator
+            animator.start()
         } catch (_: Exception) {
-            // Ignore WindowManager addView failures
             currentView = null
+            currentState = OverlayState.IDLE
         }
     }
 
     fun dismissImmediately() {
-        dismissRunnable?.let { handler.removeCallbacks(it) }
-        dismissRunnable = null
+        sessionGeneration++
+        currentState = OverlayState.DISMISSED
+
+        countdownAnimator?.cancel()
+        countdownAnimator = null
 
         val view = currentView ?: return
         currentView = null
@@ -227,8 +356,11 @@ class FloatingCaptureOverlayController(
     }
 
     fun dismissWithAnimation(onDismiss: (() -> Unit)? = null) {
-        dismissRunnable?.let { handler.removeCallbacks(it) }
-        dismissRunnable = null
+        val sessionId = sessionGeneration
+        currentState = OverlayState.DISMISSED
+
+        countdownAnimator?.cancel()
+        countdownAnimator = null
 
         val view = currentView ?: return
         currentView = null
@@ -243,7 +375,9 @@ class FloatingCaptureOverlayController(
                     try {
                         windowManager.removeView(view)
                     } catch (_: Exception) {}
-                    onDismiss?.invoke()
+                    if (sessionId == sessionGeneration) {
+                        onDismiss?.invoke()
+                    }
                 }
             })
             .start()

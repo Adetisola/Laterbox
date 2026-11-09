@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -88,7 +89,12 @@ data class UserPreferences(
     val accessibilityCaptureEnabled: Boolean = false,
     val clipboardSuggestionEnabled: Boolean = true,
     val recentClipboardHistory: Set<String> = emptySet(),
-    val excludedCapturePackages: Set<String> = emptySet()
+    val excludedCapturePackages: Set<String> = emptySet(),
+    val overlayXRatio: Float = 0.5f,
+    val overlayYRatio: Float = 0.82f,
+    val lastUpdateCheckTime: Long = 0L,
+    val dismissedUpdateVersion: String = "",
+    val dismissedUpdateTimestamp: Long = 0L
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 
@@ -174,6 +180,11 @@ class UserPreferencesRepository(private val context: Context) {
         val CLIPBOARD_SUGGESTION_ENABLED = booleanPreferencesKey("clipboard_suggestion_enabled")
         val RECENT_CLIPBOARD_HISTORY = stringSetPreferencesKey("recent_clipboard_history")
         val EXCLUDED_CAPTURE_PACKAGES = stringSetPreferencesKey("excluded_capture_packages")
+        val OVERLAY_X_RATIO = floatPreferencesKey("overlay_x_ratio")
+        val OVERLAY_Y_RATIO = floatPreferencesKey("overlay_y_ratio")
+        val LAST_UPDATE_CHECK_TIME = longPreferencesKey("last_update_check_time")
+        val DISMISSED_UPDATE_VERSION = stringPreferencesKey("dismissed_update_version")
+        val DISMISSED_UPDATE_TIMESTAMP = longPreferencesKey("dismissed_update_timestamp")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -280,6 +291,11 @@ class UserPreferencesRepository(private val context: Context) {
         val clipboardSuggestionEnabled = preferences[PreferencesKeys.CLIPBOARD_SUGGESTION_ENABLED] ?: true
         val recentClipboardHistory = preferences[PreferencesKeys.RECENT_CLIPBOARD_HISTORY] ?: emptySet()
         val excludedCapturePackages = preferences[PreferencesKeys.EXCLUDED_CAPTURE_PACKAGES] ?: emptySet()
+        val overlayXRatio = preferences[PreferencesKeys.OVERLAY_X_RATIO] ?: 0.5f
+        val overlayYRatio = preferences[PreferencesKeys.OVERLAY_Y_RATIO] ?: 0.82f
+        val lastUpdateCheckTime = preferences[PreferencesKeys.LAST_UPDATE_CHECK_TIME] ?: 0L
+        val dismissedUpdateVersion = preferences[PreferencesKeys.DISMISSED_UPDATE_VERSION] ?: ""
+        val dismissedUpdateTimestamp = preferences[PreferencesKeys.DISMISSED_UPDATE_TIMESTAMP] ?: 0L
 
         UserPreferences(
             themeMode = themeMode,
@@ -313,7 +329,12 @@ class UserPreferencesRepository(private val context: Context) {
             accessibilityCaptureEnabled = accessibilityCaptureEnabled,
             clipboardSuggestionEnabled = clipboardSuggestionEnabled,
             recentClipboardHistory = recentClipboardHistory,
-            excludedCapturePackages = excludedCapturePackages
+            excludedCapturePackages = excludedCapturePackages,
+            overlayXRatio = overlayXRatio,
+            overlayYRatio = overlayYRatio,
+            lastUpdateCheckTime = lastUpdateCheckTime,
+            dismissedUpdateVersion = dismissedUpdateVersion,
+            dismissedUpdateTimestamp = dismissedUpdateTimestamp
         )
     }
 
@@ -524,6 +545,26 @@ class UserPreferencesRepository(private val context: Context) {
             val current = preferences[PreferencesKeys.EXCLUDED_CAPTURE_PACKAGES] ?: emptySet()
             val updated = if (current.contains(packageName)) current - packageName else current + packageName
             preferences[PreferencesKeys.EXCLUDED_CAPTURE_PACKAGES] = updated
+        }
+    }
+
+    suspend fun setOverlayPosition(xRatio: Float, yRatio: Float) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.OVERLAY_X_RATIO] = xRatio.coerceIn(0f, 1f)
+            preferences[PreferencesKeys.OVERLAY_Y_RATIO] = yRatio.coerceIn(0f, 1f)
+        }
+    }
+
+    suspend fun recordUpdateCheck(timestamp: Long = System.currentTimeMillis()) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.LAST_UPDATE_CHECK_TIME] = timestamp
+        }
+    }
+
+    suspend fun dismissUpdate(version: String, timestamp: Long = System.currentTimeMillis()) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.DISMISSED_UPDATE_VERSION] = version
+            preferences[PreferencesKeys.DISMISSED_UPDATE_TIMESTAMP] = timestamp
         }
     }
 }

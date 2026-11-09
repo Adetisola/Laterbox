@@ -252,4 +252,47 @@ class SettingsViewModel(
     suspend fun importBackup(inputStream: InputStream): Result<BackupRestoreResult> {
         return backupManager.importFromJson(inputStream)
     }
+
+    private val _isCheckingUpdate = MutableStateFlow(false)
+    val isCheckingUpdate: StateFlow<Boolean> = _isCheckingUpdate.asStateFlow()
+
+    private val _updateCheckResult = MutableStateFlow<com.laterbox.app.update.AppUpdateInfo?>(null)
+    val updateCheckResult: StateFlow<com.laterbox.app.update.AppUpdateInfo?> = _updateCheckResult.asStateFlow()
+
+    fun checkForUpdates(
+        currentVersion: String = com.laterbox.app.BuildConfig.VERSION_NAME,
+        onResult: (String) -> Unit = {}
+    ) {
+        if (_isCheckingUpdate.value) return
+        viewModelScope.launch {
+            _isCheckingUpdate.value = true
+            try {
+                val res = com.laterbox.app.update.GitHubUpdateChecker.checkForUpdate(currentVersion)
+                val info = res.getOrNull()
+                userPreferencesRepository.recordUpdateCheck()
+                if (info != null && info.isNewer) {
+                    _updateCheckResult.value = info
+                } else if (info != null && !info.isNewer) {
+                    onResult("Laterbox is up to date (v$currentVersion)")
+                } else {
+                    onResult("No update available")
+                }
+            } catch (e: Exception) {
+                onResult("Could not check for updates. Check your connection.")
+            } finally {
+                _isCheckingUpdate.value = false
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _updateCheckResult.value = null
+    }
+
+    fun postponeUpdate(version: String) {
+        _updateCheckResult.value = null
+        viewModelScope.launch {
+            userPreferencesRepository.dismissUpdate(version)
+        }
+    }
 }

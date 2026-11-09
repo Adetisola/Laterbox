@@ -36,6 +36,8 @@ class LaterboxSelectionAccessibilityService : AccessibilityService() {
 
     private var isFeatureEnabled = false
     private var excludedPackages = emptySet<String>()
+    private var overlayXRatio = 0.5f
+    private var overlayYRatio = 0.82f
     private var debounceJob: Job? = null
 
     override fun onCreate() {
@@ -52,6 +54,8 @@ class LaterboxSelectionAccessibilityService : AccessibilityService() {
                 userPreferencesRepository?.userPreferences?.collectLatest { prefs ->
                     isFeatureEnabled = prefs.accessibilityCaptureEnabled
                     excludedPackages = prefs.excludedCapturePackages
+                    overlayXRatio = prefs.overlayXRatio
+                    overlayYRatio = prefs.overlayYRatio
 
                     if (!isFeatureEnabled && overlayController.isShowing) {
                         overlayController.dismissImmediately()
@@ -70,7 +74,7 @@ class LaterboxSelectionAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 val newPackage = event.packageName?.toString()
-                if (deduplicator.shouldDismissOnWindowStateChange(newPackage)) {
+                if (deduplicator.shouldDismissOnWindowStateChange(newPackage, packageName)) {
                     overlayController.dismissImmediately()
                     deduplicator.clear()
                 }
@@ -85,11 +89,9 @@ class LaterboxSelectionAccessibilityService : AccessibilityService() {
 
                 when (outcome) {
                     is SelectionEventOutcome.SelectionCleared -> {
+                        // Cancel pending candidate debounce, but do NOT prematurely dismiss
+                        // an already visible capture prompt (e.g. when native action mode or focus shifts)
                         debounceJob?.cancel()
-                        if (overlayController.isShowing) {
-                            overlayController.dismissWithAnimation()
-                        }
-                        deduplicator.clear()
                     }
 
                     is SelectionEventOutcome.CandidateText -> {
@@ -124,6 +126,15 @@ class LaterboxSelectionAccessibilityService : AccessibilityService() {
             domain = extraction.domain,
             url = extraction.normalizedUrl,
             boundsInScreen = candidate.boundsInScreen,
+            initialXRatio = overlayXRatio,
+            initialYRatio = overlayYRatio,
+            onPositionChanged = { newX, newY ->
+                overlayXRatio = newX
+                overlayYRatio = newY
+                serviceScope.launch {
+                    userPreferencesRepository?.setOverlayPosition(newX, newY)
+                }
+            },
             onSave = {
                 deduplicator.markPromptSaved(extraction.normalizedUrl)
                 val intent = Intent(this@LaterboxSelectionAccessibilityService, QuickSaveActivity::class.java).apply {

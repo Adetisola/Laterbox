@@ -240,7 +240,7 @@ class SaveLinkViewModel(
         }
     }
 
-    fun onSave(onSuccess: () -> Unit) {
+    fun onSave(onSuccess: (isUpdate: Boolean) -> Unit) {
         if (_isSaving.value || _isSavedSuccess.value) return
 
         val rawUrl = _url.value.trim()
@@ -261,6 +261,7 @@ class SaveLinkViewModel(
             _isSaving.value = true
             try {
                 val existing = _duplicateLink.value
+                val isUpdate = existing != null
                 val chosenColIds = _selectedCollectionIds.value.toList()
                 val chosenReminder = _reminderAt.value
                 if (existing != null) {
@@ -289,11 +290,15 @@ class SaveLinkViewModel(
                     )
                 }
                 _isSavedSuccess.value = true
-                onSuccess()
+                onSuccess(isUpdate)
             } finally {
                 _isSaving.value = false
             }
         }
+    }
+
+    fun onSave(onSuccess: () -> Unit) {
+        onSave { _ -> onSuccess() }
     }
 
     fun reset() {

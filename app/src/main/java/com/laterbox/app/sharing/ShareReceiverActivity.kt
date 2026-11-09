@@ -121,11 +121,15 @@ class ShareReceiverActivity : ComponentActivity() {
                                 onReminderAtChange = saveLinkViewModel::onReminderAtChange,
                                 onSaveClick = {
                                     saveLinkViewModel.onSave(
-                                        onSuccess = {
+                                        onSuccess = { isUpdate ->
                                             val savedUrl = parsed.url
                                             coroutineScope.launch {
                                                 userPrefsRepo.recordHandledClipboardHash(
                                                     com.laterbox.app.capture.ClipboardSuggestionManager.computeHash(savedUrl)
+                                                )
+                                                com.laterbox.app.ui.util.SaveFeedbackHelper.showSaveSuccess(
+                                                    this@ShareReceiverActivity,
+                                                    isUpdate
                                                 )
                                                 finish()
                                             }

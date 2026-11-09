@@ -13,7 +13,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import kotlinx.coroutines.Job
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -126,8 +128,11 @@ fun InboxScreen(
     var showDateFilterRow by rememberSaveable { mutableStateOf(false) }
     var collapsedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
 
+    var scrollJob by remember { mutableStateOf<Job?>(null) }
     val showJumpToTop by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 6 }
+        derivedStateOf {
+            (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) && listState.firstVisibleItemIndex >= 3
+        }
     }
     val isFabExpanded by remember {
         derivedStateOf {
@@ -526,12 +531,54 @@ fun InboxScreen(
             }
         }
 
-        // Floating Bottom-Right Action Button (+ Add Link) [UX15, UX17]
-        Box(
+        // Floating Action Buttons (Jump to Top stacked directly above Add Link FAB)
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 96.dp)
+                .padding(end = 20.dp, bottom = 96.dp),
+            horizontalAlignment = Alignment.End
         ) {
+            // Jump to top floating action button (stacked directly above FAB)
+            AnimatedVisibility(
+                visible = showJumpToTop,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.padding(bottom = 12.dp)
+            ) {
+                Surface(
+                    onClick = {
+                        scrollJob?.cancel()
+                        scrollJob = coroutineScope.launch {
+                            if (listState.firstVisibleItemIndex > 2) {
+                                listState.scrollToItem(2)
+                            }
+                            listState.animateScrollToItem(0)
+                        }
+                    },
+                    shape = CircleShape,
+                    color = colors.surfaceElevated,
+                    contentColor = colors.accentPrimary,
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(spacing.hairline, colors.borderSubtle),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = LaterboxIcons.ChevronDown),
+                            contentDescription = "Jump to top",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .graphicsLayer(rotationZ = 180f),
+                            tint = colors.accentPrimary
+                        )
+                    }
+                }
+            }
+
+            // Floating Bottom-Right Action Button (+ Add Link) [UX15, UX17]
             Surface(
                 onClick = onAddLinkClick,
                 shape = LaterboxShapeTokens.Fab,
@@ -573,25 +620,6 @@ fun InboxScreen(
                     }
                 }
             }
-        }
-
-        // Jump to top floating action button (floats right above FAB when scrolled deep)
-        AnimatedVisibility(
-            visible = showJumpToTop,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 26.dp, bottom = 162.dp)
-        ) {
-            LaterboxIconButton(
-                iconRes = LaterboxIcons.ChevronDown,
-                contentDescription = "Jump to top",
-                onClick = {
-                    coroutineScope.launch { listState.animateScrollToItem(0) }
-                },
-                modifier = Modifier.graphicsLayer(rotationZ = 180f)
-            )
         }
 
         // Onboarding Sheet on First Launch
