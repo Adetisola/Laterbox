@@ -622,58 +622,15 @@ fun SettingsScreen(
 
                         // Google AI Studio Configuration
                         Text(
-                            text = "Google AI Studio API Key",
+                            text = "Google AI Studio",
                             style = typography.uiMedium,
                             color = colors.textPrimary
                         )
 
                         Text(
-                            text = "Laterbox uses Gemini 2.5 Flash Lite via Google AI Studio. Paste your API key from aistudio.google.com to power AI-generated digests and smart reminders.",
+                            text = "Powered by Gemini via Google AI Studio for calm, context-aware digests and smart reminders.",
                             style = typography.metaText,
                             color = colors.textSecondary
-                        )
-
-                        var apiKeyInput by remember(preferences.geminiApiKey) { mutableStateOf(preferences.geminiApiKey) }
-
-                        OutlinedTextField(
-                            value = apiKeyInput,
-                            onValueChange = {
-                                apiKeyInput = it.trim()
-                                onGeminiApiKeyChange(it.trim())
-                            },
-                            placeholder = {
-                                Text(
-                                    text = "Paste your AI Studio API key (AIzaSy...)",
-                                    style = typography.bodySecondary.copy(fontSize = 12.sp),
-                                    color = colors.textTertiary
-                                )
-                            },
-                            textStyle = typography.codeText.copy(fontSize = 12.sp, color = colors.textPrimary),
-                            singleLine = true,
-                            shape = LaterboxShapeTokens.InputField,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = colors.accentPrimary,
-                                unfocusedBorderColor = colors.borderSubtle,
-                                focusedContainerColor = colors.surfaceSecondary,
-                                unfocusedContainerColor = colors.surfaceSecondary,
-                                cursorColor = colors.accentPrimary
-                            ),
-                            trailingIcon = {
-                                if (apiKeyInput.isNotEmpty()) {
-                                    IconButton(onClick = {
-                                        apiKeyInput = ""
-                                        onGeminiApiKeyChange("")
-                                    }) {
-                                        Icon(
-                                            painter = painterResource(id = LaterboxIcons.Close),
-                                            contentDescription = "Clear",
-                                            tint = colors.textSecondary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
                         )
 
                         // Test AI Connection Button

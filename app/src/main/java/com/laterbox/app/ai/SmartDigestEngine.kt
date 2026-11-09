@@ -25,7 +25,7 @@ import java.net.UnknownHostException
 object SmartDigestEngine {
 
     private const val TAG = "SmartDigestEngine"
-    private const val CLOUD_MODEL_NAME = "gemini-2.5-flash-lite"
+    private const val CLOUD_MODEL_NAME = "gemini-flash-lite-latest"
     private const val AI_TIMEOUT_MS = 15_000L
     private const val GENERATE_CONTENT_URL =
         "https://generativelanguage.googleapis.com/v1beta/models/$CLOUD_MODEL_NAME:generateContent"
@@ -255,7 +255,7 @@ object SmartDigestEngine {
                 conn.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
                 val code = conn.responseCode
                 if (code == 200) {
-                    Pair(true, "Connected to Gemini 2.5 Flash Lite")
+                    Pair(true, "Connected to Gemini (Google AI Studio)")
                 } else {
                     val errorStreamText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                     val message = when {
