@@ -62,7 +62,7 @@ fun LaterboxIconButton(
 ) {
     val colors = LaterboxTheme.colors
     val resolvedTint = if (tint != Color.Unspecified) tint else colors.textPrimary
-    val resolvedContainerColor = if (containerColor != Color.Unspecified) containerColor else colors.surfaceCard
+    val resolvedContainerColor = if (containerColor != Color.Unspecified) containerColor else colors.surfaceSecondary
     val resolvedBorderColor = if (borderColor != Color.Unspecified) borderColor else colors.borderSubtle
 
     val interactionSource = remember { MutableInteractionSource() }
