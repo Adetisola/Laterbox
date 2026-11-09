@@ -1,4 +1,5 @@
 import java.time.Duration
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -6,6 +7,32 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
+}
+
+fun resolveGeminiApiKey(project: Project): String {
+    (project.findProperty("GEMINI_API_KEY") as? String)?.takeIf { it.isNotBlank() }?.let { return it }
+    System.getenv("GEMINI_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
+
+    val envFile = project.rootProject.file(".env")
+    if (envFile.exists()) {
+        for (rawLine in envFile.readLines()) {
+            val line = rawLine.trim()
+            if (line.startsWith("GEMINI_API_KEY=")) {
+                val value = line.substringAfter("=").trim().removeSurrounding("\"").removeSurrounding("'")
+                if (value.isNotBlank()) return value
+            }
+        }
+    }
+
+    val localPropFile = project.rootProject.file("local.properties")
+    if (localPropFile.exists()) {
+        val props = Properties()
+        localPropFile.inputStream().use { props.load(it) }
+        val propKey = props.getProperty("GEMINI_API_KEY") ?: props.getProperty("gemini.api.key")
+        if (!propKey.isNullOrBlank()) return propKey.trim()
+    }
+
+    return ""
 }
 
 android {
@@ -19,34 +46,7 @@ android {
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 12
         versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.12"
 
-        fun resolveGeminiApiKey(): String {
-            (project.findProperty("GEMINI_API_KEY") as? String)?.takeIf { it.isNotBlank() }?.let { return it }
-            System.getenv("GEMINI_API_KEY")?.takeIf { it.isNotBlank() }?.let { return it }
-
-            val envFile = rootProject.file(".env")
-            if (envFile.exists()) {
-                envFile.readLines().forEach { rawLine ->
-                    val line = rawLine.trim()
-                    if (line.startsWith("GEMINI_API_KEY=")) {
-                        val value = line.substringAfter("=").trim().removeSurrounding("\"").removeSurrounding("'")
-                        if (value.isNotBlank()) return value
-                    }
-                }
-            }
-
-            val localPropFile = rootProject.file("local.properties")
-            if (localPropFile.exists()) {
-                val props = java.util.Properties()
-                localPropFile.inputStream().use { props.load(it) }
-                (props.getProperty("GEMINI_API_KEY") ?: props.getProperty("gemini.api.key"))
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { return it }
-            }
-
-            return ""
-        }
-
-        val embeddedKey = resolveGeminiApiKey()
+        val embeddedKey = resolveGeminiApiKey(project)
         buildConfigField("String", "EMBEDDED_GEMINI_API_KEY", "\"$embeddedKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
