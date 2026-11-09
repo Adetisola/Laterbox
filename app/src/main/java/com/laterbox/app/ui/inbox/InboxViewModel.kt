@@ -171,8 +171,8 @@ class InboxViewModel(
         _activeFilterType.value = if (_activeFilterType.value == type) null else type
     }
 
-    fun onFilterDateRange(range: DateRangeFilter) {
-        _activeDateRangeFilter.value = range
+    fun onFilterDateRange(filter: DateRangeFilter) {
+        _activeDateRangeFilter.value = if (_activeDateRangeFilter.value == filter) DateRangeFilter.ALL else filter
     }
 
     fun onToggleRead(linkId: Long, currentIsRead: Boolean) {
