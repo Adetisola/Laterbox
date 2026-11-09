@@ -309,7 +309,7 @@ class SaveLinkViewModelTest {
     fun saveLinkViewModel_reportsIsUpdateCorrectly() = runTest(testDispatcher) {
         val viewModel = createViewModel()
         viewModel.onUrlChange("https://example.com/new-entry")
-        advanceUntilIdle()
+        runCurrent()
 
         var isUpdateReceived: Boolean? = null
         viewModel.onSave { isUpdate ->
@@ -323,19 +323,32 @@ class SaveLinkViewModelTest {
 
         // Now save with duplicate URL
         val viewModel2 = createViewModel()
-        viewModel2.onUrlChange("https://example.com/new-entry")
-        advanceTimeBy(300)
-        runCurrent()
+        viewModel2.uiState.test {
+            runCurrent()
+            awaitItem() // Initial
 
-        var isUpdateReceived2: Boolean? = null
-        viewModel2.onSave { isUpdate ->
-            isUpdateReceived2 = isUpdate
+            viewModel2.onUrlChange("https://example.com/new-entry")
+            runCurrent()
+            awaitItem() // URL change
+
+            advanceTimeBy(300)
+            advanceUntilIdle()
+
+            val detected = awaitItem()
+            assertNotNull(detected.duplicateLink)
+
+            var isUpdateReceived2: Boolean? = null
+            viewModel2.onSave { isUpdate ->
+                isUpdateReceived2 = isUpdate
+            }
+            runCurrent()
+            val duplicate2 = linkRepository.findDuplicate("https://example.com/new-entry")
+            assertNotNull(duplicate2)
+            runCurrent()
+            assertEquals(true, isUpdateReceived2)
+
+            cancelAndIgnoreRemainingEvents()
         }
-        runCurrent()
-        val duplicate2 = linkRepository.findDuplicate("https://example.com/new-entry")
-        assertNotNull(duplicate2)
-        runCurrent()
-        assertEquals(true, isUpdateReceived2)
     }
 }
 
