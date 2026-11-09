@@ -214,16 +214,17 @@ class SaveLinkViewModel(
         metadataFetchJob = viewModelScope.launch {
             _metadataStatus.value = MetadataPreviewStatus.LOADING
             try {
-                val meta = withTimeoutOrNull(4000) {
+                val result = withTimeoutOrNull(4000) {
                     withContext(Dispatchers.IO) {
                         JsoupMetadataExtractor.extract(normalized)
                     }
                 }
+                val meta = result?.getOrNull()
                 if (meta != null && !meta.title.isNullOrBlank()) {
                     if (_title.value.isBlank()) {
                         _title.value = meta.title.take(200)
                     }
-                    _previewImageUrl.value = meta.imageUrl
+                    _previewImageUrl.value = meta.previewImageUrl
                     _metadataStatus.value = MetadataPreviewStatus.READY
                 } else {
                     _metadataStatus.value = MetadataPreviewStatus.FAILED

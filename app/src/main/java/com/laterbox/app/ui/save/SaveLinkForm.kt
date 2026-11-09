@@ -379,7 +379,18 @@ fun SaveLinkForm(
                 )
                 Spacer(modifier = Modifier.height(spacing.xs))
 
-                val presets = remember { ReminderPresets.getPresets() }
+                val tonightMillis = remember { ReminderPresets.getTonightMillis() }
+                val tomorrowMillis = remember { ReminderPresets.getTomorrowMorningMillis() }
+                val weekendMillis = remember { ReminderPresets.getWeekendMillis() }
+
+                val presetList = remember(tonightMillis, tomorrowMillis, weekendMillis) {
+                    listOf(
+                        "Tonight (8 PM)" to tonightMillis,
+                        "Tomorrow (9 AM)" to tomorrowMillis,
+                        "Weekend" to weekendMillis
+                    )
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -387,17 +398,17 @@ fun SaveLinkForm(
                     horizontalArrangement = Arrangement.spacedBy(spacing.xs),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    presets.forEach { preset ->
+                    presetList.forEach { (label, millis) ->
                         val isSelected = uiState.reminderAt != null &&
-                            Math.abs(uiState.reminderAt - preset.triggerAtMillis) < 60_000L
+                            Math.abs(uiState.reminderAt - millis) < 60_000L
                         ReminderOptionChip(
-                            label = preset.label,
+                            label = label,
                             isSelected = isSelected,
                             onClick = {
                                 if (isSelected) {
                                     onReminderAtChange(null)
                                 } else {
-                                    onReminderAtChange(preset.triggerAtMillis)
+                                    onReminderAtChange(millis)
                                 }
                             }
                         )
@@ -405,11 +416,10 @@ fun SaveLinkForm(
 
                     // Custom reminder chip
                     val isCustomSelected = uiState.reminderAt != null &&
-                        presets.none { Math.abs(uiState.reminderAt - it.triggerAtMillis) < 60_000L }
+                        presetList.none { Math.abs(uiState.reminderAt - it.second) < 60_000L }
                     ReminderOptionChip(
                         label = if (isCustomSelected && uiState.reminderAt != null) {
-                            val format = SimpleDateFormat("MMM d, h:mm a", Locale.getDefault())
-                            format.format(Date(uiState.reminderAt))
+                            ReminderPresets.formatReminderTime(uiState.reminderAt)
                         } else {
                             "+ Custom…"
                         },
@@ -465,7 +475,7 @@ fun SaveLinkForm(
 
     if (showCustomReminderPicker) {
         CustomReminderPickerDialog(
-            initialTriggerMillis = uiState.reminderAt,
+            initialTimestamp = uiState.reminderAt,
             onDismissRequest = { showCustomReminderPicker = false },
             onConfirm = { triggerAtMillis ->
                 onReminderAtChange(triggerAtMillis)

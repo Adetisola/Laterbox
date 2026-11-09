@@ -160,7 +160,7 @@ fun SettingsScreen(
                             val stats = result.getOrNull()
                             Toast.makeText(
                                 context,
-                                "Restored ${stats?.linksRestored ?: 0} links, ${stats?.collectionsRestored ?: 0} collections",
+                                "Restored ${stats?.restoredLinksCount ?: 0} links, ${stats?.restoredCollectionsCount ?: 0} collections",
                                 Toast.LENGTH_LONG
                             ).show()
                         } else {
