@@ -10,6 +10,7 @@ import com.laterbox.app.data.repository.LinkRepository
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -295,6 +296,28 @@ class InboxViewModelTest {
 
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun inboxViewModel_saveClipboardSuggestion_recordsHashAndSavesLink() = runTest {
+        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val suggestion = com.laterbox.app.capture.ClipboardSuggestion(
+            url = "https://example.com/clipboard-save",
+            domain = "example.com",
+            hash = "testhash123"
+        )
+
+        var saved = false
+        viewModel.saveClipboardSuggestion(suggestion) {
+            saved = true
+        }
+
+        assertTrue(saved)
+        val savedLink = linkRepository.findDuplicate("https://example.com/clipboard-save")
+        org.junit.Assert.assertNotNull(savedLink)
+
+        val prefs = preferencesRepository.userPreferences.first()
+        assertTrue(prefs.recentClipboardHistory.any { it.startsWith("testhash123:") })
     }
 }
 

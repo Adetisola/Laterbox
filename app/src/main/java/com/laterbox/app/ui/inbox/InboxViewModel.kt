@@ -1,7 +1,10 @@
 package com.laterbox.app.ui.inbox
 
+import android.content.ClipboardManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laterbox.app.capture.ClipboardSuggestion
+import com.laterbox.app.capture.ClipboardSuggestionManager
 import com.laterbox.app.data.preferences.InboxViewMode
 import com.laterbox.app.data.preferences.UserPreferences
 import com.laterbox.app.data.preferences.UserPreferencesRepository
@@ -37,6 +40,9 @@ class InboxViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
+    private val _clipboardSuggestion = MutableStateFlow<ClipboardSuggestion?>(null)
+    val clipboardSuggestion: StateFlow<ClipboardSuggestion?> = _clipboardSuggestion
+
     private val baseLinksFlow = _searchQuery.flatMapLatest { query ->
         if (query.isBlank()) {
             linkRepository.inboxLinks
@@ -52,6 +58,7 @@ class InboxViewModel(
         _activeFilterType,
         _activeDateRangeFilter,
         _isRefreshing,
+        _clipboardSuggestion,
         userPreferencesRepository.userPreferences
     ) { args: Array<Any?> ->
         val rawLinks = args[0] as List<SavedLink>
@@ -59,7 +66,8 @@ class InboxViewModel(
         val filterType = args[2] as ContentType?
         val dateFilter = args[3] as DateRangeFilter
         val refreshing = args[4] as Boolean
-        val prefs = args[5] as UserPreferences
+        val suggestion = args[5] as ClipboardSuggestion?
+        val prefs = args[6] as UserPreferences
 
         // If searching, filter out archived links since searchLinks searches all
         val unarchived = rawLinks.filter { !it.isArchived }
@@ -89,13 +97,66 @@ class InboxViewModel(
             activeDateRangeFilter = dateFilter,
             pendingMetadataCount = pendingCount,
             viewMode = prefs.inboxViewMode,
-            hasCompletedOnboarding = prefs.hasCompletedOnboarding
+            hasCompletedOnboarding = prefs.hasCompletedOnboarding,
+            clipboardSuggestion = suggestion
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = InboxUiState(isLoading = true)
     )
+
+    fun checkClipboard(clipboardManager: ClipboardManager?) {
+        viewModelScope.launch {
+            val clipMeta = ClipboardSuggestionManager.extractClipMetadata(clipboardManager) ?: run {
+                _clipboardSuggestion.value = null
+                return@launch
+            }
+
+            val prefs = userPreferencesRepository.userPreferences.first()
+            if (!prefs.clipboardSuggestionEnabled) {
+                _clipboardSuggestion.value = null
+                return@launch
+            }
+
+            val candidate = ClipboardSuggestionManager.evaluateCandidate(
+                rawText = clipMeta.text,
+                isSensitive = clipMeta.isSensitive,
+                clipTimestampMs = clipMeta.timestampMs,
+                clipboardEnabled = prefs.clipboardSuggestionEnabled,
+                recentHistoryEntries = prefs.recentClipboardHistory,
+                isAlreadySaved = { false }
+            )
+
+            if (candidate != null) {
+                val existing = linkRepository.findDuplicate(candidate.url)
+                if (existing != null) {
+                    userPreferencesRepository.recordHandledClipboardHash(candidate.hash)
+                    _clipboardSuggestion.value = null
+                } else {
+                    _clipboardSuggestion.value = candidate
+                }
+            } else {
+                _clipboardSuggestion.value = null
+            }
+        }
+    }
+
+    fun dismissClipboardSuggestion(suggestion: ClipboardSuggestion) {
+        _clipboardSuggestion.value = null
+        viewModelScope.launch {
+            userPreferencesRepository.recordHandledClipboardHash(suggestion.hash)
+        }
+    }
+
+    fun saveClipboardSuggestion(suggestion: ClipboardSuggestion, onSuccess: () -> Unit) {
+        _clipboardSuggestion.value = null
+        viewModelScope.launch {
+            userPreferencesRepository.recordHandledClipboardHash(suggestion.hash)
+            linkRepository.saveLink(originalUrl = suggestion.url)
+            onSuccess()
+        }
+    }
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
@@ -110,13 +171,13 @@ class InboxViewModel(
         _activeFilterType.value = if (_activeFilterType.value == type) null else type
     }
 
-    fun onFilterDateRange(filter: DateRangeFilter) {
-        _activeDateRangeFilter.value = if (_activeDateRangeFilter.value == filter) DateRangeFilter.ALL else filter
+    fun onFilterDateRange(range: DateRangeFilter) {
+        _activeDateRangeFilter.value = range
     }
 
-    fun onToggleRead(linkId: Long, currentRead: Boolean) {
+    fun onToggleRead(linkId: Long, currentIsRead: Boolean) {
         viewModelScope.launch {
-            linkRepository.setRead(linkId, !currentRead)
+            linkRepository.setRead(linkId, !currentIsRead)
         }
     }
 

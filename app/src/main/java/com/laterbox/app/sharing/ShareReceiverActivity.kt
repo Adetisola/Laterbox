@@ -119,6 +119,12 @@ class ShareReceiverActivity : ComponentActivity() {
                                 onSaveClick = {
                                     saveLinkViewModel.onSave(
                                         onSuccess = {
+                                            val savedUrl = parsed.url
+                                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                                userPrefsRepo.recordHandledClipboardHash(
+                                                    com.laterbox.app.capture.ClipboardSuggestionManager.computeHash(savedUrl)
+                                                )
+                                            }
                                             finish()
                                         }
                                     )

@@ -58,6 +58,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.laterbox.app.capture.ClipboardSuggestion
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -98,14 +103,24 @@ fun InboxScreen(
     onToggleRead: (SavedLink) -> Unit,
     onArchive: (SavedLink) -> Unit,
     onDelete: (SavedLink) -> Unit,
+    onCheckClipboard: (ClipboardManager?) -> Unit = {},
+    onSaveClipboardSuggestion: (ClipboardSuggestion) -> Unit = {},
+    onDismissClipboardSuggestion: (ClipboardSuggestion) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
+    val context = LocalContext.current
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
+
+    LifecycleResumeEffect(Unit) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        onCheckClipboard(clipboard)
+        onPauseOrDispose {}
+    }
 
     var showDateFilterRow by rememberSaveable { mutableStateOf(false) }
     var collapsedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
@@ -329,6 +344,21 @@ fun InboxScreen(
                         text = "Enriching ${uiState.pendingMetadataCount} ${if (uiState.pendingMetadataCount == 1) "link" else "links"} in the background…",
                         style = typography.metaText,
                         color = colors.textSecondary
+                    )
+                }
+            }
+
+            // Foreground Clipboard Suggestion Banner
+            AnimatedVisibility(
+                visible = uiState.clipboardSuggestion != null,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                uiState.clipboardSuggestion?.let { suggestion ->
+                    ClipboardSuggestionBanner(
+                        suggestion = suggestion,
+                        onSave = { onSaveClipboardSuggestion(suggestion) },
+                        onDismiss = { onDismissClipboardSuggestion(suggestion) }
                     )
                 }
             }
@@ -581,5 +611,85 @@ private fun FilterChip(
             fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
         )
+    }
+}
+
+@Composable
+private fun ClipboardSuggestionBanner(
+    suggestion: ClipboardSuggestion,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = spacing.base, vertical = spacing.xs)
+            .clip(LaterboxShapeTokens.Card)
+            .background(colors.surfaceElevated)
+            .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Card)
+            .padding(horizontal = spacing.md, vertical = spacing.sm)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(id = LaterboxIcons.Globe),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = colors.accentPrimary
+            )
+            Spacer(modifier = Modifier.width(spacing.sm))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Save link from clipboard?",
+                    style = typography.bodyPrimary.copy(fontWeight = FontWeight.SemiBold, fontSize = 13.sp),
+                    color = colors.textPrimary
+                )
+                Text(
+                    text = suggestion.domain,
+                    style = typography.metaText,
+                    color = colors.textSecondary,
+                    maxLines = 1
+                )
+            }
+            Spacer(modifier = Modifier.width(spacing.sm))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(spacing.radiusSmall))
+                    .background(colors.accentPrimary)
+                    .clickable(role = Role.Button, onClick = onSave)
+                    .padding(horizontal = spacing.md, vertical = spacing.xs)
+            ) {
+                Text(
+                    text = "Save",
+                    style = typography.buttonText.copy(
+                        color = colors.backgroundPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                )
+            }
+            Spacer(modifier = Modifier.width(spacing.xs))
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(LaterboxShapeTokens.IconButton)
+                    .clickable(role = Role.Button, onClickLabel = "Dismiss", onClick = onDismiss),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(id = LaterboxIcons.Close),
+                    contentDescription = "Dismiss",
+                    modifier = Modifier.size(16.dp),
+                    tint = colors.textSecondary
+                )
+            }
+        }
     }
 }

@@ -74,6 +74,24 @@ class SettingsViewModel(
         }
     }
 
+    fun setAccessibilityCaptureEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setAccessibilityCaptureEnabled(enabled)
+        }
+    }
+
+    fun setClipboardSuggestionEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setClipboardSuggestionEnabled(enabled)
+        }
+    }
+
+    fun toggleExcludedCapturePackage(packageName: String) {
+        viewModelScope.launch {
+            userPreferencesRepository.toggleExcludedCapturePackage(packageName)
+        }
+    }
+
     private suspend fun syncReminders() {
         appContext?.let { ctx ->
             val p = userPreferencesRepository.userPreferencesFlow.first()

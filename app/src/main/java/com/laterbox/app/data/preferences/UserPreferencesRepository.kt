@@ -84,7 +84,11 @@ data class UserPreferences(
     // Persistence & API key
     val smartReminderPersistence: SmartReminderPersistence = SmartReminderPersistence.TWICE,
     val geminiApiKey: String = "",
-    val deliveredSlotKeys: Set<String> = emptySet()
+    val deliveredSlotKeys: Set<String> = emptySet(),
+    val accessibilityCaptureEnabled: Boolean = false,
+    val clipboardSuggestionEnabled: Boolean = true,
+    val recentClipboardHistory: Set<String> = emptySet(),
+    val excludedCapturePackages: Set<String> = emptySet()
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 
@@ -166,6 +170,10 @@ class UserPreferencesRepository(private val context: Context) {
         val SMART_REMINDER_PERSISTENCE = stringPreferencesKey("smart_reminder_persistence")
         val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
         val DELIVERED_SLOT_KEYS = stringSetPreferencesKey("delivered_slot_keys")
+        val ACCESSIBILITY_CAPTURE_ENABLED = booleanPreferencesKey("accessibility_capture_enabled")
+        val CLIPBOARD_SUGGESTION_ENABLED = booleanPreferencesKey("clipboard_suggestion_enabled")
+        val RECENT_CLIPBOARD_HISTORY = stringSetPreferencesKey("recent_clipboard_history")
+        val EXCLUDED_CAPTURE_PACKAGES = stringSetPreferencesKey("excluded_capture_packages")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -268,6 +276,11 @@ class UserPreferencesRepository(private val context: Context) {
         val geminiApiKey = preferences[PreferencesKeys.GEMINI_API_KEY] ?: ""
         val deliveredSlotKeys = preferences[PreferencesKeys.DELIVERED_SLOT_KEYS] ?: emptySet()
 
+        val accessibilityCaptureEnabled = preferences[PreferencesKeys.ACCESSIBILITY_CAPTURE_ENABLED] ?: false
+        val clipboardSuggestionEnabled = preferences[PreferencesKeys.CLIPBOARD_SUGGESTION_ENABLED] ?: true
+        val recentClipboardHistory = preferences[PreferencesKeys.RECENT_CLIPBOARD_HISTORY] ?: emptySet()
+        val excludedCapturePackages = preferences[PreferencesKeys.EXCLUDED_CAPTURE_PACKAGES] ?: emptySet()
+
         UserPreferences(
             themeMode = themeMode,
             autoMarkAsRead = autoMarkAsRead,
@@ -296,7 +309,11 @@ class UserPreferencesRepository(private val context: Context) {
             customScheduleMinute = customScheduleMinute,
             smartReminderPersistence = smartReminderPersistence,
             geminiApiKey = geminiApiKey,
-            deliveredSlotKeys = deliveredSlotKeys
+            deliveredSlotKeys = deliveredSlotKeys,
+            accessibilityCaptureEnabled = accessibilityCaptureEnabled,
+            clipboardSuggestionEnabled = clipboardSuggestionEnabled,
+            recentClipboardHistory = recentClipboardHistory,
+            excludedCapturePackages = excludedCapturePackages
         )
     }
 
@@ -461,6 +478,52 @@ class UserPreferencesRepository(private val context: Context) {
             // Keep at most 60 recent slot keys to prevent unbounded growth
             val updated = (current + slotKey).toList().takeLast(60).toSet()
             preferences[PreferencesKeys.DELIVERED_SLOT_KEYS] = updated
+        }
+    }
+
+    suspend fun setAccessibilityCaptureEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.ACCESSIBILITY_CAPTURE_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setClipboardSuggestionEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.CLIPBOARD_SUGGESTION_ENABLED] = enabled
+        }
+    }
+
+    suspend fun recordHandledClipboardHash(hash: String, nowMs: Long = System.currentTimeMillis()) {
+        context.userDataStore.edit { preferences ->
+            val current = preferences[PreferencesKeys.RECENT_CLIPBOARD_HISTORY] ?: emptySet()
+            val retentionMs = 7L * 24 * 60 * 60 * 1000L // 7-day retention
+            val cutoff = nowMs - retentionMs
+
+            val valid = current.mapNotNull { entry ->
+                val parts = entry.split(":")
+                if (parts.size == 2) {
+                    val entryHash = parts[0]
+                    val entryTime = parts[1].toLongOrNull() ?: 0L
+                    if (entryTime >= cutoff && entryHash != hash) entryHash to entryTime else null
+                } else null
+            }.sortedBy { it.second }
+
+            val updatedList = (valid.map { "${it.first}:${it.second}" } + "$hash:$nowMs").takeLast(25)
+            preferences[PreferencesKeys.RECENT_CLIPBOARD_HISTORY] = updatedList.toSet()
+        }
+    }
+
+    suspend fun setExcludedCapturePackages(packages: Set<String>) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.EXCLUDED_CAPTURE_PACKAGES] = packages
+        }
+    }
+
+    suspend fun toggleExcludedCapturePackage(packageName: String) {
+        context.userDataStore.edit { preferences ->
+            val current = preferences[PreferencesKeys.EXCLUDED_CAPTURE_PACKAGES] ?: emptySet()
+            val updated = if (current.contains(packageName)) current - packageName else current + packageName
+            preferences[PreferencesKeys.EXCLUDED_CAPTURE_PACKAGES] = updated
         }
     }
 }

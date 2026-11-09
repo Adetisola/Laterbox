@@ -181,7 +181,22 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                                     inboxViewModel.onRestore(link)
                                 }
                             }
-                        }
+                        },
+                        onCheckClipboard = inboxViewModel::checkClipboard,
+                        onSaveClipboardSuggestion = { suggestion ->
+                            inboxViewModel.saveClipboardSuggestion(
+                                suggestion = suggestion,
+                                onSuccess = {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = "Saved to Laterbox",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                    }
+                                }
+                            )
+                        },
+                        onDismissClipboardSuggestion = inboxViewModel::dismissClipboardSuggestion
                     )
                 }
 
@@ -287,6 +302,9 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         onSendTestSmartDigest = settingsViewModel::sendTestSmartDigest,
                         onExportBackup = settingsViewModel::exportBackup,
                         onImportBackup = settingsViewModel::importBackup,
+                        onAccessibilityCaptureEnabledChange = settingsViewModel::setAccessibilityCaptureEnabled,
+                        onClipboardSuggestionEnabledChange = settingsViewModel::setClipboardSuggestionEnabled,
+                        onToggleExcludedPackage = settingsViewModel::toggleExcludedCapturePackage,
                         onBackClick = { navController.popBackStack() }
                     )
                 }

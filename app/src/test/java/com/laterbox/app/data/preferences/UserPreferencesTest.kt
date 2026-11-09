@@ -26,6 +26,10 @@ class UserPreferencesTest {
         assertEquals(SmartReminderPersistence.TWICE, prefs.smartReminderPersistence)
         assertEquals("", prefs.geminiApiKey)
         assertTrue(prefs.deliveredSlotKeys.isEmpty())
+        assertFalse(prefs.accessibilityCaptureEnabled)
+        assertTrue(prefs.clipboardSuggestionEnabled)
+        assertTrue(prefs.recentClipboardHistory.isEmpty())
+        assertTrue(prefs.excludedCapturePackages.isEmpty())
     }
 
     @Test

@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Laterbox</string>
     <string name="save_to_laterbox">Save to Laterbox</string>
+
+    <!-- Accessibility Service Strings -->
+    <string name="accessibility_service_label">Laterbox Link Capture</string>
+    <string name="accessibility_service_summary">Offers a quick floating prompt when you select a link in supported apps.</string>
+    <string name="accessibility_service_description">Detects when a web link is selected in supported apps to offer an unobtrusive floating shortcut to save it to Laterbox. Selection events are processed locally on-device. Only validated web links trigger suggestions; unrelated content is never saved, logged, or transmitted.</string>
 </resources>
