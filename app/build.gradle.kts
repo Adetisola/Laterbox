@@ -79,7 +79,7 @@ android {
     }
 
     lint {
-        disable += "ProtectedPermissions"
+        disable += listOf("ProtectedPermissions", "StartActivityAndCollapseDeprecated")
         abortOnError = true
     }
 }

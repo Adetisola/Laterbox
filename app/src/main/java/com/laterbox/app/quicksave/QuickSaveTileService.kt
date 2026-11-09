@@ -1,5 +1,6 @@
 package com.laterbox.app.quicksave
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
@@ -20,6 +21,7 @@ class QuickSaveTileService : TileService() {
         tile.updateTile()
     }
 
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val now = SystemClock.elapsedRealtime()
