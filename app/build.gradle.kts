@@ -130,6 +130,16 @@ dependencies {
 }
 
 tasks.withType<Test> {
+    timeout.set(java.time.Duration.ofMinutes(4))
+
+    testLogging {
+        events("started", "passed", "skipped", "failed", "standardOut", "standardError")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+
+    maxHeapSize = "2048m"
+
     val cacerts = file("/home/antigravity/cacerts")
     if (cacerts.exists()) {
         systemProperty("javax.net.ssl.trustStore", cacerts.absolutePath)

@@ -28,6 +28,16 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      - name: Cache Robolectric SDKs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository/org/robolectric/android-all
+            ~/.cache/robolectric
+          key: robolectric-${{ runner.os }}-sdk34
+          restore-keys: |
+            robolectric-${{ runner.os }}-
+
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v4
 
@@ -38,7 +48,7 @@ jobs:
         run: ./gradlew lintDebug
 
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest
+        run: ./gradlew testDebugUnitTest --info --stacktrace
 
       - name: Build Debug APK
         run: ./gradlew assembleDebug

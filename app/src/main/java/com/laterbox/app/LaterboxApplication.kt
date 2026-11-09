@@ -47,6 +47,11 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         container = DefaultAppContainer(this)
 
+        // Bypass background workers and App Check in Robolectric / unit test environments
+        if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+            return
+        }
+
         // Initialize Firebase App Check: Debug provider in debug builds, Play Integrity in release builds
         try {
             val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
