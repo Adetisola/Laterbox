@@ -64,7 +64,8 @@ class SaveLinkViewModelTest {
     ): SaveLinkViewModel = SaveLinkViewModel(
         linkRepository = linkRepository,
         collectionRepository = collectionRepository,
-        metadataExtractor = extractor
+        metadataExtractor = extractor,
+        ioDispatcher = testDispatcher
     )
 
     @Test
@@ -314,20 +315,26 @@ class SaveLinkViewModelTest {
         viewModel.onSave { isUpdate ->
             isUpdateReceived = isUpdate
         }
-        advanceUntilIdle()
+        runCurrent()
+        val duplicate = linkRepository.findDuplicate("https://example.com/new-entry")
+        assertNotNull(duplicate)
+        runCurrent()
         assertEquals(false, isUpdateReceived)
 
         // Now save with duplicate URL
         val viewModel2 = createViewModel()
         viewModel2.onUrlChange("https://example.com/new-entry")
         advanceTimeBy(300)
-        advanceUntilIdle()
+        runCurrent()
 
         var isUpdateReceived2: Boolean? = null
         viewModel2.onSave { isUpdate ->
             isUpdateReceived2 = isUpdate
         }
-        advanceUntilIdle()
+        runCurrent()
+        val duplicate2 = linkRepository.findDuplicate("https://example.com/new-entry")
+        assertNotNull(duplicate2)
+        runCurrent()
         assertEquals(true, isUpdateReceived2)
     }
 }

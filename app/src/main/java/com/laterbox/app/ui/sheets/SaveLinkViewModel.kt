@@ -9,6 +9,7 @@ import com.laterbox.app.data.repository.LinkRepository
 import com.laterbox.app.domain.model.Collection
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.domain.util.UrlValidator
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,7 +57,8 @@ class SaveLinkViewModel(
     private val collectionRepository: CollectionRepository,
     private val metadataExtractor: (suspend (String) -> Result<ExtractedMetadata>)? = { url ->
         JsoupMetadataExtractor.extract(url)
-    }
+    },
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : ViewModel() {
 
     private val _url = MutableStateFlow("")
@@ -220,7 +222,7 @@ class SaveLinkViewModel(
             _metadataStatus.value = MetadataPreviewStatus.LOADING
             try {
                 val result = withTimeoutOrNull(4000) {
-                    withContext(Dispatchers.IO) {
+                    withContext(ioDispatcher) {
                         extractor(normalized)
                     }
                 }

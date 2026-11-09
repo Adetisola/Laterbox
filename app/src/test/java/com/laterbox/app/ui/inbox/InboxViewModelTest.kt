@@ -335,6 +335,9 @@ class InboxViewModelTest {
 
         viewModel.uiState.test {
             var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
             assertEquals(0, state.unreadNotificationCount)
 
             // Insert unread notification
@@ -346,12 +349,19 @@ class InboxViewModelTest {
             )
 
             state = awaitItem()
+            while (state.unreadNotificationCount != 1) {
+                state = awaitItem()
+            }
             assertEquals(1, state.unreadNotificationCount)
 
             // Mark as read
             notificationRepo.markAsRead(notifId)
             state = awaitItem()
+            while (state.unreadNotificationCount != 0) {
+                state = awaitItem()
+            }
             assertEquals(0, state.unreadNotificationCount)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 }
