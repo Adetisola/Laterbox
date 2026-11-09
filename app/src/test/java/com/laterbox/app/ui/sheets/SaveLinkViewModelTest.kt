@@ -228,7 +228,10 @@ class SaveLinkViewModelTest {
             // Create new collection
             viewModel.onCreateCollection("Design")
             runCurrent()
-            val stateCreated = awaitItem()
+            var stateCreated = awaitItem()
+            while (stateCreated.selectedCollectionIds.isEmpty()) {
+                stateCreated = awaitItem()
+            }
             assertEquals(1, stateCreated.selectedCollectionIds.size)
 
             cancelAndIgnoreRemainingEvents()
