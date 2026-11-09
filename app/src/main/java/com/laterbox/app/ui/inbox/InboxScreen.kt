@@ -176,7 +176,7 @@ fun InboxScreen(
                                     .padding(top = 6.dp, end = 6.dp)
                                     .size(7.dp)
                                     .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(colors.accent)
+                                    .background(colors.accentPrimary)
                             )
                         }
                     }

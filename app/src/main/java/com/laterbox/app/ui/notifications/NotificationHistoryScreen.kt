@@ -39,9 +39,9 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.laterbox.app.domain.model.NotificationHistoryItem
+import com.laterbox.app.ui.components.DateGroupHeader
 import com.laterbox.app.ui.components.DateGrouper
 import com.laterbox.app.ui.components.FaviconImage
-import com.laterbox.app.ui.components.FolderTabDateHeader
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -81,14 +81,14 @@ fun NotificationHistoryScreen(
                 Column {
                     Text(
                         text = "Notifications",
-                        style = typography.screenTitle,
+                        style = typography.sheetTitle,
                         color = colors.textPrimary
                     )
                     if (uiState.unreadCount > 0) {
                         Text(
                             text = "${uiState.unreadCount} unread",
                             style = typography.caption,
-                            color = colors.accent
+                            color = colors.accentPrimary
                         )
                     }
                 }
@@ -99,7 +99,7 @@ fun NotificationHistoryScreen(
                     Text(
                         text = "Mark all read",
                         style = typography.buttonLabel,
-                        color = colors.accent
+                        color = colors.accentPrimary
                     )
                 }
             }
@@ -113,7 +113,7 @@ fun NotificationHistoryScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(
-                        color = colors.accent,
+                        color = colors.accentPrimary,
                         strokeWidth = 2.dp,
                         modifier = Modifier.size(32.dp)
                     )
@@ -161,8 +161,9 @@ fun NotificationHistoryScreen(
                 ) {
                     uiState.groupedItems.forEach { group ->
                         item(key = "header_${group.title}") {
-                            FolderTabDateHeader(
+                            DateGroupHeader(
                                 title = group.title,
+                                count = group.items.size,
                                 isCollapsed = false,
                                 onToggleCollapse = {},
                                 modifier = Modifier.padding(
@@ -215,7 +216,7 @@ private fun NotificationHistoryCard(
     val context = LocalContext.current
 
     val cardBg = if (item.isRead) colors.surfacePrimary else colors.surfaceSecondary
-    val borderCol = if (item.isRead) colors.borderSubtle else colors.accent.copy(alpha = 0.35f)
+    val borderCol = if (item.isRead) colors.borderSubtle else colors.accentPrimary.copy(alpha = 0.35f)
 
     Box(
         modifier = modifier
@@ -269,7 +270,7 @@ private fun NotificationHistoryCard(
                         modifier = Modifier
                             .size(7.dp)
                             .clip(CircleShape)
-                            .background(colors.accent)
+                            .background(colors.accentPrimary)
                     )
                     Spacer(modifier = Modifier.width(spacing.xs))
                 }
@@ -315,7 +316,7 @@ private fun NotificationHistoryCard(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = item.body,
-                        style = typography.cardSnippet,
+                        style = typography.bodySecondary,
                         color = colors.textSecondary,
                         maxLines = 3,
                         overflow = TextOverflow.Ellipsis

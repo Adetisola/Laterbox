@@ -21,6 +21,7 @@ import com.laterbox.app.R
 import com.laterbox.app.ai.ReminderOrigin
 import com.laterbox.app.ai.SmartReminderCopy
 import com.laterbox.app.domain.model.SavedLink
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 object NotificationHelper {
