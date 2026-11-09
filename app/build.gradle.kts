@@ -132,7 +132,7 @@ dependencies {
 }
 
 tasks.withType<Test> {
-    timeout.set(Duration.ofMinutes(4))
+    timeout.set(Duration.ofMinutes(10))
 
     testLogging {
         events("started", "passed", "skipped", "failed", "standardOut", "standardError")

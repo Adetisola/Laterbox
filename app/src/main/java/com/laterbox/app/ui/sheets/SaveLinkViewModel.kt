@@ -2,6 +2,7 @@ package com.laterbox.app.ui.sheets
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laterbox.app.data.metadata.ExtractedMetadata
 import com.laterbox.app.data.metadata.JsoupMetadataExtractor
 import com.laterbox.app.data.repository.CollectionRepository
 import com.laterbox.app.data.repository.LinkRepository
@@ -52,7 +53,10 @@ data class SaveLinkUiState(
 
 class SaveLinkViewModel(
     private val linkRepository: LinkRepository,
-    private val collectionRepository: CollectionRepository
+    private val collectionRepository: CollectionRepository,
+    private val metadataExtractor: (suspend (String) -> Result<ExtractedMetadata>)? = { url ->
+        JsoupMetadataExtractor.extract(url)
+    }
 ) : ViewModel() {
 
     private val _url = MutableStateFlow("")
@@ -207,6 +211,7 @@ class SaveLinkViewModel(
     }
 
     private fun fetchMetadataPreview(rawUrl: String) {
+        val extractor = metadataExtractor ?: return
         metadataFetchJob?.cancel()
         val normalized = UrlValidator.normalize(rawUrl)
         if (!UrlValidator.isValidUrl(normalized)) return
@@ -216,7 +221,7 @@ class SaveLinkViewModel(
             try {
                 val result = withTimeoutOrNull(4000) {
                     withContext(Dispatchers.IO) {
-                        JsoupMetadataExtractor.extract(normalized)
+                        extractor(normalized)
                     }
                 }
                 val meta = result?.getOrNull()

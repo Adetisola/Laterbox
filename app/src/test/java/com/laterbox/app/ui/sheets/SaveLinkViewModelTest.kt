@@ -5,8 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import com.laterbox.app.data.local.LaterboxDatabase
+import com.laterbox.app.data.metadata.ExtractedMetadata
 import com.laterbox.app.data.repository.CollectionRepository
 import com.laterbox.app.data.repository.LinkRepository
+import com.laterbox.app.domain.model.ContentType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.collect
@@ -57,6 +59,14 @@ class SaveLinkViewModelTest {
         database.close()
     }
 
+    private fun createViewModel(
+        extractor: (suspend (String) -> Result<ExtractedMetadata>)? = null
+    ): SaveLinkViewModel = SaveLinkViewModel(
+        linkRepository = linkRepository,
+        collectionRepository = collectionRepository,
+        metadataExtractor = extractor
+    )
+
     @Test
     fun saveLinkViewModel_detectsDuplicateUrlDebounced() = runTest(testDispatcher) {
         // Pre-save a link
@@ -65,7 +75,7 @@ class SaveLinkViewModelTest {
             title = "Existing Unique Article"
         )
 
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val viewModel = createViewModel()
 
         viewModel.uiState.test {
             runCurrent()
@@ -92,7 +102,7 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_savesNewLinkSuccessfully() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val viewModel = createViewModel()
 
         val reminderTime = 1_800_000_000_000L
         viewModel.onReminderAtChange(reminderTime)
@@ -118,7 +128,7 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_emptyUrlDisplaysInlineError() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val viewModel = createViewModel()
         viewModel.uiState.test {
             runCurrent()
             awaitItem() // initial
@@ -138,7 +148,7 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_invalidUrlDisplaysInlineError() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val viewModel = createViewModel()
         viewModel.uiState.test {
             runCurrent()
             awaitItem() // initial
@@ -161,7 +171,7 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_typingClearsUrlError() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val viewModel = createViewModel()
         viewModel.uiState.test {
             runCurrent()
             awaitItem() // initial
@@ -183,7 +193,7 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_characterLimitEnforced() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val viewModel = createViewModel()
         viewModel.uiState.test {
             runCurrent()
             awaitItem() // initial
@@ -206,7 +216,7 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_togglesCollectionsAndCreatesNew() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        val viewModel = createViewModel()
 
         viewModel.uiState.test {
             runCurrent()
@@ -240,15 +250,56 @@ class SaveLinkViewModelTest {
 
     @Test
     fun saveLinkViewModel_prefillPopulatesFields() = runTest(testDispatcher) {
-        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
-        viewModel.prefill("https://example.com/prefill-test", "Custom Title", "Custom Note")
+        val viewModel = createViewModel()
 
         viewModel.uiState.test {
             runCurrent()
-            val state = awaitItem()
+            awaitItem() // Consume initial state from stateIn
+
+            viewModel.prefill("https://example.com/prefill-test", "Custom Title", "Custom Note")
+            runCurrent()
+            var state = awaitItem()
+            while (state.url.isEmpty()) {
+                state = awaitItem()
+            }
             assertEquals("https://example.com/prefill-test", state.url)
             assertEquals("Custom Title", state.title)
             assertEquals("Custom Note", state.personalNote)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun saveLinkViewModel_metadataExtractorPopulatesTitleAndImage() = runTest(testDispatcher) {
+        val mockExtractor: suspend (String) -> Result<ExtractedMetadata> = { _ ->
+            Result.success(
+                ExtractedMetadata(
+                    title = "Fetched Title",
+                    description = "Description",
+                    siteName = "Site",
+                    faviconUrl = null,
+                    previewImageUrl = "https://example.com/og.jpg",
+                    contentType = ContentType.ARTICLE
+                )
+            )
+        }
+        val viewModel = createViewModel(extractor = mockExtractor)
+
+        viewModel.uiState.test {
+            runCurrent()
+            awaitItem() // Consume initial state
+
+            viewModel.onUrlChange("https://example.com/article")
+            runCurrent()
+            advanceUntilIdle()
+
+            var state = awaitItem()
+            while (state.metadataStatus != MetadataPreviewStatus.READY) {
+                state = awaitItem()
+            }
+            assertEquals("Fetched Title", state.title)
+            assertEquals("https://example.com/og.jpg", state.previewImageUrl)
+            assertEquals(MetadataPreviewStatus.READY, state.metadataStatus)
             cancelAndIgnoreRemainingEvents()
         }
     }
