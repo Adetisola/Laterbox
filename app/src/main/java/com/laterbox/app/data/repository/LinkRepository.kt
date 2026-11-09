@@ -208,6 +208,27 @@ class LinkRepository(
         return savedLinkDao.getSmartDigestCandidates(minAgeThreshold, recentNudgeThreshold, maxNudgeCount, limit).map { it.toDomain() }
     }
 
+    suspend fun getSmartDigestCandidate(maxNudgeCount: Int = 2): SavedLink? {
+        val candidates = savedLinkDao.getSmartDigestCandidates(
+            minAgeThreshold = System.currentTimeMillis() - 24 * 60 * 60 * 1000L,
+            recentNudgeThreshold = System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L,
+            maxNudgeCount = maxNudgeCount,
+            limit = 5
+        )
+        if (candidates.isNotEmpty()) {
+            return candidates.first().toDomain()
+        }
+        val relaxed = savedLinkDao.getRelaxedDigestCandidates(
+            recentNudgeThreshold = System.currentTimeMillis() - 6 * 60 * 60 * 1000L,
+            maxNudgeCount = maxNudgeCount,
+            limit = 5
+        )
+        if (relaxed.isNotEmpty()) {
+            return relaxed.first().toDomain()
+        }
+        return getLatestUnreadLink()
+    }
+
     suspend fun getLatestUnreadLink(): SavedLink? {
         return savedLinkDao.getLatestUnreadLink()?.toDomain()
     }

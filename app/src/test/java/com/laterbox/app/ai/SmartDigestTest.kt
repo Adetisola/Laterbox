@@ -37,8 +37,8 @@ class SmartDigestTest {
             now = System.currentTimeMillis()
         )
 
-        assertEquals("Hi Alex, your link is waiting", copy.title)
-        assertTrue(copy.body.contains("Hi Alex, seems like you haven't checked the Instagram post you saved 3 days ago"))
+        assertEquals("Watch when you have a moment", copy.title)
+        assertTrue(copy.body.contains("Hey Alex, seems like you haven't checked the Instagram post you saved 3 days ago"))
         assertFalse(copy.isAiGenerated)
     }
 
@@ -122,8 +122,8 @@ class SmartDigestTest {
             origin = ReminderOrigin.MANUAL
         )
 
-        assertEquals("Hi Timi, here is what you scheduled", copy.title)
-        assertTrue(copy.body.contains("Hi Timi, you asked to revisit \"Introduction to Jetpack Compose\" from YouTube"))
+        assertEquals("Ready for Introduction to Jetpack?", copy.title)
+        assertTrue(copy.body.contains("Hey Timi, here is Introduction to Jetpack Compose from YouTube that you asked to revisit."))
         assertEquals(ReminderOrigin.MANUAL, copy.origin)
     }
 }

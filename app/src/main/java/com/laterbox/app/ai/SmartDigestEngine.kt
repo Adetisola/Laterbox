@@ -23,13 +23,14 @@ object SmartDigestEngine {
         link: SavedLink,
         userName: String? = null,
         origin: ReminderOrigin = ReminderOrigin.SMART_DIGEST,
-        engine: AiEngine = AiEngine.CLOUD
+        engine: AiEngine = AiEngine.CLOUD,
+        customApiKey: String? = null
     ): SmartReminderCopy {
         // Cloud AI via Google AI Studio is the sole, primary intelligence engine.
         // Deterministic local generator is used strictly as a safe offline/error fallback.
         return try {
             val aiResult = withTimeoutOrNull(AI_TIMEOUT_MS) {
-                generateCloudAiCopy(link, userName, origin)
+                generateCloudAiCopy(link, userName, origin, customApiKey)
             }
             aiResult ?: ContextAwareCopyGenerator.generateCopy(link, userName, origin = origin)
         } catch (t: Throwable) {
@@ -41,16 +42,30 @@ object SmartDigestEngine {
     private suspend fun generateCloudAiCopy(
         link: SavedLink,
         userName: String?,
-        origin: ReminderOrigin
+        origin: ReminderOrigin,
+        customApiKey: String?
     ): SmartReminderCopy? {
         val prompt = buildPrompt(link, userName, origin)
 
-        // 1. Attempt official Firebase AI SDK
+        // 1. Direct Google Generative Language API (Primary — uses Google AI Studio endpoint without App Check friction)
+        try {
+            val directResponse = withContext(Dispatchers.IO) {
+                generateDirectGeminiContent(prompt, customApiKey)
+            }
+            if (!directResponse.isNullOrBlank()) {
+                val parsed = parseAiResponse(directResponse, origin)
+                if (parsed != null) return parsed
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Direct Gemini API attempt failed (${e.message}). Falling back to Firebase AI SDK...")
+        }
+
+        // 2. Firebase AI SDK attempt
         try {
             val generativeModel = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
                 modelName = CLOUD_MODEL_NAME,
                 generationConfig = generationConfig {
-                    temperature = 0.7f
+                    temperature = 0.85f
                     maxOutputTokens = 160
                 }
             )
@@ -61,31 +76,25 @@ object SmartDigestEngine {
                 if (parsed != null) return parsed
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase AI SDK attempt failed (${e.javaClass.simpleName}: ${e.message}). Attempting direct Google AI endpoint fallback...")
-        }
-
-        // 2. Direct Google Generative Language API call with project API key fallback
-        try {
-            val directResponse = withContext(Dispatchers.IO) {
-                generateDirectGeminiContent(prompt)
-            }
-            if (!directResponse.isNullOrBlank()) {
-                val parsed = parseAiResponse(directResponse, origin)
-                if (parsed != null) return parsed
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Direct Gemini API fallback failed: ${e.message}")
+            Log.w(TAG, "Firebase AI SDK attempt also failed: ${e.message}")
         }
 
         return null
     }
 
-    private fun generateDirectGeminiContent(prompt: String): String? {
-        val apiKey = try {
+    fun resolveApiKey(customApiKey: String?): String? {
+        if (!customApiKey.isNullOrBlank()) {
+            return customApiKey.trim()
+        }
+        return try {
             Firebase.app.options.apiKey
         } catch (_: Exception) {
             null
-        } ?: return null
+        }
+    }
+
+    private fun generateDirectGeminiContent(prompt: String, customApiKey: String?): String? {
+        val apiKey = resolveApiKey(customApiKey) ?: return null
 
         val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$CLOUD_MODEL_NAME:generateContent?key=$apiKey"
         val jsonPayload = JSONObject().apply {
@@ -97,7 +106,7 @@ object SmartDigestEngine {
             }
             put("contents", contentsArray)
             put("generationConfig", JSONObject().apply {
-                put("temperature", 0.7)
+                put("temperature", 0.85)
                 put("maxOutputTokens", 160)
             })
         }.toString()
@@ -107,8 +116,8 @@ object SmartDigestEngine {
         return try {
             conn.requestMethod = "POST"
             conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            conn.connectTimeout = 12_000
+            conn.readTimeout = 12_000
             conn.doOutput = true
 
             conn.outputStream.use { os ->
@@ -134,23 +143,77 @@ object SmartDigestEngine {
         }
     }
 
+    suspend fun testGeminiApi(customApiKey: String?): Pair<Boolean, String> {
+        val apiKey = resolveApiKey(customApiKey) ?: return Pair(false, "No API key configured.")
+
+        return withContext(Dispatchers.IO) {
+            val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$CLOUD_MODEL_NAME:generateContent?key=$apiKey"
+            val jsonPayload = JSONObject().apply {
+                val partsArray = org.json.JSONArray().apply {
+                    put(JSONObject().put("text", "Respond with exact JSON: {\"title\":\"Connected\",\"body\":\"Gemini 2.5 Flash Lite is active\"}"))
+                }
+                val contentsArray = org.json.JSONArray().apply {
+                    put(JSONObject().put("parts", partsArray))
+                }
+                put("contents", contentsArray)
+            }.toString()
+
+            try {
+                val conn = java.net.URL(endpoint).openConnection() as java.net.HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                conn.connectTimeout = 8_000
+                conn.readTimeout = 8_000
+                conn.doOutput = true
+
+                conn.outputStream.use { it.write(jsonPayload.toByteArray(Charsets.UTF_8)) }
+                val code = conn.responseCode
+                if (code == 200) {
+                    Pair(true, "Connected to Gemini 2.5 Flash Lite")
+                } else {
+                    val errorStreamText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $code"
+                    val message = if (errorStreamText.contains("API_KEY_SERVICE_BLOCKED")) {
+                        "Google Generative Language API is blocked on this key. In Google Cloud Console, enable 'Generative Language API' or enter a Gemini key from Google AI Studio."
+                    } else if (code == 400 || code == 403) {
+                        "Invalid API key or unauthorized ($code)."
+                    } else {
+                        "Error ($code): ${errorStreamText.take(120)}"
+                    }
+                    Pair(false, message)
+                }
+            } catch (e: Exception) {
+                Pair(false, "Connection failed: ${e.message}")
+            }
+        }
+    }
+
     private fun buildPrompt(link: SavedLink, userName: String?, origin: ReminderOrigin): String {
         val userGreeting = if (!userName.isNullOrBlank()) "The user's name is $userName." else "No user name provided."
-        val noteSection = if (!link.personalNote.isNullOrBlank()) "User personal note: \"${link.personalNote}\"." else "No personal note."
-        val descriptionSection = if (!link.description.isNullOrBlank()) "Description: \"${link.description.take(150)}\"." else ""
-        val contextIntent = if (origin == ReminderOrigin.MANUAL) {
-            "The user explicitly asked to be reminded about this link. Acknowledge their intention naturally and warmly (e.g., 'Hi Timi, here is what you scheduled to revisit...')."
+        val noteSection = if (!link.personalNote.isNullOrBlank()) {
+            """
+            User's personal note: "${link.personalNote}"
+            IMPORTANT: Do NOT quote or repeat this note in quotes! Instead, understand the user's underlying intent (what they plan to do, e.g. install, read, test, buy, watch) and articulate it in your own words.
+            """.trimIndent()
         } else {
-            "This is a quiet, proactive background digest reminder for an unread link in their inbox. Nudge gently and naturally."
+            "No personal note left by the user."
+        }
+        val descriptionSection = if (!link.description.isNullOrBlank()) {
+            "Description: \"${link.description.take(160)}\"."
+        } else ""
+
+        val contextIntent = if (origin == ReminderOrigin.MANUAL) {
+            "The user explicitly scheduled a reminder for this link right now. Mention their goal naturally, warmly, and freshly without cliché reminder templates."
+        } else {
+            "This is an intelligent background digest nudge for an unread link in their inbox. Nudge them thoughtfully about why it's worth checking out."
         }
 
         return """
-            You are a calm, quiet personal assistant for Laterbox, an inbox where users save links to revisit later.
-            Generate a thoughtful, natural notification reminding the user about a saved link.
+            You are Laterbox's personal bookmarking and reading companion.
+            Craft a short, natural, human notification for this saved link.
             
             Context:
-            - $contextIntent
-            - $userGreeting
+            - Intent: $contextIntent
+            - User: $userGreeting
             - Title: "${link.title}"
             - Domain: "${link.domain}"
             - Site Name: "${link.siteName ?: link.domain}"
@@ -159,13 +222,17 @@ object SmartDigestEngine {
             - $descriptionSection
             
             Strict Guidelines:
+            - NEVER wrap the personal note in quotation marks. Synthesize their intent naturally into your message.
+            - Speak like a witty, intelligent personal assistant who understands the context.
+            - Never use generic robot phrases like 'You asked to be reminded:'.
+            - Title MUST be punchy and under 35 characters.
+            - Body MUST be under 110 characters so it fits on Android notification drawers.
             - NEVER use the words 'AI', 'robot', 'assistant', 'machine learning', or 'algorithm'.
-            - If user's name is given, address them warmly.
-            - Be concise, friendly, and human.
-            - Output MUST be valid JSON only with keys "title" (under 40 chars) and "body" (under 120 chars).
+            - Vary your tone and delivery every single time.
+            - Output MUST be valid JSON only with keys "title" and "body".
             
             Example:
-            {"title":"Scheduled link ready","body":"Hi Timi, here is that video from YouTube you asked to revisit."}
+            {"title":"Ready for Clipsift?","body":"Hey Timi, here is that image compressor you wanted to test out and install."}
         """.trimIndent()
     }
 

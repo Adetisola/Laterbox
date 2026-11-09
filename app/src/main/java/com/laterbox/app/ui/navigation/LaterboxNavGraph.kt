@@ -260,6 +260,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                 // Settings Screen
                 composable(LaterboxDestination.Settings.route) {
                     val preferences by settingsViewModel.preferences.collectAsState()
+                    val aiConnectionStatus by settingsViewModel.aiConnectionStatus.collectAsState()
                     SettingsScreen(
                         preferences = preferences,
                         onThemeModeChange = settingsViewModel::setThemeMode,
@@ -272,6 +273,9 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         onSmartReminderTimeChange = settingsViewModel::setSmartReminderTime,
                         onSmartReminderPersistenceChange = settingsViewModel::setSmartReminderPersistence,
                         onAiEngineChange = settingsViewModel::setAiEngine,
+                        aiConnectionStatus = aiConnectionStatus,
+                        onGeminiApiKeyChange = settingsViewModel::setGeminiApiKey,
+                        onTestAiConnection = settingsViewModel::testAiConnection,
                         onSendTestSmartDigest = settingsViewModel::sendTestSmartDigest,
                         onExportBackup = settingsViewModel::exportBackup,
                         onImportBackup = settingsViewModel::importBackup,

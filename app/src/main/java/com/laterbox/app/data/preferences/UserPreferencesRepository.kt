@@ -68,7 +68,8 @@ data class UserPreferences(
     val smartReminderHour: Int = 20,
     val smartReminderMinute: Int = 0,
     val smartReminderPersistence: SmartReminderPersistence = SmartReminderPersistence.TWICE,
-    val aiEngine: AiEngine = AiEngine.CLOUD
+    val aiEngine: AiEngine = AiEngine.CLOUD,
+    val geminiApiKey: String = ""
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 }
@@ -92,6 +93,7 @@ class UserPreferencesRepository(private val context: Context) {
         val SMART_REMINDER_MINUTE = intPreferencesKey("smart_reminder_minute")
         val SMART_REMINDER_PERSISTENCE = stringPreferencesKey("smart_reminder_persistence")
         val AI_ENGINE = stringPreferencesKey("ai_engine")
+        val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -148,6 +150,8 @@ class UserPreferencesRepository(private val context: Context) {
             AiEngine.CLOUD
         }
 
+        val geminiApiKey = preferences[PreferencesKeys.GEMINI_API_KEY] ?: ""
+
         UserPreferences(
             themeMode = themeMode,
             autoMarkAsRead = autoMarkAsRead,
@@ -162,7 +166,8 @@ class UserPreferencesRepository(private val context: Context) {
             smartReminderHour = smartReminderHour,
             smartReminderMinute = smartReminderMinute,
             smartReminderPersistence = smartReminderPersistence,
-            aiEngine = aiEngine
+            aiEngine = aiEngine,
+            geminiApiKey = geminiApiKey
         )
     }
 
@@ -256,6 +261,12 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setAiEngine(engine: AiEngine) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.AI_ENGINE] = engine.name
+        }
+    }
+
+    suspend fun setGeminiApiKey(apiKey: String) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.GEMINI_API_KEY] = apiKey.trim()
         }
     }
 }

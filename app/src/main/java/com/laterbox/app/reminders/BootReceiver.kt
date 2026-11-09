@@ -34,7 +34,15 @@ class BootReceiver : BroadcastReceiver() {
                         )
                     }
                 }
-                Log.d(TAG, "Rescheduled ${scheduledLinks.size} reminders after boot")
+                val prefs = appContainer.userPreferencesRepository.userPreferencesFlow.first()
+                if (prefs.smartRemindersEnabled) {
+                    reminderScheduler.scheduleSmartDigest(
+                        targetHour = prefs.smartReminderHour,
+                        targetMinute = prefs.smartReminderMinute,
+                        schedule = prefs.smartReminderSchedule
+                    )
+                }
+                Log.d(TAG, "Rescheduled ${scheduledLinks.size} reminders and smart digest after boot")
             } catch (e: Exception) {
                 Log.e(TAG, "Error rescheduling reminders on boot", e)
             } finally {

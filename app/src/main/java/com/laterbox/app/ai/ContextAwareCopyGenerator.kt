@@ -29,23 +29,22 @@ object ContextAwareCopyGenerator {
     }
 
     private fun buildTitle(link: SavedLink, userName: String?, origin: ReminderOrigin): String {
+        val cleanTitle = link.title.take(24).trim().removeSuffix("-").trim()
+        val namePrefix = if (!userName.isNullOrBlank()) "$userName, " else ""
+
         return if (origin == ReminderOrigin.MANUAL) {
-            if (!userName.isNullOrBlank()) {
-                "Hi $userName, here is what you scheduled"
-            } else {
-                "Your scheduled reminder"
+            when (Math.abs((link.id % 3).toInt())) {
+                0 -> "Ready for $cleanTitle?"
+                1 -> "${namePrefix}scheduled link ready"
+                else -> "Revisiting $cleanTitle"
             }
         } else {
-            if (!userName.isNullOrBlank()) {
-                "Hi $userName, your link is waiting"
-            } else {
-                when (link.contentType) {
-                    ContentType.ARTICLE -> "Ready for this read?"
-                    ContentType.VIDEO -> "Watch when you have a moment"
-                    ContentType.DISCUSSION -> "Catch up on this thread"
-                    ContentType.PRODUCT -> "Saved item in your inbox"
-                    ContentType.WEBSITE -> "Revisit your saved link"
-                }
+            when (link.contentType) {
+                ContentType.ARTICLE -> "Ready for this read?"
+                ContentType.VIDEO -> "Watch when you have a moment"
+                ContentType.DISCUSSION -> "Catch up on this thread"
+                ContentType.PRODUCT -> "Saved item in your inbox"
+                ContentType.WEBSITE -> "${namePrefix}your link is waiting"
             }
         }
     }
@@ -58,23 +57,40 @@ object ContextAwareCopyGenerator {
         hasNote: Boolean,
         origin: ReminderOrigin
     ): String {
-        if (origin == ReminderOrigin.MANUAL) {
-            val greeting = if (!userName.isNullOrBlank()) "Hi $userName, you" else "You"
-            return if (hasNote) {
-                val note = link.personalNote!!.trim()
-                "$greeting asked to be reminded: \"$note\" • ${link.title}"
-            } else {
-                "$greeting asked to revisit \"${link.title}\" from $platform."
-            }
-        }
+        val nameGreet = if (!userName.isNullOrBlank()) "Hey $userName, " else ""
+        val cleanTitle = link.title.take(45).trim()
 
         if (hasNote) {
             val note = link.personalNote!!.trim()
-            val greeting = if (!userName.isNullOrBlank()) "Hi $userName, you" else "You"
-            return "$greeting noted: \"$note\" • ${link.title}"
+            val lowerNote = note.lowercase()
+            return when {
+                lowerNote.contains("install") || lowerNote.contains("app") -> {
+                    "${nameGreet}here is $cleanTitle — ready to test it out and see if you want to install it?"
+                }
+                lowerNote.contains("read") || lowerNote.contains("article") -> {
+                    "${nameGreet}ready to dive into $cleanTitle from $platform?"
+                }
+                lowerNote.contains("watch") || lowerNote.contains("video") -> {
+                    "${nameGreet}here's that video on $cleanTitle you wanted to watch."
+                }
+                lowerNote.contains("buy") || lowerNote.contains("price") || lowerNote.contains("shop") -> {
+                    "${nameGreet}checking back in on $cleanTitle from $platform like you planned."
+                }
+                else -> {
+                    val cleanNoteSummary = note.removePrefix("I want to ")
+                        .removePrefix("Remember to ")
+                        .removePrefix("Check out ")
+                        .removePrefix("check out ")
+                    "${nameGreet}here is $cleanTitle to $cleanNoteSummary."
+                }
+            }
         }
 
-        val greeting = if (!userName.isNullOrBlank()) "Hi $userName, seems" else "Seems"
+        if (origin == ReminderOrigin.MANUAL) {
+            return "${nameGreet}here is $cleanTitle from $platform that you asked to revisit."
+        }
+
+        val greeting = if (!userName.isNullOrBlank()) "Hey $userName, seems" else "Seems"
 
         return when {
             platform.contains("Instagram", ignoreCase = true) || platform.contains("TikTok", ignoreCase = true) -> {
@@ -84,13 +100,13 @@ object ContextAwareCopyGenerator {
                 "$greeting like you haven't watched the video from $platform you saved $timeAgo."
             }
             link.contentType == ContentType.ARTICLE -> {
-                "$greeting like you haven't finished reading \"${link.title}\" from $platform."
+                "$greeting like you haven't finished reading $cleanTitle from $platform."
             }
             link.contentType == ContentType.DISCUSSION -> {
                 "$greeting like there's an unread discussion on $platform you saved $timeAgo."
             }
             else -> {
-                "$greeting like you haven't checked the link from $platform you saved $timeAgo."
+                "$greeting like you haven't checked $cleanTitle from $platform you saved $timeAgo."
             }
         }
     }

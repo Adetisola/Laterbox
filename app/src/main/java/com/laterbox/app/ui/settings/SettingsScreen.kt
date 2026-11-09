@@ -27,6 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -80,6 +81,9 @@ fun SettingsScreen(
     onSmartReminderTimeChange: (Int, Int) -> Unit = { _, _ -> },
     onSmartReminderPersistenceChange: (SmartReminderPersistence) -> Unit = {},
     onAiEngineChange: (com.laterbox.app.data.preferences.AiEngine) -> Unit = {},
+    aiConnectionStatus: Pair<Boolean, String>? = null,
+    onGeminiApiKeyChange: (String) -> Unit = {},
+    onTestAiConnection: () -> Unit = {},
     onSendTestSmartDigest: suspend () -> Boolean = { false },
     onExportBackup: suspend (OutputStream) -> Result<Int>,
     onImportBackup: suspend (InputStream) -> Result<com.laterbox.app.data.backup.BackupRestoreResult>,
@@ -529,6 +533,115 @@ fun SettingsScreen(
                             style = typography.metaText,
                             color = colors.textSecondary
                         )
+
+                        Spacer(modifier = Modifier.height(spacing.xs))
+
+                        // Google AI Studio API Key & Connection Test
+                        Text(
+                            text = "Google AI Studio API Key",
+                            style = typography.uiMedium,
+                            color = colors.textPrimary
+                        )
+
+                        Text(
+                            text = "Laterbox connects to Gemini 2.5 Flash Lite. By default, it uses the embedded app key. If your app key hits Google Cloud service restrictions or quota limits, paste your free Gemini API key from aistudio.google.com here.",
+                            style = typography.metaText,
+                            color = colors.textSecondary
+                        )
+
+                        var apiKeyInput by remember(preferences.geminiApiKey) { mutableStateOf(preferences.geminiApiKey) }
+
+                        OutlinedTextField(
+                            value = apiKeyInput,
+                            onValueChange = {
+                                apiKeyInput = it.trim()
+                                onGeminiApiKeyChange(it.trim())
+                            },
+                            placeholder = {
+                                Text(
+                                    text = "AIzaSy... (leave blank for default)",
+                                    style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                    color = colors.textTertiary
+                                )
+                            },
+                            textStyle = typography.codeBlock.copy(fontSize = 12.sp, color = colors.textPrimary),
+                            singleLine = true,
+                            shape = RoundedCornerShape(spacing.radiusSmall),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = colors.accentPrimary,
+                                unfocusedBorderColor = colors.borderSubtle,
+                                focusedContainerColor = colors.surfaceSecondary,
+                                unfocusedContainerColor = colors.surfaceSecondary,
+                                cursorColor = colors.accentPrimary
+                            ),
+                            trailingIcon = {
+                                if (apiKeyInput.isNotEmpty()) {
+                                    IconButton(onClick = {
+                                        apiKeyInput = ""
+                                        onGeminiApiKeyChange("")
+                                    }) {
+                                        Icon(
+                                            painter = painterResource(id = LaterboxIcons.Close),
+                                            contentDescription = "Clear",
+                                            tint = colors.textSecondary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Test AI Connection Button
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(spacing.minTouchTarget)
+                                .clip(RoundedCornerShape(spacing.radiusSmall))
+                                .background(colors.surfaceSecondary)
+                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
+                                .clickable { onTestAiConnection() }
+                                .padding(horizontal = spacing.md),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = LaterboxIcons.Sparkles),
+                                    contentDescription = null,
+                                    tint = colors.accentPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Test AI Connection",
+                                    style = typography.uiMedium.copy(fontSize = 13.sp),
+                                    color = colors.accentPrimary
+                                )
+                            }
+                        }
+
+                        // Status banner if tested
+                        aiConnectionStatus?.let { (isSuccess, message) ->
+                            val statusBorder = if (isSuccess) colors.accentPrimary else colors.statusDanger
+                            val statusColor = if (isSuccess) colors.textPrimary else colors.statusDanger
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(spacing.radiusSmall))
+                                    .background(colors.surfaceSecondary)
+                                    .border(spacing.hairline, statusBorder, RoundedCornerShape(spacing.radiusSmall))
+                                    .padding(spacing.sm)
+                            ) {
+                                Text(
+                                    text = if (isSuccess) "✓ $message" else "⚠ $message",
+                                    style = typography.metaText.copy(fontSize = 12.sp),
+                                    color = statusColor
+                                )
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(spacing.xxs))
 

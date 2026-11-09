@@ -169,6 +169,25 @@ interface SavedLinkDao {
     @Query("""
         SELECT * FROM saved_links 
         WHERE is_archived = 0 
+          AND is_read = 0 
+          AND nudge_dismissed = 0 
+          AND nudge_count < :maxNudgeCount 
+          AND (last_nudged_at IS NULL OR last_nudged_at < :recentNudgeThreshold)
+        ORDER BY 
+          CASE WHEN personal_note IS NOT NULL AND LENGTH(TRIM(personal_note)) > 0 THEN 0 ELSE 1 END,
+          created_at DESC
+        LIMIT :limit
+    """)
+    suspend fun getRelaxedDigestCandidates(
+        recentNudgeThreshold: Long = System.currentTimeMillis() - 6 * 60 * 60 * 1000L,
+        maxNudgeCount: Int = 2,
+        limit: Int = 5
+    ): List<SavedLinkWithCollection>
+
+    @Transaction
+    @Query("""
+        SELECT * FROM saved_links 
+        WHERE is_archived = 0 
           AND is_read = 0
         ORDER BY created_at DESC
         LIMIT 1

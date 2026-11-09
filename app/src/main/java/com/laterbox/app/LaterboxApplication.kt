@@ -69,7 +69,17 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
 
                 val prefs = container.userPreferencesRepository.userPreferencesFlow.first()
                 if (prefs.smartRemindersEnabled) {
-                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(this@LaterboxApplication)
+                    com.laterbox.app.reminders.ReminderScheduler(this@LaterboxApplication).scheduleSmartDigest(
+                        targetHour = prefs.smartReminderHour,
+                        targetMinute = prefs.smartReminderMinute,
+                        schedule = prefs.smartReminderSchedule
+                    )
+                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
+                        context = this@LaterboxApplication,
+                        schedule = prefs.smartReminderSchedule,
+                        targetHour = prefs.smartReminderHour,
+                        targetMinute = prefs.smartReminderMinute
+                    )
                 }
             } catch (e: Exception) {
                 // Safeguard against test environments

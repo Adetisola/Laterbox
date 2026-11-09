@@ -27,15 +27,16 @@ class DailyDigestWorker(
                 return Result.success()
             }
 
-            val candidates = app.container.linkRepository.getSmartDigestCandidates(
+            val candidate = app.container.linkRepository.getSmartDigestCandidate(
                 maxNudgeCount = prefs.smartReminderPersistence.maxNudges
-            )
-            val candidate = candidates.firstOrNull() ?: return Result.success()
+            ) ?: return Result.success()
 
             val copy = SmartDigestEngine.generateDigestCopy(
                 link = candidate,
                 userName = prefs.userName.ifBlank { null },
-                engine = prefs.aiEngine
+                origin = ReminderOrigin.SMART_DIGEST,
+                engine = prefs.aiEngine,
+                customApiKey = prefs.geminiApiKey.ifBlank { null }
             )
 
             NotificationHelper.showSmartDigestNotification(
