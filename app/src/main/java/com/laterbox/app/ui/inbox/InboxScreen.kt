@@ -668,7 +668,7 @@ private fun ClipboardSuggestionBanner(
             ) {
                 Text(
                     text = "Save",
-                    style = typography.buttonText.copy(
+                    style = typography.buttonLabel.copy(
                         color = colors.backgroundPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp

@@ -23,6 +23,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.laterbox.app.LaterboxApplication
@@ -72,6 +74,7 @@ class ShareReceiverActivity : ComponentActivity() {
                 val uiState by saveLinkViewModel.uiState.collectAsState()
                 val colors = LaterboxTheme.colors
                 val spacing = LaterboxTheme.spacing
+                val coroutineScope = rememberCoroutineScope()
 
                 BackHandler {
                     finish()
@@ -120,12 +123,12 @@ class ShareReceiverActivity : ComponentActivity() {
                                     saveLinkViewModel.onSave(
                                         onSuccess = {
                                             val savedUrl = parsed.url
-                                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                            coroutineScope.launch {
                                                 userPrefsRepo.recordHandledClipboardHash(
                                                     com.laterbox.app.capture.ClipboardSuggestionManager.computeHash(savedUrl)
                                                 )
+                                                finish()
                                             }
-                                            finish()
                                         }
                                     )
                                 },
