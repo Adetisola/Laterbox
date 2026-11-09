@@ -14,7 +14,6 @@ import android.os.Build
 import androidx.annotation.DrawableRes
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.IconCompat
 import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -120,20 +119,11 @@ object NotificationHelper {
             }
         }
 
-        // Small Icon: Show the favicon or platform logo in the notification header
+        // Small Icon: Show the platform logo in the notification header
         val platformIconRes = resolvePlatformIcon(link.domain)
-        val smallIconCompat = if (logoBitmap != null) {
-            try {
-                IconCompat.createWithBitmap(logoBitmap)
-            } catch (_: Exception) {
-                IconCompat.createWithResource(context, platformIconRes)
-            }
-        } else {
-            IconCompat.createWithResource(context, platformIconRes)
-        }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
-            .setSmallIcon(smallIconCompat)
+            .setSmallIcon(platformIconRes)
             .setContentTitle(title)
             .setContentText(body)
             .setContentIntent(contentPendingIntent)

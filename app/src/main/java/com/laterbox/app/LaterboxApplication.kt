@@ -49,7 +49,8 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
 
         // Initialize Firebase App Check: Debug provider in debug builds, Play Integrity in release builds
         try {
-            val providerFactory = if (BuildConfig.DEBUG) {
+            val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+            val providerFactory = if (isDebug) {
                 com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
             } else {
                 PlayIntegrityAppCheckProviderFactory.getInstance()
