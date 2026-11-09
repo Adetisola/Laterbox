@@ -85,14 +85,27 @@ object SmartDigestEngine {
     }
 
     fun parseAiResponse(rawText: String): SmartReminderCopy? {
-        return try {
-            val cleanJson = rawText
-                .removePrefix("```json")
-                .removePrefix("```")
-                .removeSuffix("```")
-                .trim()
+        val clean = rawText
+            .removePrefix("```json")
+            .removePrefix("```")
+            .removeSuffix("```")
+            .trim()
 
-            val jsonObject = JSONObject(cleanJson)
+        // 1. Robust regex extraction (works on both JVM unit tests and Android runtime)
+        val titleMatch = Regex("\"title\"\\s*:\\s*\"([^\"]+)\"").find(clean)?.groupValues?.get(1)?.trim()
+        val bodyMatch = Regex("\"body\"\\s*:\\s*\"([^\"]+)\"").find(clean)?.groupValues?.get(1)?.trim()
+
+        if (!titleMatch.isNullOrBlank() && !bodyMatch.isNullOrBlank()) {
+            return SmartReminderCopy(
+                title = titleMatch.take(50),
+                body = bodyMatch.take(150),
+                isAiGenerated = true
+            )
+        }
+
+        // 2. Fallback to JSONObject parser
+        return try {
+            val jsonObject = JSONObject(clean)
             val title = jsonObject.optString("title").trim()
             val body = jsonObject.optString("body").trim()
 
@@ -105,7 +118,7 @@ object SmartDigestEngine {
             } else {
                 null
             }
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             null
         }
     }
