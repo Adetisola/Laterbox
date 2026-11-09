@@ -103,4 +103,27 @@ class SmartDigestTest {
         val parsed = SmartDigestEngine.parseAiResponse(raw)
         assertNull(parsed)
     }
+
+    @Test
+    fun contextAwareCopyGenerator_withManualReminderOrigin() {
+        val link = SavedLink(
+            id = 3L,
+            originalUrl = "https://youtube.com/watch?v=123",
+            normalizedUrl = "https://youtube.com/watch?v=123",
+            title = "Introduction to Jetpack Compose",
+            domain = "youtube.com",
+            siteName = "YouTube",
+            contentType = ContentType.VIDEO
+        )
+
+        val copy = ContextAwareCopyGenerator.generateCopy(
+            link = link,
+            userName = "Timi",
+            origin = ReminderOrigin.MANUAL
+        )
+
+        assertEquals("Hi Timi, here is what you scheduled", copy.title)
+        assertTrue(copy.body.contains("Hi Timi, you asked to revisit \"Introduction to Jetpack Compose\" from YouTube"))
+        assertEquals(ReminderOrigin.MANUAL, copy.origin)
+    }
 }

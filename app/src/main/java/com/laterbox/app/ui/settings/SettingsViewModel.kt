@@ -140,12 +140,15 @@ class SettingsViewModel(
         val copy = com.laterbox.app.ai.SmartDigestEngine.generateDigestCopy(
             link = targetLink,
             userName = currentPrefs.userName.ifBlank { null },
+            origin = com.laterbox.app.ai.ReminderOrigin.SMART_DIGEST,
             engine = currentPrefs.aiEngine
         )
 
-        return com.laterbox.app.reminders.NotificationHelper.showSmartDigestNotification(
+        return com.laterbox.app.reminders.NotificationHelper.showReminderNotification(
             context = ctx,
             link = targetLink,
+            userName = currentPrefs.userName.ifBlank { null },
+            origin = com.laterbox.app.ai.ReminderOrigin.SMART_DIGEST,
             copy = copy
         )
     }

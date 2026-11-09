@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.laterbox.app.LaterboxApplication
+import com.laterbox.app.ai.ReminderOrigin
+import com.laterbox.app.ai.SmartDigestEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -31,16 +33,31 @@ class ReminderReceiver : BroadcastReceiver() {
                             val prefs = userPreferencesRepository.userPreferencesFlow.first()
                             val userName = prefs.userName.ifBlank { null }
                             val copy = if (prefs.smartRemindersEnabled) {
-                                com.laterbox.app.ai.SmartDigestEngine.generateDigestCopy(link, userName)
+                                SmartDigestEngine.generateDigestCopy(
+                                    link = link,
+                                    userName = userName,
+                                    origin = ReminderOrigin.MANUAL
+                                )
                             } else null
-                            NotificationHelper.showReminderNotification(context, link, userName, copy)
+
+                            NotificationHelper.showReminderNotification(
+                                context = context,
+                                link = link,
+                                userName = userName,
+                                origin = ReminderOrigin.MANUAL,
+                                copy = copy
+                            )
                             linkRepository.recordNudge(linkId)
                         }
                     }
                     ACTION_DISMISS_REMINDER -> {
                         linkRepository.dismissReminder(linkId)
                         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                        val notifId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, linkId.toInt())
+                        notificationManager?.cancel(notifId)
                         notificationManager?.cancel(linkId.toInt())
+                        notificationManager?.cancel((linkId + 500_000L).toInt())
+                        Log.d(TAG, "Dismissed reminder for link $linkId (notifId $notifId)")
                     }
                 }
             } catch (e: Exception) {
@@ -56,6 +73,7 @@ class ReminderReceiver : BroadcastReceiver() {
         const val ACTION_TRIGGER_REMINDER = "com.laterbox.app.action.TRIGGER_REMINDER"
         const val ACTION_DISMISS_REMINDER = "com.laterbox.app.action.DISMISS_REMINDER"
         const val EXTRA_LINK_ID = "extra_link_id"
+        const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_URL = "extra_url"
     }

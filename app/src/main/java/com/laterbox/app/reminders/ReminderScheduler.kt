@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 
+import android.os.Build
+
 class ReminderScheduler(private val context: Context) {
 
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
@@ -30,16 +32,37 @@ class ReminderScheduler(private val context: Context) {
         )
 
         try {
-            // Android 14+ safe: setWindow with 5-minute battery-friendly window avoids SCHEDULE_EXACT_ALARM permission gating
-            alarmManager.setWindow(
-                AlarmManager.RTC_WAKEUP,
-                triggerAtMillis,
-                5 * 60_000L,
-                pendingIntent
-            )
-            Log.d(TAG, "Scheduled reminder for link $linkId at $triggerAtMillis")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.setWindow(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        60_000L,
+                        pendingIntent
+                    )
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            }
+            Log.d(TAG, "Scheduled exact reminder for link $linkId at $triggerAtMillis")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to schedule reminder for link $linkId", e)
+            Log.e(TAG, "Failed to schedule exact reminder for link $linkId", e)
         }
     }
 

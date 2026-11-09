@@ -11,14 +11,18 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
+import androidx.annotation.DrawableRes
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.IconCompat
 import coil.Coil
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import com.laterbox.app.MainActivity
 import com.laterbox.app.R
+import com.laterbox.app.ai.ReminderOrigin
+import com.laterbox.app.ai.SmartReminderCopy
 import com.laterbox.app.domain.model.SavedLink
+import kotlinx.coroutines.withTimeoutOrNull
 
 object NotificationHelper {
 
@@ -47,7 +51,8 @@ object NotificationHelper {
         context: Context,
         link: SavedLink,
         userName: String? = null,
-        copy: com.laterbox.app.ai.SmartReminderCopy? = null
+        origin: ReminderOrigin = ReminderOrigin.SMART_DIGEST,
+        copy: SmartReminderCopy? = null
     ): Boolean {
         createNotificationChannels(context)
 
@@ -65,10 +70,11 @@ object NotificationHelper {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             ?: return false
 
-        // Fetch site logo or favicon via Coil cache / fallbacks
+        // Fetch site logo/favicon and preview/OG image concurrently or sequentially with timeouts
         val logoBitmap: Bitmap? = fetchSiteLogo(context, link)
+        val previewBitmap: Bitmap? = fetchPreviewImage(context, link.previewImageUrl)
 
-        // Tap content intent -> opens the link directly in Laterbox / MainActivity
+        // Tap content intent -> opens the link directly in external browser / viewer
         val contentIntent = Intent(Intent.ACTION_VIEW, Uri.parse(link.originalUrl)).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -80,9 +86,11 @@ object NotificationHelper {
         )
 
         // Action: Dismiss Reminder
+        val notificationId = link.id.toInt()
         val dismissIntent = Intent(context, ReminderReceiver::class.java).apply {
             action = ReminderReceiver.ACTION_DISMISS_REMINDER
             putExtra(ReminderReceiver.EXTRA_LINK_ID, link.id)
+            putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, notificationId)
         }
         val dismissPendingIntent = PendingIntent.getBroadcast(
             context,
@@ -92,23 +100,42 @@ object NotificationHelper {
         )
 
         // Use AI copy if provided, otherwise warm personalized context title & body
-        val title = copy?.title ?: if (!userName.isNullOrBlank()) {
-            "Hi $userName, your saved link is waiting"
+        val title = copy?.title ?: if (origin == ReminderOrigin.MANUAL) {
+            if (!userName.isNullOrBlank()) "Hi $userName, here is what you scheduled" else "Your scheduled reminder"
         } else {
-            "Revisit your saved link"
+            if (!userName.isNullOrBlank()) "Hi $userName, your link is waiting" else "Revisit your saved link"
         }
 
-        val body = copy?.body ?: if (!link.personalNote.isNullOrBlank()) {
-            "\"${link.personalNote}\" • ${link.title}"
+        val body = copy?.body ?: if (origin == ReminderOrigin.MANUAL) {
+            if (!link.personalNote.isNullOrBlank()) {
+                "You asked to be reminded: \"${link.personalNote}\" • ${link.title}"
+            } else {
+                "You asked to revisit \"${link.title}\" from ${link.domain}."
+            }
         } else {
-            "${link.title} • ${link.domain}"
+            if (!link.personalNote.isNullOrBlank()) {
+                "\"${link.personalNote}\" • ${link.title}"
+            } else {
+                "${link.title} • ${link.domain}"
+            }
+        }
+
+        // Small Icon: Show the favicon or platform logo in the notification header
+        val platformIconRes = resolvePlatformIcon(link.domain)
+        val smallIconCompat = if (logoBitmap != null) {
+            try {
+                IconCompat.createWithBitmap(logoBitmap)
+            } catch (_: Exception) {
+                IconCompat.createWithResource(context, platformIconRes)
+            }
+        } else {
+            IconCompat.createWithResource(context, platformIconRes)
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
-            .setSmallIcon(if (copy?.isAiGenerated == true) R.drawable.ic_huge_sparkles else R.drawable.ic_huge_clock)
+            .setSmallIcon(smallIconCompat)
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(contentPendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -124,94 +151,75 @@ object NotificationHelper {
                 dismissPendingIntent
             )
 
-        if (logoBitmap != null) {
-            builder.setLargeIcon(logoBitmap)
+        // Visuals: If preview/OG image exists, place as large icon in collapsed view,
+        // and expand to full width in BigPictureStyle. If no preview image, use site logo.
+        if (previewBitmap != null) {
+            builder.setLargeIcon(previewBitmap)
+            builder.setStyle(
+                NotificationCompat.BigPictureStyle()
+                    .bigPicture(previewBitmap)
+                    .setBigContentTitle(title)
+                    .setSummaryText(body)
+            )
+        } else {
+            if (logoBitmap != null) {
+                builder.setLargeIcon(logoBitmap)
+            }
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
         }
 
-        notificationManager.notify(link.id.toInt(), builder.build())
+        notificationManager.notify(notificationId, builder.build())
         return true
     }
 
     suspend fun showSmartDigestNotification(
         context: Context,
         link: SavedLink,
-        copy: com.laterbox.app.ai.SmartReminderCopy
+        copy: SmartReminderCopy
     ): Boolean {
-        createNotificationChannels(context)
+        return showReminderNotification(
+            context = context,
+            link = link,
+            origin = copy.origin,
+            copy = copy
+        )
+    }
 
-        // Android 13+ permission check
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val permissionGranted = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!permissionGranted) {
-                return false
+    @DrawableRes
+    fun resolvePlatformIcon(domain: String): Int {
+        val lower = domain.lowercase()
+        return when {
+            lower.contains("youtube.com") || lower.contains("youtu.be") -> R.drawable.ic_platform_youtube
+            lower.contains("github.com") -> R.drawable.ic_platform_github
+            lower.contains("reddit.com") -> R.drawable.ic_platform_reddit
+            lower.contains("twitter.com") || lower.contains("x.com") -> R.drawable.ic_platform_x
+            else -> R.drawable.ic_platform_web
+        }
+    }
+
+    private suspend fun fetchPreviewImage(context: Context, url: String?): Bitmap? {
+        if (url.isNullOrBlank()) return null
+        return withTimeoutOrNull(2_000L) {
+            try {
+                val request = ImageRequest.Builder(context)
+                    .data(url)
+                    .allowHardware(false)
+                    .size(1024, 512)
+                    .build()
+                val result = Coil.imageLoader(context).execute(request)
+                if (result is SuccessResult) {
+                    (result.drawable as? BitmapDrawable)?.bitmap
+                } else null
+            } catch (_: Exception) {
+                null
             }
         }
-
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return false
-
-        // Fetch site logo or favicon via Coil cache / fallbacks
-        val logoBitmap: Bitmap? = fetchSiteLogo(context, link)
-
-        // Tap content intent -> opens the link directly in browser / app
-        val contentIntent = Intent(Intent.ACTION_VIEW, Uri.parse(link.originalUrl)).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val contentPendingIntent = PendingIntent.getActivity(
-            context,
-            (link.id + 200_000L).hashCode(),
-            contentIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        // Action: Dismiss Reminder
-        val dismissIntent = Intent(context, ReminderReceiver::class.java).apply {
-            action = ReminderReceiver.ACTION_DISMISS_REMINDER
-            putExtra(ReminderReceiver.EXTRA_LINK_ID, link.id)
-        }
-        val dismissPendingIntent = PendingIntent.getBroadcast(
-            context,
-            (link.id + 300_000L).hashCode(),
-            dismissIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
-            .setSmallIcon(R.drawable.ic_huge_sparkles)
-            .setContentTitle(copy.title)
-            .setContentText(copy.body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(copy.body))
-            .setContentIntent(contentPendingIntent)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .addAction(
-                R.drawable.ic_huge_arrow_up_right,
-                "Open Link",
-                contentPendingIntent
-            )
-            .addAction(
-                R.drawable.ic_huge_close,
-                "Dismiss",
-                dismissPendingIntent
-            )
-
-        if (logoBitmap != null) {
-            builder.setLargeIcon(logoBitmap)
-        }
-
-        notificationManager.notify((link.id + 500_000L).toInt(), builder.build())
-        return true
     }
 
     private suspend fun fetchSiteLogo(context: Context, link: SavedLink): Bitmap? {
-        return kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+        return withTimeoutOrNull(1_500L) {
             val candidateUrls = listOfNotNull(
                 link.faviconUrl,
-                link.previewImageUrl,
                 if (link.domain.isNotBlank()) "https://www.google.com/s2/favicons?domain=${link.domain}&sz=128" else null
             )
 

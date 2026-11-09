@@ -9,33 +9,43 @@ object ContextAwareCopyGenerator {
     fun generateCopy(
         link: SavedLink,
         userName: String? = null,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        origin: ReminderOrigin = ReminderOrigin.SMART_DIGEST
     ): SmartReminderCopy {
         val cleanName = userName?.trim()?.takeIf { it.isNotEmpty() }
         val platform = detectPlatformName(link.domain, link.siteName)
         val timeAgo = calculateTimeAgo(link.createdAt, now)
         val hasNote = !link.personalNote.isNullOrBlank()
 
-        val title = buildTitle(link, cleanName)
-        val body = buildBody(link, cleanName, platform, timeAgo, hasNote)
+        val title = buildTitle(link, cleanName, origin)
+        val body = buildBody(link, cleanName, platform, timeAgo, hasNote, origin)
 
         return SmartReminderCopy(
             title = title.take(50),
             body = body.take(150),
-            isAiGenerated = false
+            isAiGenerated = false,
+            origin = origin
         )
     }
 
-    private fun buildTitle(link: SavedLink, userName: String?): String {
-        return if (!userName.isNullOrBlank()) {
-            "Hi $userName, your link is waiting"
+    private fun buildTitle(link: SavedLink, userName: String?, origin: ReminderOrigin): String {
+        return if (origin == ReminderOrigin.MANUAL) {
+            if (!userName.isNullOrBlank()) {
+                "Hi $userName, here is what you scheduled"
+            } else {
+                "Your scheduled reminder"
+            }
         } else {
-            when (link.contentType) {
-                ContentType.ARTICLE -> "Ready for this read?"
-                ContentType.VIDEO -> "Watch when you have a moment"
-                ContentType.DISCUSSION -> "Catch up on this thread"
-                ContentType.PRODUCT -> "Saved item in your inbox"
-                ContentType.WEBSITE -> "Revisit your saved link"
+            if (!userName.isNullOrBlank()) {
+                "Hi $userName, your link is waiting"
+            } else {
+                when (link.contentType) {
+                    ContentType.ARTICLE -> "Ready for this read?"
+                    ContentType.VIDEO -> "Watch when you have a moment"
+                    ContentType.DISCUSSION -> "Catch up on this thread"
+                    ContentType.PRODUCT -> "Saved item in your inbox"
+                    ContentType.WEBSITE -> "Revisit your saved link"
+                }
             }
         }
     }
@@ -45,8 +55,19 @@ object ContextAwareCopyGenerator {
         userName: String?,
         platform: String,
         timeAgo: String,
-        hasNote: Boolean
+        hasNote: Boolean,
+        origin: ReminderOrigin
     ): String {
+        if (origin == ReminderOrigin.MANUAL) {
+            val greeting = if (!userName.isNullOrBlank()) "Hi $userName, you" else "You"
+            return if (hasNote) {
+                val note = link.personalNote!!.trim()
+                "$greeting asked to be reminded: \"$note\" • ${link.title}"
+            } else {
+                "$greeting asked to revisit \"${link.title}\" from $platform."
+            }
+        }
+
         if (hasNote) {
             val note = link.personalNote!!.trim()
             val greeting = if (!userName.isNullOrBlank()) "Hi $userName, you" else "You"

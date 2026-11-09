@@ -47,13 +47,17 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         container = DefaultAppContainer(this)
 
-        // Initialize Firebase App Check with Play Integrity for Firebase AI Logic
+        // Initialize Firebase App Check: Debug provider in debug builds, Play Integrity in release builds
         try {
-            Firebase.appCheck.installAppCheckProviderFactory(
+            val providerFactory = if (BuildConfig.DEBUG) {
+                com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory.getInstance()
+            } else {
                 PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
+            }
+            Firebase.appCheck.installAppCheckProviderFactory(providerFactory)
+            Log.d("LaterboxApplication", "Installed App Check provider factory")
         } catch (e: Exception) {
-            Log.w("LaterboxApplication", "Failed to install Play Integrity App Check provider: ${e.message}")
+            Log.w("LaterboxApplication", "Failed to install App Check provider: ${e.message}")
         }
 
         // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue workers
