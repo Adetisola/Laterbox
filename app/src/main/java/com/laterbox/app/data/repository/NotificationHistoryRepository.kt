@@ -17,12 +17,12 @@ class NotificationHistoryRepository(
     val unreadCount: Flow<Int> = dao.getUnreadCount()
 
     suspend fun recordNotification(
-        linkId: Long?,
         url: String,
         title: String,
         body: String,
         origin: String,
-        domain: String,
+        domain: String = "",
+        linkId: Long? = null,
         siteName: String? = null,
         previewImageUrl: String? = null,
         faviconUrl: String? = null,
