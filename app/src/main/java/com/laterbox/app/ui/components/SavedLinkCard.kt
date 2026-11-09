@@ -58,6 +58,7 @@ fun SavedLinkCard(
     onQuickOpenClick: () -> Unit,
     modifier: Modifier = Modifier,
     viewMode: InboxViewMode = InboxViewMode.HERO,
+    shape: androidx.compose.ui.graphics.Shape = LaterboxShapeTokens.Card,
     onToggleRead: (() -> Unit)? = null,
     onArchive: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null
@@ -103,7 +104,7 @@ fun SavedLinkCard(
                 onClick = onClick,
                 onLongClick = { showMenu = true }
             ),
-        shape = LaterboxShapeTokens.Card,
+        shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = LaterboxTheme.colors.surfacePrimary
         ),

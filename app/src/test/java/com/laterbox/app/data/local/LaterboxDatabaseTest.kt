@@ -554,5 +554,58 @@ class LaterboxDatabaseTest {
         assertEquals(1, scheduled.size)
         assertEquals(futureId, scheduled[0].link.id)
     }
+
+    @Test
+    fun getSmartDigestCandidates_honorsMaxNudgeCount() = runTest {
+        val now = System.currentTimeMillis()
+        val oldTimestamp = now - (48 * 60 * 60 * 1000L) // 2 days old
+
+        // Candidate with nudgeCount = 1
+        val id1 = linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/one",
+                normalizedUrl = "https://example.com/one",
+                title = "Link One",
+                domain = "example.com",
+                isArchived = false,
+                isRead = false,
+                nudgeDismissed = false,
+                nudgeCount = 1,
+                createdAt = oldTimestamp
+            )
+        )
+
+        // Candidate with nudgeCount = 2
+        val id2 = linkDao.insertLink(
+            SavedLinkEntity(
+                originalUrl = "https://example.com/two",
+                normalizedUrl = "https://example.com/two",
+                title = "Link Two",
+                domain = "example.com",
+                isArchived = false,
+                isRead = false,
+                nudgeDismissed = false,
+                nudgeCount = 2,
+                createdAt = oldTimestamp
+            )
+        )
+
+        // When maxNudgeCount = 2, only id1 is returned
+        val candidatesForTwo = linkDao.getSmartDigestCandidates(
+            minAgeThreshold = now - (24 * 60 * 60 * 1000L),
+            recentNudgeThreshold = now - (24 * 60 * 60 * 1000L),
+            maxNudgeCount = 2
+        )
+        assertEquals(1, candidatesForTwo.size)
+        assertEquals(id1, candidatesForTwo[0].link.id)
+
+        // When maxNudgeCount = 3, both id1 and id2 are returned
+        val candidatesForThree = linkDao.getSmartDigestCandidates(
+            minAgeThreshold = now - (24 * 60 * 60 * 1000L),
+            recentNudgeThreshold = now - (24 * 60 * 60 * 1000L),
+            maxNudgeCount = 3
+        )
+        assertEquals(2, candidatesForThree.size)
+    }
 }
 

@@ -22,7 +22,7 @@ mockwebserver = "4.12.0"
 turbine = "1.2.0"
 coroutinesTest = "1.9.0"
 androidxTest = "1.6.1"
-firebaseBom = "33.9.0"
+firebaseBom = "33.16.0"
 googleServices = "4.4.2"
 
 [libraries]
@@ -52,9 +52,10 @@ work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
-# Firebase & AI
+# Firebase & AI Logic (Google AI Studio backend)
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
-firebase-vertexai = { group = "com.google.firebase", name = "firebase-vertexai" }
+firebase-ai = { group = "com.google.firebase", name = "firebase-ai" }
+firebase-appcheck-playintegrity = { group = "com.google.firebase", name = "firebase-appcheck-playintegrity" }
 
 # Testing
 junit = { group = "junit", name = "junit", version.ref = "junit" }

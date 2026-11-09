@@ -150,7 +150,7 @@ interface SavedLinkDao {
         WHERE is_archived = 0 
           AND is_read = 0 
           AND nudge_dismissed = 0 
-          AND nudge_count < 2 
+          AND nudge_count < :maxNudgeCount 
           AND (last_nudged_at IS NULL OR last_nudged_at < :recentNudgeThreshold)
           AND created_at < :minAgeThreshold
         ORDER BY 
@@ -161,6 +161,7 @@ interface SavedLinkDao {
     suspend fun getSmartDigestCandidates(
         minAgeThreshold: Long = System.currentTimeMillis() - 24 * 60 * 60 * 1000L,
         recentNudgeThreshold: Long = System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L,
+        maxNudgeCount: Int = 2,
         limit: Int = 10
     ): List<SavedLinkWithCollection>
 

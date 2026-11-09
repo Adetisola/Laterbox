@@ -2,8 +2,9 @@ package com.laterbox.app.ai
 
 import android.util.Log
 import com.google.firebase.Firebase
-import com.google.firebase.vertexai.type.generationConfig
-import com.google.firebase.vertexai.vertexAI
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.GenerativeBackend
+import com.google.firebase.ai.type.generationConfig
 import com.laterbox.app.data.preferences.AiEngine
 import com.laterbox.app.domain.model.SavedLink
 import kotlinx.coroutines.withTimeoutOrNull
@@ -20,11 +21,8 @@ object SmartDigestEngine {
         userName: String? = null,
         engine: AiEngine = AiEngine.CLOUD
     ): SmartReminderCopy {
-        if (engine == AiEngine.ON_DEVICE) {
-            // Private on-device mode: strictly local execution with zero network transmission
-            return ContextAwareCopyGenerator.generateCopy(link, userName)
-        }
-
+        // Cloud AI via Google AI Studio is the sole, primary intelligence engine.
+        // Deterministic local generator is used strictly as a safe offline/error fallback.
         return try {
             val aiResult = withTimeoutOrNull(AI_TIMEOUT_MS) {
                 generateCloudAiCopy(link, userName)
@@ -40,7 +38,7 @@ object SmartDigestEngine {
         link: SavedLink,
         userName: String?
     ): SmartReminderCopy? {
-        val generativeModel = Firebase.vertexAI.generativeModel(
+        val generativeModel = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
             modelName = CLOUD_MODEL_NAME,
             generationConfig = generationConfig {
                 temperature = 0.7f

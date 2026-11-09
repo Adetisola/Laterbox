@@ -54,22 +54,24 @@ fun LaterboxIconButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     selected: Boolean = false,
-    tint: Color = LocalContentColor.current,
-    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
-    borderColor: Color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+    tint: Color = LaterboxTheme.colors.textPrimary,
+    containerColor: Color = LaterboxTheme.colors.surfaceCard,
+    borderColor: Color = LaterboxTheme.colors.borderSubtle,
     badge: (@Composable () -> Unit)? = null
 ) {
+    val colors = LaterboxTheme.colors
     val interactionSource = remember { MutableInteractionSource() }
     val effectiveContainerColor = when {
         !enabled -> containerColor.copy(alpha = 0.4f)
-        selected -> MaterialTheme.colorScheme.primaryContainer
+        selected -> colors.accentContainer
         else -> containerColor
     }
     val effectiveTint = when {
         !enabled -> tint.copy(alpha = 0.38f)
-        selected -> MaterialTheme.colorScheme.onPrimaryContainer
+        selected -> colors.accentPrimary
         else -> tint
     }
+    val effectiveBorderColor = if (selected) colors.accentPrimary else borderColor
 
     Box(
         modifier = modifier
@@ -82,7 +84,7 @@ fun LaterboxIconButton(
                 .clip(LaterboxShapeTokens.IconButton)
                 .background(effectiveContainerColor)
                 .border(
-                    BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else borderColor),
+                    BorderStroke(1.dp, effectiveBorderColor),
                     LaterboxShapeTokens.IconButton
                 )
                 .clickable(

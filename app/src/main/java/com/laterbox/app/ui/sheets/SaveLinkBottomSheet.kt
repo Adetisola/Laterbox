@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.laterbox.app.ui.components.CustomReminderPickerDialog
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -70,11 +71,13 @@ fun SaveLinkBottomSheet(
     val spacing = LaterboxTheme.spacing
 
     var showCreateCollectionDialog by remember { mutableStateOf(false) }
+    var showCustomReminderPicker by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = colors.surfaceElevated,
+        contentColor = colors.textPrimary,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -333,7 +336,12 @@ fun SaveLinkBottomSheet(
                             Text(
                                 text = com.laterbox.app.reminders.ReminderPresets.formatReminderTime(uiState.reminderAt),
                                 style = typography.metaText.copy(fontSize = 12.sp),
-                                color = colors.accentPrimary
+                                color = colors.accentPrimary,
+                                modifier = Modifier.clickable(
+                                    role = Role.Button,
+                                    onClickLabel = "Edit reminder time",
+                                    onClick = { showCustomReminderPicker = true }
+                                )
                             )
                             Box(
                                 modifier = Modifier
@@ -355,6 +363,10 @@ fun SaveLinkBottomSheet(
                             }
                         }
                     }
+                    ReminderPresetChip(
+                        label = "Change…",
+                        onClick = { showCustomReminderPicker = true }
+                    )
                 } else {
                     ReminderPresetChip(
                         label = "Tonight (8 PM)",
@@ -367,6 +379,10 @@ fun SaveLinkBottomSheet(
                     ReminderPresetChip(
                         label = "Weekend",
                         onClick = { onReminderAtChange(weekendMillis) }
+                    )
+                    ReminderPresetChip(
+                        label = "+ Custom…",
+                        onClick = { showCustomReminderPicker = true }
                     )
                 }
             }
@@ -472,6 +488,17 @@ fun SaveLinkBottomSheet(
                             color = colors.textSecondary
                         )
                     }
+                }
+            )
+        }
+
+        if (showCustomReminderPicker) {
+            CustomReminderPickerDialog(
+                initialTimestamp = uiState.reminderAt,
+                onDismissRequest = { showCustomReminderPicker = false },
+                onConfirm = { millis ->
+                    onReminderAtChange(millis)
+                    showCustomReminderPicker = false
                 }
             )
         }

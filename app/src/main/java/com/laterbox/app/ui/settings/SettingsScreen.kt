@@ -17,19 +17,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDefaults
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +51,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.laterbox.app.data.preferences.SmartReminderPersistence
+import com.laterbox.app.data.preferences.SmartReminderSchedule
 import com.laterbox.app.data.preferences.ThemeMode
 import com.laterbox.app.data.preferences.UserPreferences
 import com.laterbox.app.ui.components.LaterboxIconButton
@@ -57,6 +66,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     preferences: UserPreferences,
@@ -66,6 +76,9 @@ fun SettingsScreen(
     onAllowSystemBackupChange: (Boolean) -> Unit,
     onFontSizeScaleChange: (com.laterbox.app.data.preferences.FontSizeScale) -> Unit,
     onSmartRemindersEnabledChange: (Boolean) -> Unit = {},
+    onSmartReminderScheduleChange: (SmartReminderSchedule) -> Unit = {},
+    onSmartReminderTimeChange: (Int, Int) -> Unit = { _, _ -> },
+    onSmartReminderPersistenceChange: (SmartReminderPersistence) -> Unit = {},
     onAiEngineChange: (com.laterbox.app.data.preferences.AiEngine) -> Unit = {},
     onSendTestSmartDigest: suspend () -> Boolean = { false },
     onExportBackup: suspend (OutputStream) -> Result<Int>,
@@ -79,6 +92,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var showLicensesDialog by remember { mutableStateOf(false) }
+    var showCustomTimePicker by remember { mutableStateOf(false) }
 
     // Storage Access Framework Launchers
     val exportLauncher = rememberLauncherForActivityResult(
@@ -345,8 +359,8 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
-            // Section: Smart Reminders & AI
-            SectionHeader(title = "Smart Reminders & AI")
+            // Section: Smart Reminders
+            SectionHeader(title = "Smart Reminders")
 
             Box(
                 modifier = Modifier
@@ -376,13 +390,13 @@ fun SettingsScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
-                                    text = "Smart Background Reminders",
+                                    text = "Smart Reminders",
                                     style = typography.uiMedium,
                                     color = colors.textPrimary
                                 )
                             }
                             Text(
-                                text = "Quiet, context-aware nudges for saved links you haven't checked yet.",
+                                text = "Quiet, context-aware nudges powered by Gemini 2.5 Flash Lite",
                                 style = typography.bodySecondary.copy(fontSize = 12.sp),
                                 color = colors.textSecondary
                             )
@@ -401,32 +415,117 @@ fun SettingsScreen(
                     if (preferences.smartRemindersEnabled) {
                         Spacer(modifier = Modifier.height(spacing.xxs))
 
+                        // Schedule / Frequency
                         Text(
-                            text = "AI Model Engine",
+                            text = "Schedule",
                             style = typography.uiMedium,
                             color = colors.textPrimary
                         )
 
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(spacing.xs)
                         ) {
-                            ThemeOptionChip(
-                                label = "Cloud (Gemini 2.5 Flash-Lite)",
-                                isSelected = preferences.aiEngine == com.laterbox.app.data.preferences.AiEngine.CLOUD,
-                                onClick = { onAiEngineChange(com.laterbox.app.data.preferences.AiEngine.CLOUD) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            ThemeOptionChip(
-                                label = "On-device (Gemini Nano)",
-                                isSelected = preferences.aiEngine == com.laterbox.app.data.preferences.AiEngine.ON_DEVICE,
-                                onClick = { onAiEngineChange(com.laterbox.app.data.preferences.AiEngine.ON_DEVICE) },
-                                modifier = Modifier.weight(1f)
-                            )
+                            SmartReminderSchedule.values().forEach { sched ->
+                                ThemeOptionChip(
+                                    label = sched.label,
+                                    isSelected = preferences.smartReminderSchedule == sched,
+                                    onClick = { onSmartReminderScheduleChange(sched) }
+                                )
+                            }
                         }
 
                         Text(
-                            text = preferences.aiEngine.description,
+                            text = preferences.smartReminderSchedule.description,
+                            style = typography.metaText,
+                            color = colors.textSecondary
+                        )
+
+                        // If Daily Digest, show Delivery Time Presets + Custom option
+                        if (preferences.smartReminderSchedule == SmartReminderSchedule.DAILY_DIGEST) {
+                            Spacer(modifier = Modifier.height(spacing.xxs))
+
+                            Text(
+                                text = "Delivery Time",
+                                style = typography.uiMedium,
+                                color = colors.textPrimary
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                val isMorning = preferences.smartReminderHour == 9 && preferences.smartReminderMinute == 0
+                                val isAfternoon = preferences.smartReminderHour == 13 && preferences.smartReminderMinute == 0
+                                val isEvening = preferences.smartReminderHour == 20 && preferences.smartReminderMinute == 0
+                                val isCustom = !isMorning && !isAfternoon && !isEvening
+
+                                ThemeOptionChip(
+                                    label = "Morning (9:00 AM)",
+                                    isSelected = isMorning,
+                                    onClick = { onSmartReminderTimeChange(9, 0) }
+                                )
+                                ThemeOptionChip(
+                                    label = "Afternoon (1:00 PM)",
+                                    isSelected = isAfternoon,
+                                    onClick = { onSmartReminderTimeChange(13, 0) }
+                                )
+                                ThemeOptionChip(
+                                    label = "Evening (8:00 PM)",
+                                    isSelected = isEvening,
+                                    onClick = { onSmartReminderTimeChange(20, 0) }
+                                )
+                                ThemeOptionChip(
+                                    label = "Custom…",
+                                    isSelected = isCustom,
+                                    onClick = { showCustomTimePicker = true }
+                                )
+                            }
+
+                            val displayHour = when {
+                                preferences.smartReminderHour == 0 -> 12
+                                preferences.smartReminderHour > 12 -> preferences.smartReminderHour - 12
+                                else -> preferences.smartReminderHour
+                            }
+                            val amPm = if (preferences.smartReminderHour >= 12) "PM" else "AM"
+                            val formattedTime = String.format(Locale.getDefault(), "%d:%02d %s", displayHour, preferences.smartReminderMinute, amPm)
+                            Text(
+                                text = "Delivers daily around $formattedTime",
+                                style = typography.metaText,
+                                color = colors.accentPrimary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(spacing.xxs))
+
+                        // Reminder Persistence / Max Nudges
+                        Text(
+                            text = "Max Nudges per Link",
+                            style = typography.uiMedium,
+                            color = colors.textPrimary
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                        ) {
+                            SmartReminderPersistence.values().forEach { persistence ->
+                                ThemeOptionChip(
+                                    label = persistence.label,
+                                    isSelected = preferences.smartReminderPersistence == persistence,
+                                    onClick = { onSmartReminderPersistenceChange(persistence) }
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Number of times Laterbox will gently remind you before leaving a link calm in your inbox.",
                             style = typography.metaText,
                             color = colors.textSecondary
                         )
@@ -459,13 +558,13 @@ fun SettingsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(spacing.xs)
                             ) {
                                 Icon(
-                                    painter = painterResource(id = LaterboxIcons.Bell),
+                                    painter = painterResource(id = LaterboxIcons.Sparkles),
                                     contentDescription = null,
                                     tint = colors.accentPrimary,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
-                                    text = "Send Test Smart Digest Notification",
+                                    text = "Send Test Smart Reminder",
                                     style = typography.uiMedium.copy(fontSize = 13.sp),
                                     color = colors.accentPrimary
                                 )
@@ -724,6 +823,56 @@ fun SettingsScreen(
                             text = "Close",
                             style = typography.uiMedium,
                             color = colors.accentPrimary
+                        )
+                    }
+                }
+            )
+        }
+
+        if (showCustomTimePicker) {
+            val timePickerState = rememberTimePickerState(
+                initialHour = preferences.smartReminderHour,
+                initialMinute = preferences.smartReminderMinute,
+                is24Hour = false
+            )
+            AlertDialog(
+                onDismissRequest = { showCustomTimePicker = false },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onSmartReminderTimeChange(timePickerState.hour, timePickerState.minute)
+                            showCustomTimePicker = false
+                        }
+                    ) {
+                        Text("Set Time", color = colors.accentPrimary, style = typography.uiMedium)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCustomTimePicker = false }) {
+                        Text("Cancel", color = colors.textSecondary, style = typography.uiMedium)
+                    }
+                },
+                containerColor = colors.surfaceElevated,
+                title = {
+                    Text(
+                        text = "Daily Reminder Time",
+                        style = typography.uiMedium,
+                        color = colors.textPrimary
+                    )
+                },
+                text = {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        TimePicker(
+                            state = timePickerState,
+                            colors = TimePickerDefaults.colors(
+                                clockDialColor = colors.surfaceSecondary,
+                                selectorColor = colors.accentPrimary,
+                                containerColor = colors.surfaceElevated,
+                                timeSelectorSelectedContainerColor = colors.accentContainer,
+                                timeSelectorUnselectedContainerColor = colors.surfaceSecondary,
+                                timeSelectorSelectedContentColor = colors.accentPrimary,
+                                timeSelectorUnselectedContentColor = colors.textPrimary
+                            )
                         )
                     }
                 }

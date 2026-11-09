@@ -62,11 +62,57 @@ class SettingsViewModel(
             userPreferencesRepository.setSmartRemindersEnabled(enabled)
             appContext?.let { ctx ->
                 if (enabled) {
-                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(ctx)
+                    val p = preferences.value
+                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
+                        context = ctx,
+                        schedule = p.smartReminderSchedule,
+                        targetHour = p.smartReminderHour,
+                        targetMinute = p.smartReminderMinute
+                    )
                 } else {
                     com.laterbox.app.ai.DailyDigestWorker.cancelPeriodic(ctx)
                 }
             }
+        }
+    }
+
+    fun setSmartReminderSchedule(schedule: com.laterbox.app.data.preferences.SmartReminderSchedule) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartReminderSchedule(schedule)
+            appContext?.let { ctx ->
+                if (preferences.value.smartRemindersEnabled) {
+                    val p = preferences.value
+                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
+                        context = ctx,
+                        schedule = schedule,
+                        targetHour = p.smartReminderHour,
+                        targetMinute = p.smartReminderMinute
+                    )
+                }
+            }
+        }
+    }
+
+    fun setSmartReminderTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartReminderTime(hour, minute)
+            appContext?.let { ctx ->
+                if (preferences.value.smartRemindersEnabled) {
+                    val p = preferences.value
+                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
+                        context = ctx,
+                        schedule = p.smartReminderSchedule,
+                        targetHour = hour,
+                        targetMinute = minute
+                    )
+                }
+            }
+        }
+    }
+
+    fun setSmartReminderPersistence(persistence: com.laterbox.app.data.preferences.SmartReminderPersistence) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartReminderPersistence(persistence)
         }
     }
 

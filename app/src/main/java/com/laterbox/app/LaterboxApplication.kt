@@ -1,10 +1,13 @@
 package com.laterbox.app
 
-import android.app.Application
+import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.google.firebase.Firebase
+import com.google.firebase.appcheck.appCheck
+import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 import com.laterbox.app.data.metadata.MetadataSyncWorker
 import com.laterbox.app.di.AppContainer
 import com.laterbox.app.di.DefaultAppContainer
@@ -42,6 +45,15 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         container = DefaultAppContainer(this)
+
+        // Initialize Firebase App Check with Play Integrity for Firebase AI Logic
+        try {
+            Firebase.appCheck.installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+        } catch (e: Exception) {
+            Log.w("LaterboxApplication", "Failed to install Play Integrity App Check provider: ${e.message}")
+        }
 
         // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue workers
         applicationScope.launch {

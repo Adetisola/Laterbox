@@ -156,10 +156,16 @@ class InboxViewModel(
     }
 
     fun refresh() {
+        if (_isRefreshing.value) return
         viewModelScope.launch {
             _isRefreshing.value = true
+            val startTime = System.currentTimeMillis()
             try {
                 linkRepository.retryPendingAndFailedFetches()
+                val elapsed = System.currentTimeMillis() - startTime
+                if (elapsed < 450L) {
+                    kotlinx.coroutines.delay(450L - elapsed)
+                }
             } catch (_: Exception) {
                 // Ensure pull-to-refresh spinner always finishes gracefully
             } finally {

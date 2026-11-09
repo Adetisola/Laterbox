@@ -28,8 +28,12 @@ class ReminderReceiver : BroadcastReceiver() {
                     ACTION_TRIGGER_REMINDER -> {
                         val link = linkRepository.getLinkById(linkId).first()
                         if (link != null && !link.isArchived && !link.nudgeDismissed) {
-                            val userName = userPreferencesRepository.userPreferencesFlow.first().userName
-                            NotificationHelper.showReminderNotification(context, link, userName)
+                            val prefs = userPreferencesRepository.userPreferencesFlow.first()
+                            val userName = prefs.userName.ifBlank { null }
+                            val copy = if (prefs.smartRemindersEnabled) {
+                                com.laterbox.app.ai.SmartDigestEngine.generateDigestCopy(link, userName)
+                            } else null
+                            NotificationHelper.showReminderNotification(context, link, userName, copy)
                             linkRepository.recordNudge(linkId)
                         }
                     }

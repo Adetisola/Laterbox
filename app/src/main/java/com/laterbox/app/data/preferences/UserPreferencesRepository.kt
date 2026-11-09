@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -28,6 +29,20 @@ enum class FontSizeScale(val scaleFactor: Float, val label: String) {
     LARGE(1.15f, "Large")
 }
 
+enum class SmartReminderSchedule(val label: String, val description: String) {
+    DAILY_DIGEST("Daily Digest", "Once a day at your chosen time"),
+    TWICE_DAILY("Morning & Evening", "Twice a day at 9:00 AM and 8:00 PM"),
+    WEEKEND_ROUNDUP("Weekend Roundup", "Every Saturday & Sunday morning"),
+    CONTINUOUS_MONITOR("Continuous Monitor", "Silently monitors unread links and nudges when idle")
+}
+
+enum class SmartReminderPersistence(val maxNudges: Int, val label: String) {
+    ONCE(1, "1 time"),
+    TWICE(2, "2 times"),
+    THRICE(3, "3 times"),
+    UNTIL_READ(Int.MAX_VALUE, "Until read")
+}
+
 enum class AiEngine(val label: String, val description: String) {
     CLOUD(
         label = "Cloud (Gemini 2.5 Flash-Lite)",
@@ -49,6 +64,10 @@ data class UserPreferences(
     val hasCompletedOnboarding: Boolean = false,
     val userName: String = "",
     val smartRemindersEnabled: Boolean = true,
+    val smartReminderSchedule: SmartReminderSchedule = SmartReminderSchedule.DAILY_DIGEST,
+    val smartReminderHour: Int = 20,
+    val smartReminderMinute: Int = 0,
+    val smartReminderPersistence: SmartReminderPersistence = SmartReminderPersistence.TWICE,
     val aiEngine: AiEngine = AiEngine.CLOUD
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
@@ -68,6 +87,10 @@ class UserPreferencesRepository(private val context: Context) {
         val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
         val USER_NAME = stringPreferencesKey("user_name")
         val SMART_REMINDERS_ENABLED = booleanPreferencesKey("smart_reminders_enabled")
+        val SMART_REMINDER_SCHEDULE = stringPreferencesKey("smart_reminder_schedule")
+        val SMART_REMINDER_HOUR = intPreferencesKey("smart_reminder_hour")
+        val SMART_REMINDER_MINUTE = intPreferencesKey("smart_reminder_minute")
+        val SMART_REMINDER_PERSISTENCE = stringPreferencesKey("smart_reminder_persistence")
         val AI_ENGINE = stringPreferencesKey("ai_engine")
     }
 
@@ -101,6 +124,23 @@ class UserPreferencesRepository(private val context: Context) {
         val userName = preferences[PreferencesKeys.USER_NAME] ?: ""
 
         val smartRemindersEnabled = preferences[PreferencesKeys.SMART_REMINDERS_ENABLED] ?: true
+        val scheduleStr = preferences[PreferencesKeys.SMART_REMINDER_SCHEDULE] ?: SmartReminderSchedule.DAILY_DIGEST.name
+        val smartReminderSchedule = try {
+            SmartReminderSchedule.valueOf(scheduleStr)
+        } catch (e: Exception) {
+            SmartReminderSchedule.DAILY_DIGEST
+        }
+
+        val smartReminderHour = preferences[PreferencesKeys.SMART_REMINDER_HOUR] ?: 20
+        val smartReminderMinute = preferences[PreferencesKeys.SMART_REMINDER_MINUTE] ?: 0
+
+        val persistenceStr = preferences[PreferencesKeys.SMART_REMINDER_PERSISTENCE] ?: SmartReminderPersistence.TWICE.name
+        val smartReminderPersistence = try {
+            SmartReminderPersistence.valueOf(persistenceStr)
+        } catch (e: Exception) {
+            SmartReminderPersistence.TWICE
+        }
+
         val aiEngineStr = preferences[PreferencesKeys.AI_ENGINE] ?: AiEngine.CLOUD.name
         val aiEngine = try {
             AiEngine.valueOf(aiEngineStr)
@@ -118,6 +158,10 @@ class UserPreferencesRepository(private val context: Context) {
             hasCompletedOnboarding = hasCompletedOnboarding,
             userName = userName,
             smartRemindersEnabled = smartRemindersEnabled,
+            smartReminderSchedule = smartReminderSchedule,
+            smartReminderHour = smartReminderHour,
+            smartReminderMinute = smartReminderMinute,
+            smartReminderPersistence = smartReminderPersistence,
             aiEngine = aiEngine
         )
     }
@@ -187,6 +231,25 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setSmartRemindersEnabled(enabled: Boolean) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.SMART_REMINDERS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setSmartReminderSchedule(schedule: SmartReminderSchedule) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_REMINDER_SCHEDULE] = schedule.name
+        }
+    }
+
+    suspend fun setSmartReminderTime(hour: Int, minute: Int) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_REMINDER_HOUR] = hour
+            preferences[PreferencesKeys.SMART_REMINDER_MINUTE] = minute
+        }
+    }
+
+    suspend fun setSmartReminderPersistence(persistence: SmartReminderPersistence) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_REMINDER_PERSISTENCE] = persistence.name
         }
     }
 

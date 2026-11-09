@@ -56,8 +56,11 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.Surface
 import com.laterbox.app.domain.model.MetadataStatus
 import com.laterbox.app.ui.components.ContentTypeBadge
+import com.laterbox.app.ui.components.CustomReminderPickerDialog
 import com.laterbox.app.ui.components.FaviconImage
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
@@ -94,6 +97,7 @@ fun SavedItemDetailSheet(
     var showMoreMenu by remember { mutableStateOf(false) }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var showCreateCollectionDialog by remember { mutableStateOf(false) }
+    var showCustomReminderPicker by remember { mutableStateOf(false) }
 
     val hasPendingEdits = uiState.editedTitle != link.title ||
         uiState.editedNote != (link.personalNote ?: "") ||
@@ -103,6 +107,7 @@ fun SavedItemDetailSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
         containerColor = colors.surfaceElevated,
+        contentColor = colors.textPrimary,
         dragHandle = {
             Box(
                 modifier = Modifier
@@ -154,6 +159,7 @@ fun SavedItemDetailSheet(
                         LaterboxIconButton(
                             iconRes = LaterboxIcons.MoreVertical,
                             contentDescription = "More actions",
+                            tint = colors.textPrimary,
                             onClick = { showMoreMenu = true }
                         )
 
@@ -183,6 +189,7 @@ fun SavedItemDetailSheet(
                     LaterboxIconButton(
                         iconRes = LaterboxIcons.Close,
                         contentDescription = "Close details",
+                        tint = colors.textPrimary,
                         onClick = onDismissRequest
                     )
                 }
@@ -314,6 +321,7 @@ fun SavedItemDetailSheet(
                 LaterboxIconButton(
                     iconRes = LaterboxIcons.Copy,
                     contentDescription = "Copy original link",
+                    tint = colors.textPrimary,
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("URL", link.originalUrl))
@@ -497,7 +505,12 @@ fun SavedItemDetailSheet(
                             Text(
                                 text = com.laterbox.app.reminders.ReminderPresets.formatReminderTime(link.reminderAt),
                                 style = typography.metaText.copy(fontSize = 12.sp),
-                                color = colors.accentPrimary
+                                color = colors.accentPrimary,
+                                modifier = Modifier.clickable(
+                                    role = Role.Button,
+                                    onClickLabel = "Edit reminder time",
+                                    onClick = { showCustomReminderPicker = true }
+                                )
                             )
                             Box(
                                 modifier = Modifier
@@ -519,6 +532,10 @@ fun SavedItemDetailSheet(
                             }
                         }
                     }
+                    ReminderDetailChip(
+                        label = "Change…",
+                        onClick = { showCustomReminderPicker = true }
+                    )
                 } else {
                     ReminderDetailChip(
                         label = "Tonight (8 PM)",
@@ -531,6 +548,10 @@ fun SavedItemDetailSheet(
                     ReminderDetailChip(
                         label = "Weekend",
                         onClick = { onSetReminder(weekendMillis) }
+                    )
+                    ReminderDetailChip(
+                        label = "+ Custom…",
+                        onClick = { showCustomReminderPicker = true }
                     )
                 }
             }
@@ -557,21 +578,35 @@ fun SavedItemDetailSheet(
                         color = colors.textSecondary
                     )
                     if (link.metadataStatus != MetadataStatus.FETCHING) {
-                        Box(
+                        Surface(
+                            shape = LaterboxShapeTokens.Chip,
+                            color = colors.accentPrimary.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, colors.accentPrimary.copy(alpha = 0.3f)),
                             modifier = Modifier
-                                .sizeIn(minWidth = spacing.minTouchTarget, minHeight = spacing.minTouchTarget)
+                                .sizeIn(minWidth = 48.dp, minHeight = 36.dp)
                                 .clickable(
                                     role = Role.Button,
                                     onClickLabel = "Retry fetching link preview metadata",
                                     onClick = onRetryMetadata
-                                ),
-                            contentAlignment = Alignment.Center
+                                )
                         ) {
-                            Text(
-                                text = "⟳ Retry",
-                                style = typography.uiMedium.copy(fontSize = 12.sp),
-                                color = colors.accentPrimary
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = LaterboxIcons.Refresh),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = colors.accentPrimary
+                                )
+                                Text(
+                                    text = "Retry",
+                                    style = typography.uiMedium.copy(fontSize = 13.sp),
+                                    color = colors.accentPrimary
+                                )
+                            }
                         }
                     } else {
                         CircularProgressIndicator(
@@ -681,6 +716,17 @@ fun SavedItemDetailSheet(
                             color = colors.textSecondary
                         )
                     }
+                }
+            )
+        }
+
+        if (showCustomReminderPicker) {
+            CustomReminderPickerDialog(
+                initialTimestamp = link.reminderAt,
+                onDismissRequest = { showCustomReminderPicker = false },
+                onConfirm = { millis ->
+                    onSetReminder(millis)
+                    showCustomReminderPicker = false
                 }
             )
         }

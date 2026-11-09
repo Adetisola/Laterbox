@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -415,10 +416,9 @@ fun InboxScreen(
                             contentPadding = PaddingValues(
                                 start = spacing.base,
                                 end = spacing.base,
-                                top = spacing.sm,
+                                top = 0.dp,
                                 bottom = 148.dp // Leave clear room for floating bottom bar & FAB
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(spacing.sm)
+                            )
                         ) {
                             groupedLinks.forEach { group ->
                                 stickyHeader(key = "header_${group.title}", contentType = "date_header") {
@@ -438,16 +438,28 @@ fun InboxScreen(
                                 }
 
                                 if (!collapsedGroups.contains(group.title)) {
-                                    items(
+                                    itemsIndexed(
                                         items = group.links,
-                                        key = { it.id },
-                                        contentType = { "link_card" }
-                                    ) { link ->
+                                        key = { _, it -> it.id },
+                                        contentType = { _, _ -> "link_card" }
+                                    ) { index, link ->
+                                        val cardShape = if (index == 0) {
+                                            RoundedCornerShape(
+                                                topStart = 0.dp,
+                                                topEnd = 16.dp,
+                                                bottomStart = 16.dp,
+                                                bottomEnd = 16.dp
+                                            )
+                                        } else {
+                                            LaterboxShapeTokens.Card
+                                        }
                                         SavedLinkCard(
                                             link = link,
                                             onClick = { onLinkClick(link) },
                                             onQuickOpenClick = { onQuickOpenClick(link) },
                                             viewMode = uiState.viewMode,
+                                            shape = cardShape,
+                                            modifier = Modifier.padding(bottom = spacing.sm),
                                             onToggleRead = { onToggleRead(link) },
                                             onArchive = { onArchive(link) },
                                             onDelete = { onDelete(link) }

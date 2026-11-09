@@ -13,6 +13,10 @@ class UserPreferencesTest {
         assertTrue(prefs.allowSystemBackup)
         assertEquals(ThemeMode.SYSTEM, prefs.themeMode)
         assertTrue(prefs.smartRemindersEnabled)
+        assertEquals(SmartReminderSchedule.DAILY_DIGEST, prefs.smartReminderSchedule)
+        assertEquals(20, prefs.smartReminderHour)
+        assertEquals(0, prefs.smartReminderMinute)
+        assertEquals(SmartReminderPersistence.TWICE, prefs.smartReminderPersistence)
         assertEquals(AiEngine.CLOUD, prefs.aiEngine)
     }
 
@@ -21,10 +25,18 @@ class UserPreferencesTest {
         val prefs = UserPreferences(
             userName = "Alex Developer",
             smartRemindersEnabled = false,
-            aiEngine = AiEngine.ON_DEVICE
+            smartReminderSchedule = SmartReminderSchedule.CONTINUOUS_MONITOR,
+            smartReminderHour = 9,
+            smartReminderMinute = 30,
+            smartReminderPersistence = SmartReminderPersistence.UNTIL_READ,
+            aiEngine = AiEngine.CLOUD
         )
         assertEquals("Alex Developer", prefs.userName)
         assertEquals(false, prefs.smartRemindersEnabled)
-        assertEquals(AiEngine.ON_DEVICE, prefs.aiEngine)
+        assertEquals(SmartReminderSchedule.CONTINUOUS_MONITOR, prefs.smartReminderSchedule)
+        assertEquals(9, prefs.smartReminderHour)
+        assertEquals(30, prefs.smartReminderMinute)
+        assertEquals(SmartReminderPersistence.UNTIL_READ, prefs.smartReminderPersistence)
+        assertEquals(AiEngine.CLOUD, prefs.aiEngine)
     }
 }

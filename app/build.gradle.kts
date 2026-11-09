@@ -102,9 +102,10 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.coil.compose)
 
-    // Firebase & Generative AI
+    // Firebase & Generative AI Logic (Google AI Studio backend)
     implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.vertexai)
+    implementation(libs.firebase.ai)
+    implementation(libs.firebase.appcheck.playintegrity)
 
     // Unit & Local Testing
     testImplementation(libs.junit)

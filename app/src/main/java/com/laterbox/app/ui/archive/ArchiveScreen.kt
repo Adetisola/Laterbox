@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -209,10 +210,9 @@ fun ArchiveScreen(
                         contentPadding = PaddingValues(
                             start = spacing.base,
                             end = spacing.base,
-                            top = spacing.sm,
+                            top = 0.dp,
                             bottom = 148.dp // Leave clear space for floating navigation pill
                         ),
-                        verticalArrangement = Arrangement.spacedBy(spacing.sm),
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
@@ -235,16 +235,27 @@ fun ArchiveScreen(
                             }
 
                             if (!collapsedGroups.contains(group.title)) {
-                                items(
+                                itemsIndexed(
                                     items = group.links,
-                                    key = { it.id },
-                                    contentType = { "archived_card" }
-                                ) { link ->
-                                    Column {
+                                    key = { _, it -> it.id },
+                                    contentType = { _, _ -> "archived_card" }
+                                ) { index, link ->
+                                    val cardShape = if (index == 0) {
+                                        RoundedCornerShape(
+                                            topStart = 0.dp,
+                                            topEnd = 16.dp,
+                                            bottomStart = 16.dp,
+                                            bottomEnd = 16.dp
+                                        )
+                                    } else {
+                                        LaterboxShapeTokens.Card
+                                    }
+                                    Column(modifier = Modifier.padding(bottom = spacing.sm)) {
                                         SavedLinkCard(
                                             link = link,
                                             onClick = { onLinkClick(link) },
                                             onQuickOpenClick = { onQuickOpenClick(link) },
+                                            shape = cardShape,
                                             onArchive = { onRestoreLink(link.id) },
                                             onDelete = { onOpenDeleteDialog(link) }
                                         )

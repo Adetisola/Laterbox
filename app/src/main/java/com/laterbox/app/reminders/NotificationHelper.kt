@@ -46,7 +46,8 @@ object NotificationHelper {
     suspend fun showReminderNotification(
         context: Context,
         link: SavedLink,
-        userName: String? = null
+        userName: String? = null,
+        copy: com.laterbox.app.ai.SmartReminderCopy? = null
     ): Boolean {
         createNotificationChannels(context)
 
@@ -64,7 +65,7 @@ object NotificationHelper {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             ?: return false
 
-        // Fetch site logo or favicon via Coil cache
+        // Fetch site logo or favicon via Coil cache / fallbacks
         val logoBitmap: Bitmap? = fetchSiteLogo(context, link)
 
         // Tap content intent -> opens the link directly in Laterbox / MainActivity
@@ -90,22 +91,21 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Warm, natural title with personalization
-        val title = if (!userName.isNullOrBlank()) {
+        // Use AI copy if provided, otherwise warm personalized context title & body
+        val title = copy?.title ?: if (!userName.isNullOrBlank()) {
             "Hi $userName, your saved link is waiting"
         } else {
             "Revisit your saved link"
         }
 
-        // Context-aware text drawing from personal notes, domain, and title
-        val body = if (!link.personalNote.isNullOrBlank()) {
+        val body = copy?.body ?: if (!link.personalNote.isNullOrBlank()) {
             "\"${link.personalNote}\" • ${link.title}"
         } else {
             "${link.title} • ${link.domain}"
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
-            .setSmallIcon(R.drawable.ic_huge_clock)
+            .setSmallIcon(if (copy?.isAiGenerated == true) R.drawable.ic_huge_sparkles else R.drawable.ic_huge_clock)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -153,7 +153,7 @@ object NotificationHelper {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             ?: return false
 
-        // Fetch site logo or favicon via Coil cache
+        // Fetch site logo or favicon via Coil cache / fallbacks
         val logoBitmap: Bitmap? = fetchSiteLogo(context, link)
 
         // Tap content intent -> opens the link directly in browser / app
@@ -208,22 +208,55 @@ object NotificationHelper {
     }
 
     private suspend fun fetchSiteLogo(context: Context, link: SavedLink): Bitmap? {
-        val targetUrl = link.faviconUrl ?: link.previewImageUrl ?: return null
-        return try {
+        return kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+            val candidateUrls = listOfNotNull(
+                link.faviconUrl,
+                link.previewImageUrl,
+                if (link.domain.isNotBlank()) "https://www.google.com/s2/favicons?domain=${link.domain}&sz=128" else null
+            )
+
             val imageLoader = Coil.imageLoader(context)
-            val request = ImageRequest.Builder(context)
-                .data(targetUrl)
-                .allowHardware(false)
-                .size(192, 192)
-                .build()
-            val result = imageLoader.execute(request)
-            if (result is SuccessResult) {
-                (result.drawable as? BitmapDrawable)?.bitmap
-            } else {
-                null
+            for (url in candidateUrls) {
+                try {
+                    val request = ImageRequest.Builder(context)
+                        .data(url)
+                        .allowHardware(false)
+                        .size(192, 192)
+                        .build()
+                    val result = imageLoader.execute(request)
+                    if (result is SuccessResult) {
+                        val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
+                        if (bitmap != null) return@withTimeoutOrNull bitmap
+                    }
+                } catch (_: Exception) {
+                    // Try next candidate
+                }
             }
-        } catch (e: Exception) {
-            null
+
+            // Fallback: Generate clean circular monogram bitmap
+            createMonogramBitmap(link.domain)
         }
+    }
+
+    private fun createMonogramBitmap(domain: String): Bitmap {
+        val size = 128
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.parseColor("#C25E40") // Laterbox Terracotta accent
+        }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+
+        val cleanDomain = domain.removePrefix("www.")
+        val letter = cleanDomain.firstOrNull { it.isLetter() }?.uppercaseChar()?.toString() ?: "L"
+        val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 64f
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.SERIF, android.graphics.Typeface.BOLD)
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        val yPos = (canvas.height / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f)
+        canvas.drawText(letter, canvas.width / 2f, yPos, textPaint)
+        return bitmap
     }
 }
