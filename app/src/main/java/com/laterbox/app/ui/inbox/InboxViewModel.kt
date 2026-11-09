@@ -142,16 +142,16 @@ class InboxViewModel(
         }
     }
 
-    fun dismissClipboardSuggestion(suggestion: ClipboardSuggestion) {
+    fun dismissClipboardSuggestion(suggestion: ClipboardSuggestion): kotlinx.coroutines.Job {
         _clipboardSuggestion.value = null
-        viewModelScope.launch {
+        return viewModelScope.launch {
             userPreferencesRepository.recordHandledClipboardHash(suggestion.hash)
         }
     }
 
-    fun saveClipboardSuggestion(suggestion: ClipboardSuggestion, onSuccess: () -> Unit) {
+    fun saveClipboardSuggestion(suggestion: ClipboardSuggestion, onSuccess: () -> Unit = {}): kotlinx.coroutines.Job {
         _clipboardSuggestion.value = null
-        viewModelScope.launch {
+        return viewModelScope.launch {
             userPreferencesRepository.recordHandledClipboardHash(suggestion.hash)
             linkRepository.saveLink(originalUrl = suggestion.url)
             onSuccess()

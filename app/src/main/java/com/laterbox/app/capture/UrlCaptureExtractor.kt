@@ -35,7 +35,8 @@ object UrlCaptureExtractor {
         "mp3", "mp4", "wav", "m4a", "mov", "avi", "mkv",
         "zip", "tar", "gz", "rar", "7z", "apk",
         "kt", "java", "py", "c", "cpp", "h", "json", "xml",
-        "txt", "md", "csv", "doc", "docx", "xls", "xlsx", "ppt", "pptx"
+        "txt", "md", "csv", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        "html", "htm", "css", "js", "ts", "log", "sh", "sql", "wasm"
     )
 
     // Matches http://, https://, www., or host.tld patterns
@@ -45,6 +46,11 @@ object UrlCaptureExtractor {
 
     // Matches email pattern
     private val EMAIL_REGEX = Regex("""(?i)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}""")
+
+    // Matches non-http/https URI schemes to avoid treating file:/// or mailto: as URLs
+    private val NON_HTTP_SCHEME_REGEX = Regex(
+        """(?i)\b(?:javascript|file|content|mailto|tel|sms|geo|intent|about|data|blob|ftp|ftps|ssh|git|svn|magnet):[^\s<>"{}|\\^`]*"""
+    )
 
     // Matches version string like v1.0.12 or 1.2.3
     private val VERSION_REGEX = Regex("""^v?\d+(\.\d+)+$""", RegexOption.IGNORE_CASE)
@@ -63,8 +69,13 @@ object UrlCaptureExtractor {
     fun extractCandidateUrls(text: String?): List<UrlExtractionResult.SingleUrl> {
         if (text.isNullOrBlank()) return emptyList()
 
+        // Mask out non-http URI schemes (e.g. file:///sdcard/..., mailto:...)
+        val textWithoutNonHttp = NON_HTTP_SCHEME_REGEX.replace(text) { match ->
+            " ".repeat(match.value.length)
+        }
+
         // Mask out email addresses from search to avoid extracting the domain part of user@domain.com
-        val textWithoutEmails = EMAIL_REGEX.replace(text) { match ->
+        val textWithoutEmails = EMAIL_REGEX.replace(textWithoutNonHttp) { match ->
             " ".repeat(match.value.length)
         }
 

@@ -308,9 +308,11 @@ class InboxViewModelTest {
         )
 
         var saved = false
-        viewModel.saveClipboardSuggestion(suggestion) {
+        val job = viewModel.saveClipboardSuggestion(suggestion) {
             saved = true
         }
+        job.join()
+        testScheduler.advanceUntilIdle()
 
         assertTrue(saved)
         val savedLink = linkRepository.findDuplicate("https://example.com/clipboard-save")

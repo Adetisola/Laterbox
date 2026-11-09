@@ -41,7 +41,7 @@ class UrlCaptureExtractorTest {
         val result = UrlCaptureExtractor.extract(input)
         assertTrue(result is UrlExtractionResult.SingleUrl)
         val single = result as UrlExtractionResult.SingleUrl
-        assertEquals("https://wikipedia.org/wiki/Kotlin_(programming_language)", single.normalizedUrl)
+        assertEquals("https://en.wikipedia.org/wiki/Kotlin_(programming_language)", single.normalizedUrl)
     }
 
     @Test
