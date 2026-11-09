@@ -147,7 +147,7 @@ fun AppUpdateDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            painter = painterResource(id = LaterboxIcons.Sparkle),
+                            painter = painterResource(id = LaterboxIcons.Sparkles),
                             contentDescription = null,
                             tint = colors.accentPrimary,
                             modifier = Modifier.size(20.dp)
@@ -177,7 +177,7 @@ fun AppUpdateDialog(
                         if (updateInfo.releaseNotes.isNotBlank()) {
                             Text(
                                 text = "What's New:",
-                                style = typography.uiSmall,
+                                style = typography.fieldLabel,
                                 color = colors.textSecondary,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -186,15 +186,15 @@ fun AppUpdateDialog(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .heightIn(max = 180.dp)
-                                    .clip(LaterboxShapeTokens.Input)
+                                    .clip(LaterboxShapeTokens.InputField)
                                     .background(colors.surfacePrimary)
-                                    .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Input)
+                                    .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.InputField)
                                     .padding(spacing.sm)
                                     .verticalScroll(rememberScrollState())
                             ) {
                                 Text(
                                     text = updateInfo.releaseNotes.trim(),
-                                    style = typography.bodySmall,
+                                    style = typography.bodySecondary,
                                     color = colors.textSecondary,
                                     lineHeight = 18.sp
                                 )
@@ -219,7 +219,7 @@ fun AppUpdateDialog(
                             ) {
                                 Text(
                                     text = "View on GitHub",
-                                    style = typography.uiSmall,
+                                    style = typography.fieldLabel,
                                     color = colors.textTertiary,
                                     modifier = Modifier
                                         .clickable {
@@ -261,7 +261,7 @@ fun AppUpdateDialog(
                             Spacer(modifier = Modifier.height(spacing.md))
                             Text(
                                 text = "Please keep Laterbox open while downloading.",
-                                style = typography.bodySmall,
+                                style = typography.bodySecondary,
                                 color = colors.textTertiary
                             )
                         }
@@ -335,8 +335,8 @@ fun AppUpdateDialog(
                     UpdateStep.FAILED -> {
                         Text(
                             text = "Update installation could not be completed directly: $errorMessage",
-                            style = typography.bodySmall,
-                            color = colors.error
+                            style = typography.bodySecondary,
+                            color = colors.statusDanger
                         )
                         Spacer(modifier = Modifier.height(spacing.md))
                         Row(

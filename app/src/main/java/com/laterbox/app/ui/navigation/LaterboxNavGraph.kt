@@ -58,6 +58,7 @@ import com.laterbox.app.ui.sheets.SaveLinkViewModel
 import com.laterbox.app.ui.sheets.SavedItemDetailSheet
 import com.laterbox.app.ui.sheets.SavedItemDetailViewModel
 import com.laterbox.app.ui.theme.LaterboxTheme
+import com.laterbox.app.ui.util.BrowserLauncher
 import com.laterbox.app.LaterboxApplication
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
