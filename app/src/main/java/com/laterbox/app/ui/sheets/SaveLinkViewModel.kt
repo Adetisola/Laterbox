@@ -240,7 +240,7 @@ class SaveLinkViewModel(
         }
     }
 
-    fun onSave(onSuccess: (isUpdate: Boolean) -> Unit) {
+    fun onSave(onSuccess: (isUpdate: Boolean) -> Unit = {}) {
         if (_isSaving.value || _isSavedSuccess.value) return
 
         val rawUrl = _url.value.trim()
@@ -295,10 +295,6 @@ class SaveLinkViewModel(
                 _isSaving.value = false
             }
         }
-    }
-
-    fun onSave(onSuccess: () -> Unit) {
-        onSave { _ -> onSuccess() }
     }
 
     fun reset() {
