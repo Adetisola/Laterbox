@@ -1,3 +1,5 @@
+import java.time.Duration
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -130,7 +132,7 @@ dependencies {
 }
 
 tasks.withType<Test> {
-    timeout.set(java.time.Duration.ofMinutes(4))
+    timeout.set(Duration.ofMinutes(4))
 
     testLogging {
         events("started", "passed", "skipped", "failed", "standardOut", "standardError")
