@@ -82,6 +82,9 @@ jobs:
           COMPUTED_VERSION_CODE=$((100 + GITHUB_RUN_NUMBER))
           echo "VERSION_CODE=$COMPUTED_VERSION_CODE" >> $GITHUB_ENV
           echo "VERSION_NAME=$CLEAN_VERSION" >> $GITHUB_ENV
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> $GITHUB_ENV
+          fi
           echo "Configured release build: versionName=$CLEAN_VERSION, versionCode=$COMPUTED_VERSION_CODE"
 
       - name: Build Release APK

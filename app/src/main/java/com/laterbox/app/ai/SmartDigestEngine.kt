@@ -36,12 +36,13 @@ object SmartDigestEngine {
         origin: ReminderOrigin = ReminderOrigin.SMART_DIGEST,
         customApiKey: String? = null
     ): AiCopyResult {
-        // 1. If user entered a custom API key, use direct REST endpoint
-        if (!customApiKey.isNullOrBlank()) {
+        val apiKey = resolveApiKey(customApiKey)
+        // 1. If an API key is available (custom or embedded), use direct Google AI Studio REST endpoint
+        if (!apiKey.isNullOrBlank()) {
             return try {
                 withTimeout(AI_TIMEOUT_MS) {
                     withContext(Dispatchers.IO) {
-                        executeDirectGeminiRequest(link, userName, origin, customApiKey.trim())
+                        executeDirectGeminiRequest(link, userName, origin, apiKey)
                     }
                 }
             } catch (ce: CancellationException) {
@@ -55,7 +56,7 @@ object SmartDigestEngine {
             }
         }
 
-        // 2. Default: Official Firebase AI Logic SDK (matches Firebase AI Logic API in project credentials)
+        // 2. Fallback: Firebase AI Logic SDK if no direct key is configured
         try {
             val prompt = buildPrompt(link, userName, origin)
             val result = withTimeout(AI_TIMEOUT_MS) {
@@ -89,28 +90,10 @@ object SmartDigestEngine {
                 throw ce
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase AI Logic SDK attempt failed (${e.javaClass.simpleName}: ${e.message}). Testing direct endpoint fallback...")
+            Log.w(TAG, "Firebase AI Logic SDK attempt failed (${e.javaClass.simpleName}: ${e.message})")
         }
 
-        // 3. Fallback: Direct REST endpoint with project API key
-        val fallbackKey = resolveApiKey(null)
-            ?: return AiCopyResult.Failure(AiFailure.NoApiKey)
-
-        return try {
-            withTimeout(AI_TIMEOUT_MS) {
-                withContext(Dispatchers.IO) {
-                    executeDirectGeminiRequest(link, userName, origin, fallbackKey)
-                }
-            }
-        } catch (ce: CancellationException) {
-            if (ce is TimeoutCancellationException) {
-                AiCopyResult.Failure(AiFailure.Timeout)
-            } else {
-                throw ce
-            }
-        } catch (e: Exception) {
-            AiCopyResult.Failure(AiFailure.ServerError(code = -1, details = e.message))
-        }
+        return AiCopyResult.Failure(AiFailure.NoApiKey)
     }
 
     private fun executeDirectGeminiRequest(
@@ -201,19 +184,20 @@ object SmartDigestEngine {
         if (!customApiKey.isNullOrBlank()) {
             return customApiKey.trim()
         }
-        return try {
-            Firebase.app.options.apiKey?.ifBlank { null }
-        } catch (_: Exception) {
-            null
+        val embedded = com.laterbox.app.BuildConfig.EMBEDDED_GEMINI_API_KEY
+        if (embedded.isNotBlank()) {
+            return embedded.trim()
         }
+        return null
     }
 
     suspend fun testGeminiApi(customApiKey: String?): Pair<Boolean, String> {
-        if (!customApiKey.isNullOrBlank()) {
-            return testDirectGeminiApi(customApiKey.trim())
+        val apiKey = resolveApiKey(customApiKey)
+        if (!apiKey.isNullOrBlank()) {
+            return testDirectGeminiApi(apiKey)
         }
 
-        // 1. Test via official Firebase AI Logic SDK (matches Firebase AI Logic API)
+        // If no direct key is configured, test Firebase AI Logic SDK
         try {
             return withTimeout(AI_TIMEOUT_MS) {
                 val generativeModel = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
@@ -232,13 +216,13 @@ object SmartDigestEngine {
         } catch (ce: CancellationException) {
             throw ce
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase AI test failed (${e.javaClass.simpleName}: ${e.message}). Testing direct endpoint fallback...")
+            Log.w(TAG, "Firebase AI test failed (${e.javaClass.simpleName}: ${e.message})")
         }
 
-        // 2. Fallback: Test direct REST endpoint with project API key
-        val fallbackKey = resolveApiKey(null)
-            ?: return Pair(false, "No API key configured.")
-        return testDirectGeminiApi(fallbackKey)
+        return Pair(
+            false,
+            "No API key entered. Paste your Google AI Studio API key (AIzaSy...) from aistudio.google.com above."
+        )
     }
 
     private suspend fun testDirectGeminiApi(apiKey: String): Pair<Boolean, String> {

@@ -628,7 +628,7 @@ fun SettingsScreen(
                         )
 
                         Text(
-                            text = "Laterbox uses Gemini 2.5 Flash Lite via Google AI Studio. By default, it uses the embedded app key. If you reach quota limits, paste your key from aistudio.google.com.",
+                            text = "Laterbox uses Gemini 2.5 Flash Lite via Google AI Studio. Paste your API key from aistudio.google.com to power AI-generated digests and smart reminders.",
                             style = typography.metaText,
                             color = colors.textSecondary
                         )
@@ -643,7 +643,7 @@ fun SettingsScreen(
                             },
                             placeholder = {
                                 Text(
-                                    text = "AIzaSy... (leave blank for default key)",
+                                    text = "Paste your AI Studio API key (AIzaSy...)",
                                     style = typography.bodySecondary.copy(fontSize = 12.sp),
                                     color = colors.textTertiary
                                 )
@@ -686,10 +686,11 @@ fun SettingsScreen(
 
                         // Status banner if tested
                         aiConnectionStatus?.let { (isSuccess, message) ->
+                            val isTesting = message == "Testing connection..."
                             LaterboxBanner(
-                                text = if (isSuccess) "✓ $message" else "⚠ $message",
+                                text = if (isSuccess) "✓ $message" else if (isTesting) "⏳ $message" else "⚠ $message",
                                 isSuccess = isSuccess,
-                                isWarning = !isSuccess
+                                isWarning = !isSuccess && !isTesting
                             )
                         }
 
@@ -916,7 +917,7 @@ fun SettingsScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
                     Text(
-                        text = "Laterbox v1.0.9",
+                        text = "Laterbox v${com.laterbox.app.BuildConfig.VERSION_NAME}",
                         style = typography.uiMedium,
                         color = colors.textPrimary
                     )

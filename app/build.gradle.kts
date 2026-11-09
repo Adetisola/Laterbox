@@ -16,8 +16,13 @@ android {
         applicationId = "com.laterbox.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 10
-        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.10"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 11
+        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.11"
+
+        val embeddedKey = (project.findProperty("GEMINI_API_KEY") as? String)
+            ?: System.getenv("GEMINI_API_KEY")
+            ?: ""
+        buildConfigField("String", "EMBEDDED_GEMINI_API_KEY", "\"$embeddedKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
