@@ -132,6 +132,81 @@ object NotificationHelper {
         return true
     }
 
+    suspend fun showSmartDigestNotification(
+        context: Context,
+        link: SavedLink,
+        copy: com.laterbox.app.ai.SmartReminderCopy
+    ): Boolean {
+        createNotificationChannels(context)
+
+        // Android 13+ permission check
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permissionGranted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!permissionGranted) {
+                return false
+            }
+        }
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return false
+
+        // Fetch site logo or favicon via Coil cache
+        val logoBitmap: Bitmap? = fetchSiteLogo(context, link)
+
+        // Tap content intent -> opens the link directly in browser / app
+        val contentIntent = Intent(Intent.ACTION_VIEW, Uri.parse(link.originalUrl)).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            (link.id + 200_000L).hashCode(),
+            contentIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action: Dismiss Reminder
+        val dismissIntent = Intent(context, ReminderReceiver::class.java).apply {
+            action = ReminderReceiver.ACTION_DISMISS_REMINDER
+            putExtra(ReminderReceiver.EXTRA_LINK_ID, link.id)
+        }
+        val dismissPendingIntent = PendingIntent.getBroadcast(
+            context,
+            (link.id + 300_000L).hashCode(),
+            dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
+            .setSmallIcon(R.drawable.ic_huge_sparkles)
+            .setContentTitle(copy.title)
+            .setContentText(copy.body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(copy.body))
+            .setContentIntent(contentPendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .addAction(
+                R.drawable.ic_huge_arrow_up_right,
+                "Open Link",
+                contentPendingIntent
+            )
+            .addAction(
+                R.drawable.ic_huge_close,
+                "Dismiss",
+                dismissPendingIntent
+            )
+
+        if (logoBitmap != null) {
+            builder.setLargeIcon(logoBitmap)
+        }
+
+        notificationManager.notify((link.id + 500_000L).toInt(), builder.build())
+        return true
+    }
+
     private suspend fun fetchSiteLogo(context: Context, link: SavedLink): Bitmap? {
         val targetUrl = link.faviconUrl ?: link.previewImageUrl ?: return null
         return try {

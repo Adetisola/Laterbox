@@ -199,6 +199,18 @@ class LinkRepository(
         return savedLinkDao.getScheduledReminders().map { it.toDomain() }
     }
 
+    suspend fun getSmartDigestCandidates(
+        minAgeThreshold: Long = System.currentTimeMillis() - 24 * 60 * 60 * 1000L,
+        recentNudgeThreshold: Long = System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L,
+        limit: Int = 10
+    ): List<SavedLink> {
+        return savedLinkDao.getSmartDigestCandidates(minAgeThreshold, recentNudgeThreshold, limit).map { it.toDomain() }
+    }
+
+    suspend fun getLatestUnreadLink(): SavedLink? {
+        return savedLinkDao.getLatestUnreadLink()?.toDomain()
+    }
+
     /**
      * Unified metadata extraction and persistence pipeline for a single link.
      * Deduplicates in-flight requests, bounds concurrency with a Semaphore, and merges fields

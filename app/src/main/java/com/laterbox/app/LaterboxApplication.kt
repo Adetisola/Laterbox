@@ -42,11 +42,16 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         container = DefaultAppContainer(this)
 
-        // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue worker
+        // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue workers
         applicationScope.launch {
             try {
                 container.database.savedLinkDao().resetStuckFetchingLinks()
                 MetadataSyncWorker.enqueue(this@LaterboxApplication)
+
+                val prefs = kotlinx.coroutines.flow.first(container.userPreferencesRepository.userPreferencesFlow)
+                if (prefs.smartRemindersEnabled) {
+                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(this@LaterboxApplication)
+                }
             } catch (e: Exception) {
                 // Safeguard against test environments
             }

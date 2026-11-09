@@ -65,6 +65,9 @@ fun SettingsScreen(
     onAutoMarkAsReadChange: (Boolean) -> Unit,
     onAllowSystemBackupChange: (Boolean) -> Unit,
     onFontSizeScaleChange: (com.laterbox.app.data.preferences.FontSizeScale) -> Unit,
+    onSmartRemindersEnabledChange: (Boolean) -> Unit = {},
+    onAiEngineChange: (com.laterbox.app.data.preferences.AiEngine) -> Unit = {},
+    onSendTestSmartDigest: suspend () -> Boolean = { false },
     onExportBackup: suspend (OutputStream) -> Result<Int>,
     onImportBackup: suspend (InputStream) -> Result<com.laterbox.app.data.backup.BackupRestoreResult>,
     onBackClick: () -> Unit,
@@ -342,6 +345,138 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
+            // Section: Smart Reminders & AI
+            SectionHeader(title = "Smart Reminders & AI")
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = spacing.base)
+                    .clip(RoundedCornerShape(spacing.radiusMedium))
+                    .background(colors.surfacePrimary)
+                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
+                    .padding(spacing.md)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
+                    // Smart Reminders Master Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = LaterboxIcons.Sparkles),
+                                    contentDescription = null,
+                                    tint = colors.accentPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "Smart Background Reminders",
+                                    style = typography.uiMedium,
+                                    color = colors.textPrimary
+                                )
+                            }
+                            Text(
+                                text = "Quiet, context-aware nudges for saved links you haven't checked yet.",
+                                style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                color = colors.textSecondary
+                            )
+                        }
+
+                        Switch(
+                            checked = preferences.smartRemindersEnabled,
+                            onCheckedChange = onSmartRemindersEnabledChange,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.surfaceElevated,
+                                checkedTrackColor = colors.accentPrimary
+                            )
+                        )
+                    }
+
+                    if (preferences.smartRemindersEnabled) {
+                        Spacer(modifier = Modifier.height(spacing.xxs))
+
+                        Text(
+                            text = "AI Model Engine",
+                            style = typography.uiMedium,
+                            color = colors.textPrimary
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                        ) {
+                            ThemeOptionChip(
+                                label = "Cloud (Gemini 2.5 Flash-Lite)",
+                                isSelected = preferences.aiEngine == com.laterbox.app.data.preferences.AiEngine.CLOUD,
+                                onClick = { onAiEngineChange(com.laterbox.app.data.preferences.AiEngine.CLOUD) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            ThemeOptionChip(
+                                label = "On-device (Gemini Nano)",
+                                isSelected = preferences.aiEngine == com.laterbox.app.data.preferences.AiEngine.ON_DEVICE,
+                                onClick = { onAiEngineChange(com.laterbox.app.data.preferences.AiEngine.ON_DEVICE) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Text(
+                            text = preferences.aiEngine.description,
+                            style = typography.metaText,
+                            color = colors.textSecondary
+                        )
+
+                        Spacer(modifier = Modifier.height(spacing.xxs))
+
+                        // Send test notification button
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(spacing.minTouchTarget)
+                                .clip(RoundedCornerShape(spacing.radiusSmall))
+                                .background(colors.surfaceSecondary)
+                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
+                                .clickable {
+                                    coroutineScope.launch {
+                                        val sent = onSendTestSmartDigest()
+                                        if (sent) {
+                                            Toast.makeText(context, "Test reminder sent! Check notification shade.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Could not send notification. Ensure notification permissions are enabled.", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
+                                .padding(horizontal = spacing.md),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = LaterboxIcons.Bell),
+                                    contentDescription = null,
+                                    tint = colors.accentPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "Send Test Smart Digest Notification",
+                                    style = typography.uiMedium.copy(fontSize = 13.sp),
+                                    color = colors.accentPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.lg))
+
             // Section: Reading & Behavior
             SectionHeader(title = "Reading & Behavior")
 
@@ -516,7 +651,7 @@ fun SettingsScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
                     Text(
-                        text = "Laterbox v1.0.4",
+                        text = "Laterbox v1.0.5",
                         style = typography.uiMedium,
                         color = colors.textPrimary
                     )

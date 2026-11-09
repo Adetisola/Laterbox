@@ -143,4 +143,34 @@ interface SavedLinkDao {
     @Transaction
     @Query("SELECT * FROM saved_links WHERE reminder_at IS NOT NULL AND reminder_at > :now AND nudge_dismissed = 0 AND is_archived = 0")
     suspend fun getScheduledReminders(now: Long = System.currentTimeMillis()): List<SavedLinkWithCollection>
+
+    @Transaction
+    @Query("""
+        SELECT * FROM saved_links 
+        WHERE is_archived = 0 
+          AND is_read = 0 
+          AND nudge_dismissed = 0 
+          AND nudge_count < 2 
+          AND (last_nudged_at IS NULL OR last_nudged_at < :recentNudgeThreshold)
+          AND created_at < :minAgeThreshold
+        ORDER BY 
+          CASE WHEN personal_note IS NOT NULL AND LENGTH(TRIM(personal_note)) > 0 THEN 0 ELSE 1 END,
+          created_at ASC
+        LIMIT :limit
+    """)
+    suspend fun getSmartDigestCandidates(
+        minAgeThreshold: Long = System.currentTimeMillis() - 24 * 60 * 60 * 1000L,
+        recentNudgeThreshold: Long = System.currentTimeMillis() - 3 * 24 * 60 * 60 * 1000L,
+        limit: Int = 10
+    ): List<SavedLinkWithCollection>
+
+    @Transaction
+    @Query("""
+        SELECT * FROM saved_links 
+        WHERE is_archived = 0 
+          AND is_read = 0
+        ORDER BY created_at DESC
+        LIMIT 1
+    """)
+    suspend fun getLatestUnreadLink(): SavedLinkWithCollection?
 }

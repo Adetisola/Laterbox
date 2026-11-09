@@ -12,11 +12,19 @@ class UserPreferencesTest {
         assertEquals("", prefs.userName)
         assertTrue(prefs.allowSystemBackup)
         assertEquals(ThemeMode.SYSTEM, prefs.themeMode)
+        assertTrue(prefs.smartRemindersEnabled)
+        assertEquals(AiEngine.CLOUD, prefs.aiEngine)
     }
 
     @Test
-    fun userPreferences_withCustomUserName() {
-        val prefs = UserPreferences(userName = "Alex Developer")
+    fun userPreferences_withCustomUserNameAndAiEngine() {
+        val prefs = UserPreferences(
+            userName = "Alex Developer",
+            smartRemindersEnabled = false,
+            aiEngine = AiEngine.ON_DEVICE
+        )
         assertEquals("Alex Developer", prefs.userName)
+        assertEquals(false, prefs.smartRemindersEnabled)
+        assertEquals(AiEngine.ON_DEVICE, prefs.aiEngine)
     }
 }

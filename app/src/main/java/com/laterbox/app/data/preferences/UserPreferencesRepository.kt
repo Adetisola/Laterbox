@@ -28,6 +28,17 @@ enum class FontSizeScale(val scaleFactor: Float, val label: String) {
     LARGE(1.15f, "Large")
 }
 
+enum class AiEngine(val label: String, val description: String) {
+    CLOUD(
+        label = "Cloud (Gemini 2.5 Flash-Lite)",
+        description = "Fast, context-aware reminders powered by Firebase AI Logic"
+    ),
+    ON_DEVICE(
+        label = "On-device (Gemini Nano)",
+        description = "Private on-device inference with zero cloud transmission"
+    )
+}
+
 data class UserPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val autoMarkAsRead: Boolean = true,
@@ -36,7 +47,9 @@ data class UserPreferences(
     val inboxViewMode: InboxViewMode = InboxViewMode.HERO,
     val fontSizeScale: FontSizeScale = FontSizeScale.SYSTEM,
     val hasCompletedOnboarding: Boolean = false,
-    val userName: String = ""
+    val userName: String = "",
+    val smartRemindersEnabled: Boolean = true,
+    val aiEngine: AiEngine = AiEngine.CLOUD
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 }
@@ -54,6 +67,8 @@ class UserPreferencesRepository(private val context: Context) {
         val FONT_SIZE_SCALE = stringPreferencesKey("font_size_scale")
         val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
         val USER_NAME = stringPreferencesKey("user_name")
+        val SMART_REMINDERS_ENABLED = booleanPreferencesKey("smart_reminders_enabled")
+        val AI_ENGINE = stringPreferencesKey("ai_engine")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -85,6 +100,14 @@ class UserPreferencesRepository(private val context: Context) {
         val hasCompletedOnboarding = preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] ?: false
         val userName = preferences[PreferencesKeys.USER_NAME] ?: ""
 
+        val smartRemindersEnabled = preferences[PreferencesKeys.SMART_REMINDERS_ENABLED] ?: true
+        val aiEngineStr = preferences[PreferencesKeys.AI_ENGINE] ?: AiEngine.CLOUD.name
+        val aiEngine = try {
+            AiEngine.valueOf(aiEngineStr)
+        } catch (e: Exception) {
+            AiEngine.CLOUD
+        }
+
         UserPreferences(
             themeMode = themeMode,
             autoMarkAsRead = autoMarkAsRead,
@@ -93,7 +116,9 @@ class UserPreferencesRepository(private val context: Context) {
             inboxViewMode = inboxViewMode,
             fontSizeScale = fontSizeScale,
             hasCompletedOnboarding = hasCompletedOnboarding,
-            userName = userName
+            userName = userName,
+            smartRemindersEnabled = smartRemindersEnabled,
+            aiEngine = aiEngine
         )
     }
 
@@ -156,6 +181,18 @@ class UserPreferencesRepository(private val context: Context) {
             } else {
                 preferences.remove(PreferencesKeys.USER_NAME)
             }
+        }
+    }
+
+    suspend fun setSmartRemindersEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_REMINDERS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setAiEngine(engine: AiEngine) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.AI_ENGINE] = engine.name
         }
     }
 }

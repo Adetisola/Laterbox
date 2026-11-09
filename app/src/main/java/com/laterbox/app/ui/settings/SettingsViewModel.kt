@@ -16,7 +16,9 @@ import java.io.OutputStream
 
 class SettingsViewModel(
     private val userPreferencesRepository: UserPreferencesRepository,
-    private val backupManager: BackupManager
+    private val backupManager: BackupManager,
+    private val linkRepository: com.laterbox.app.data.repository.LinkRepository? = null,
+    private val appContext: android.content.Context? = null
 ) : ViewModel() {
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.userPreferences.stateIn(
@@ -53,6 +55,53 @@ class SettingsViewModel(
         viewModelScope.launch {
             userPreferencesRepository.setUserName(name)
         }
+    }
+
+    fun setSmartRemindersEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartRemindersEnabled(enabled)
+            appContext?.let { ctx ->
+                if (enabled) {
+                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(ctx)
+                } else {
+                    com.laterbox.app.ai.DailyDigestWorker.cancelPeriodic(ctx)
+                }
+            }
+        }
+    }
+
+    fun setAiEngine(engine: com.laterbox.app.data.preferences.AiEngine) {
+        viewModelScope.launch {
+            userPreferencesRepository.setAiEngine(engine)
+        }
+    }
+
+    suspend fun sendTestSmartDigest(): Boolean {
+        val ctx = appContext ?: return false
+        val currentPrefs = preferences.value
+        val targetLink = linkRepository?.getLatestUnreadLink()
+            ?: com.laterbox.app.domain.model.SavedLink(
+                id = 999_999L,
+                originalUrl = "https://instagram.com/p/sample",
+                normalizedUrl = "https://instagram.com/p/sample",
+                title = "Design systems and typography in practice",
+                domain = "instagram.com",
+                siteName = "Instagram",
+                contentType = com.laterbox.app.domain.model.ContentType.VIDEO,
+                createdAt = System.currentTimeMillis() - (3 * 24 * 60 * 60 * 1000L)
+            )
+
+        val copy = com.laterbox.app.ai.SmartDigestEngine.generateDigestCopy(
+            link = targetLink,
+            userName = currentPrefs.userName.ifBlank { null },
+            engine = currentPrefs.aiEngine
+        )
+
+        return com.laterbox.app.reminders.NotificationHelper.showSmartDigestNotification(
+            context = ctx,
+            link = targetLink,
+            copy = copy
+        )
     }
 
     suspend fun exportBackup(outputStream: OutputStream): Result<Int> {
