@@ -11,6 +11,7 @@ import com.laterbox.app.di.DefaultAppContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class LaterboxApplication : Application(), ImageLoaderFactory {
@@ -48,7 +49,7 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
                 container.database.savedLinkDao().resetStuckFetchingLinks()
                 MetadataSyncWorker.enqueue(this@LaterboxApplication)
 
-                val prefs = kotlinx.coroutines.flow.first(container.userPreferencesRepository.userPreferencesFlow)
+                val prefs = container.userPreferencesRepository.userPreferencesFlow.first()
                 if (prefs.smartRemindersEnabled) {
                     com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(this@LaterboxApplication)
                 }
