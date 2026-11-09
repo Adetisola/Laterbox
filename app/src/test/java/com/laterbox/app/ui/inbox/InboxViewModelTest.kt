@@ -5,8 +5,10 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import com.laterbox.app.data.local.LaterboxDatabase
+import com.laterbox.app.data.local.entity.NotificationHistoryEntity
 import com.laterbox.app.data.preferences.UserPreferencesRepository
 import com.laterbox.app.data.repository.LinkRepository
+import com.laterbox.app.data.repository.NotificationHistoryRepository
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -320,6 +322,37 @@ class InboxViewModelTest {
 
         val prefs = preferencesRepository.userPreferences.first()
         assertTrue(prefs.recentClipboardHistory.any { it.startsWith("testhash123:") })
+    }
+
+    @Test
+    fun inboxViewModel_observesUnreadNotificationCount() = runTest {
+        val notificationRepo = NotificationHistoryRepository(database.notificationHistoryDao())
+        val viewModel = InboxViewModel(
+            linkRepository = linkRepository,
+            userPreferencesRepository = preferencesRepository,
+            notificationHistoryRepository = notificationRepo
+        )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            assertEquals(0, state.unreadNotificationCount)
+
+            // Insert unread notification
+            val notifId = notificationRepo.recordNotification(
+                url = "https://example.com/notif",
+                title = "Reminder",
+                body = "Read now",
+                origin = "SMART_DIGEST"
+            )
+
+            state = awaitItem()
+            assertEquals(1, state.unreadNotificationCount)
+
+            // Mark as read
+            notificationRepo.markAsRead(notifId)
+            state = awaitItem()
+            assertEquals(0, state.unreadNotificationCount)
+        }
     }
 }
 

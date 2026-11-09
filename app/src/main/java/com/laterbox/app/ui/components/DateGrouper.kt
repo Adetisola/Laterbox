@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.laterbox.app.domain.model.NotificationHistoryItem
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.theme.LaterboxTheme
 import java.time.Instant
@@ -36,9 +37,45 @@ data class DateGroup(
     val links: List<SavedLink>
 )
 
+data class NotificationDateGroup(
+    val title: String,
+    val items: List<NotificationHistoryItem>
+)
+
 object DateGrouper {
     private val monthYearFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
     private val shortDateFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
+
+    fun groupNotifications(
+        notifications: List<NotificationHistoryItem>,
+        nowMillis: Long = System.currentTimeMillis()
+    ): List<NotificationDateGroup> {
+        if (notifications.isEmpty()) return emptyList()
+
+        val zoneId = ZoneId.systemDefault()
+        val today = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
+        val yesterday = today.minusDays(1)
+        val startOfWeek = today.minusDays(today.dayOfWeek.value.toLong() - 1)
+        val startOfMonth = today.withDayOfMonth(1)
+
+        val groups = linkedMapOf<String, MutableList<NotificationHistoryItem>>()
+
+        for (item in notifications) {
+            val itemDate = Instant.ofEpochMilli(item.createdAt).atZone(zoneId).toLocalDate()
+            val groupKey = when {
+                itemDate == today -> "Today"
+                itemDate == yesterday -> "Yesterday"
+                !itemDate.isBefore(startOfWeek) -> "Earlier this week"
+                !itemDate.isBefore(startOfMonth) -> "Earlier this month"
+                else -> itemDate.format(monthYearFormatter)
+            }
+            groups.getOrPut(groupKey) { mutableListOf() }.add(item)
+        }
+
+        return groups.map { (title, groupItems) ->
+            NotificationDateGroup(title = title, items = groupItems)
+        }
+    }
 
     fun groupLinks(
         links: List<SavedLink>,

@@ -8,17 +8,20 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.laterbox.app.data.local.dao.CollectionDao
+import com.laterbox.app.data.local.dao.NotificationHistoryDao
 import com.laterbox.app.data.local.dao.SavedLinkDao
 import com.laterbox.app.data.local.entity.CollectionEntity
+import com.laterbox.app.data.local.entity.NotificationHistoryEntity
 import com.laterbox.app.data.local.entity.SavedLinkEntity
 
 @Database(
     entities = [
         SavedLinkEntity::class,
         CollectionEntity::class,
-        com.laterbox.app.data.local.entity.LinkCollectionCrossRef::class
+        com.laterbox.app.data.local.entity.LinkCollectionCrossRef::class,
+        NotificationHistoryEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -26,6 +29,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
 
     abstract fun savedLinkDao(): SavedLinkDao
     abstract fun collectionDao(): CollectionDao
+    abstract fun notificationHistoryDao(): NotificationHistoryDao
 
     companion object {
         private const val DATABASE_NAME = "laterbox.db"
@@ -223,6 +227,34 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Non-destructive migration from version 3 to version 4:
+         * Creates persistent notification_history table and its indices.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `notification_history` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `link_id` INTEGER,
+                        `url` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `body` TEXT NOT NULL,
+                        `origin` TEXT NOT NULL,
+                        `domain` TEXT NOT NULL,
+                        `site_name` TEXT,
+                        `preview_image_url` TEXT,
+                        `favicon_url` TEXT,
+                        `is_read` INTEGER NOT NULL DEFAULT 0,
+                        `created_at` INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notification_history_created_at` ON `notification_history` (`created_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notification_history_is_read` ON `notification_history` (`is_read`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_notification_history_link_id` ON `notification_history` (`link_id`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -233,7 +265,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { INSTANCE = it }
             }

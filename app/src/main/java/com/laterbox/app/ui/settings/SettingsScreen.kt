@@ -44,6 +44,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerDefaults
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.laterbox.app.capture.accessibility.AccessibilityServiceStateHelper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -128,6 +129,30 @@ fun SettingsScreen(
     var showAccessibilityOnboarding by remember { mutableStateOf(false) }
     var showExcludedAppsDialog by remember { mutableStateOf(false) }
     val accessibilitySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Notification & Exact Alarm Permission states
+    var notificationsEnabled by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
+    var canScheduleExact by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager)?.canScheduleExactAlarms() ?: true
+            } else {
+                true
+            }
+        )
+    }
+
+    LifecycleResumeEffect(Unit) {
+        notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+        canScheduleExact = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager)?.canScheduleExactAlarms() ?: true
+        } else {
+            true
+        }
+        onPauseOrDispose {}
+    }
 
     // Time picker dialog states
     var timePickerTarget by remember { mutableStateOf<TimePickerTarget?>(null) }
@@ -403,7 +428,6 @@ fun SettingsScreen(
 
                     if (preferences.smartRemindersEnabled) {
                         // Notification Permission Check Banner
-                        val notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
                         if (!notificationsEnabled) {
                             LaterboxBanner(
                                 text = "Notifications are disabled. Laterbox cannot deliver your scheduled reminders.",
@@ -418,6 +442,30 @@ fun SettingsScreen(
                             )
                         }
 
+                        // Exact Alarm Permission Check Banner (Android 12+)
+                        if (!canScheduleExact) {
+                            LaterboxBanner(
+                                text = "Exact alarm permission is disabled. Reminders will use approximate delivery windows unless exact alarms are allowed.",
+                                isWarning = true,
+                                actionText = "Allow",
+                                onActionClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        }
+                                        try {
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            context.startActivity(fallback)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
                         Divider(colors.borderSubtle)
 
                         Text(
@@ -426,7 +474,7 @@ fun SettingsScreen(
                             color = colors.textPrimary
                         )
                         Text(
-                            text = "Enable the calendar schedules you prefer. WorkManager coordinates each time slot reliably.",
+                            text = "Enable the calendar schedules you prefer. AlarmManager coordinates each time slot with exact timing.",
                             style = typography.metaText,
                             color = colors.textSecondary
                         )

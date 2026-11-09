@@ -6,6 +6,7 @@ import com.laterbox.app.data.local.LaterboxDatabase
 import com.laterbox.app.data.preferences.UserPreferencesRepository
 import com.laterbox.app.data.repository.CollectionRepository
 import com.laterbox.app.data.repository.LinkRepository
+import com.laterbox.app.data.repository.NotificationHistoryRepository
 
 interface AppContainer {
     val database: LaterboxDatabase
@@ -14,6 +15,7 @@ interface AppContainer {
     val userPreferencesRepository: UserPreferencesRepository
     val backupManager: BackupManager
     val reminderScheduler: com.laterbox.app.reminders.ReminderScheduler
+    val notificationHistoryRepository: NotificationHistoryRepository
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -40,5 +42,9 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val reminderScheduler: com.laterbox.app.reminders.ReminderScheduler by lazy {
         com.laterbox.app.reminders.ReminderScheduler(context)
+    }
+
+    override val notificationHistoryRepository: NotificationHistoryRepository by lazy {
+        NotificationHistoryRepository(database.notificationHistoryDao())
     }
 }

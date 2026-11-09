@@ -17,7 +17,17 @@ object AppViewModelProvider {
     val Factory = viewModelFactory {
         initializer {
             val app = laterboxApplication()
-            InboxViewModel(app.container.linkRepository, app.container.userPreferencesRepository)
+            InboxViewModel(
+                linkRepository = app.container.linkRepository,
+                userPreferencesRepository = app.container.userPreferencesRepository,
+                notificationHistoryRepository = app.container.notificationHistoryRepository
+            )
+        }
+        initializer {
+            val app = laterboxApplication()
+            com.laterbox.app.ui.notifications.NotificationHistoryViewModel(
+                app.container.notificationHistoryRepository
+            )
         }
         initializer {
             val app = laterboxApplication()

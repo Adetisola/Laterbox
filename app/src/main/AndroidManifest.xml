@@ -9,7 +9,6 @@
     <uses-permission
         android:name="android.permission.SCHEDULE_EXACT_ALARM"
         tools:ignore="ProtectedPermissions" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <application
         android:name=".LaterboxApplication"
@@ -79,6 +78,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Notification Open Routing Activity to mark link and notification history as read and open original URL -->
+        <activity
+            android:name=".reminders.NotificationOpenActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
+
         <!-- Accessibility Service for Contextual Text Selection Link Detection -->
         <service
             android:name=".capture.accessibility.LaterboxSelectionAccessibilityService"
@@ -113,7 +121,7 @@
             android:name=".reminders.ReminderReceiver"
             android:exported="false" />
 
-        <!-- Boot Completed & Time Change Receiver to restore scheduled reminders -->
+        <!-- Boot Completed, Time Change & Exact Alarm Permission State Receiver to restore scheduled reminders -->
         <receiver
             android:name=".reminders.BootReceiver"
             android:exported="false">
@@ -122,6 +130,7 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 

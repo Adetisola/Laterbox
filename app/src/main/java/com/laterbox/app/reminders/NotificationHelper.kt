@@ -69,34 +69,22 @@ object NotificationHelper {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             ?: return false
 
-        // Fetch site logo/favicon and preview/OG image concurrently or sequentially with timeouts
-        val logoBitmap: Bitmap? = fetchSiteLogo(context, link)
-        val previewBitmap: Bitmap? = fetchPreviewImage(context, link.previewImageUrl)
+        val app = context.applicationContext as? com.laterbox.app.LaterboxApplication
 
-        // Tap content intent -> opens the link directly in external browser / viewer
-        val contentIntent = Intent(Intent.ACTION_VIEW, Uri.parse(link.originalUrl)).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val contentPendingIntent = PendingIntent.getActivity(
-            context,
-            link.id.hashCode(),
-            contentIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        // 1. Re-read latest SavedLink from Room DB so recently enriched metadata is captured
+        var effectiveLink = app?.container?.linkRepository?.let { repo ->
+            repo.getLinkById(link.id).first() ?: link
+        } ?: link
 
-        // Action: Dismiss Reminder
-        val notificationId = link.id.toInt()
-        val dismissIntent = Intent(context, ReminderReceiver::class.java).apply {
-            action = ReminderReceiver.ACTION_DISMISS_REMINDER
-            putExtra(ReminderReceiver.EXTRA_LINK_ID, link.id)
-            putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        // 2. Best-effort non-blocking metadata retrieval if preview image is missing
+        if (effectiveLink.previewImageUrl.isNullOrBlank() && effectiveLink.id > 0) {
+            withTimeoutOrNull(2500L) {
+                app?.container?.linkRepository?.fetchMetadataNow(effectiveLink.id)
+            }
+            effectiveLink = app?.container?.linkRepository?.let { repo ->
+                repo.getLinkById(effectiveLink.id).first() ?: effectiveLink
+            } ?: effectiveLink
         }
-        val dismissPendingIntent = PendingIntent.getBroadcast(
-            context,
-            (link.id + 100_000L).hashCode(),
-            dismissIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
 
         // Use AI copy if provided, otherwise warm personalized context title & body
         val title = copy?.title ?: if (origin == ReminderOrigin.MANUAL) {
@@ -106,24 +94,80 @@ object NotificationHelper {
         }
 
         val body = copy?.body ?: if (origin == ReminderOrigin.MANUAL) {
-            if (!link.personalNote.isNullOrBlank()) {
-                "You asked to be reminded: \"${link.personalNote}\" • ${link.title}"
+            if (!effectiveLink.personalNote.isNullOrBlank()) {
+                "You asked to be reminded: \"${effectiveLink.personalNote}\" • ${effectiveLink.title}"
             } else {
-                "You asked to revisit \"${link.title}\" from ${link.domain}."
+                "You asked to revisit \"${effectiveLink.title}\" from ${effectiveLink.domain}."
             }
         } else {
-            if (!link.personalNote.isNullOrBlank()) {
-                "\"${link.personalNote}\" • ${link.title}"
+            if (!effectiveLink.personalNote.isNullOrBlank()) {
+                "\"${effectiveLink.personalNote}\" • ${effectiveLink.title}"
             } else {
-                "${link.title} • ${link.domain}"
+                "${effectiveLink.title} • ${effectiveLink.domain}"
             }
         }
 
-        // Small Icon: Show the platform logo in the notification header
-        val platformIconRes = resolvePlatformIcon(link.domain)
+        val notificationId = effectiveLink.id.toInt()
+
+        // 3. Record in-app notification history
+        val historyRepo = app?.container?.notificationHistoryRepository
+        val notificationRecordId = historyRepo?.recordNotification(
+            linkId = effectiveLink.id,
+            url = effectiveLink.originalUrl,
+            title = title,
+            body = body,
+            origin = origin.name,
+            domain = effectiveLink.domain,
+            siteName = effectiveLink.siteName,
+            previewImageUrl = effectiveLink.previewImageUrl,
+            faviconUrl = effectiveLink.faviconUrl,
+            isRead = false,
+            createdAt = System.currentTimeMillis()
+        ) ?: -1L
+
+        // 4. Intent routing: routes via NotificationOpenActivity to mark link & history as read
+        val openIntent = NotificationOpenActivity.createIntent(
+            context = context,
+            linkId = effectiveLink.id,
+            url = effectiveLink.originalUrl,
+            notificationRecordId = notificationRecordId,
+            notificationId = notificationId
+        )
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            effectiveLink.id.hashCode(),
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Action: Dismiss Reminder
+        val dismissIntent = Intent(context, ReminderReceiver::class.java).apply {
+            action = ReminderReceiver.ACTION_DISMISS_REMINDER
+            putExtra(ReminderReceiver.EXTRA_LINK_ID, effectiveLink.id)
+            putExtra(ReminderReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val dismissPendingIntent = PendingIntent.getBroadcast(
+            context,
+            (effectiveLink.id + 100_000L).hashCode(),
+            dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // 5. Image & Branding: fetch OG preview image, or recognized platform brand bitmap, or site logo
+        val previewBitmap: Bitmap? = fetchPreviewImage(context, effectiveLink.previewImageUrl)
+        val brand = com.laterbox.app.domain.util.PlatformBrandResolver.resolve(effectiveLink.domain)
+        val fallbackLogoBitmap: Bitmap? = if (previewBitmap == null) {
+            if (brand != null) {
+                renderVectorToBitmap(context, brand.iconRes)
+            } else {
+                fetchSiteLogo(context, effectiveLink)
+            }
+        } else {
+            null
+        }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID_REMINDERS)
-            .setSmallIcon(platformIconRes)
+            .setSmallIcon(R.drawable.ic_stat_laterbox) // Compliant monochrome small icon
             .setContentTitle(title)
             .setContentText(body)
             .setContentIntent(contentPendingIntent)
@@ -141,8 +185,6 @@ object NotificationHelper {
                 dismissPendingIntent
             )
 
-        // Visuals: If preview/OG image exists, place as large icon in collapsed view,
-        // and expand to full width in BigPictureStyle. If no preview image, use site logo.
         if (previewBitmap != null) {
             builder.setLargeIcon(previewBitmap)
             builder.setStyle(
@@ -152,8 +194,8 @@ object NotificationHelper {
                     .setSummaryText(body)
             )
         } else {
-            if (logoBitmap != null) {
-                builder.setLargeIcon(logoBitmap)
+            if (fallbackLogoBitmap != null) {
+                builder.setLargeIcon(fallbackLogoBitmap)
             }
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
         }
@@ -177,14 +219,18 @@ object NotificationHelper {
 
     @DrawableRes
     fun resolvePlatformIcon(domain: String): Int {
-        val lower = domain.lowercase()
-        return when {
-            lower.contains("youtube.com") || lower.contains("youtu.be") -> R.drawable.ic_platform_youtube
-            lower.contains("github.com") -> R.drawable.ic_platform_github
-            lower.contains("reddit.com") -> R.drawable.ic_platform_reddit
-            lower.contains("twitter.com") || lower.contains("x.com") -> R.drawable.ic_platform_x
-            else -> R.drawable.ic_platform_web
-        }
+        return com.laterbox.app.domain.util.PlatformBrandResolver.resolve(domain)?.iconRes
+            ?: R.drawable.ic_platform_web
+    }
+
+    private fun renderVectorToBitmap(context: Context, @DrawableRes drawableRes: Int): Bitmap? {
+        val drawable = ContextCompat.getDrawable(context, drawableRes) ?: return null
+        val size = 128
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        drawable.setBounds(0, 0, canvas.width, canvas.height)
+        drawable.draw(canvas)
+        return bitmap
     }
 
     private suspend fun fetchPreviewImage(context: Context, url: String?): Bitmap? {

@@ -72,6 +72,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
     val saveLinkViewModel: SaveLinkViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val savedItemDetailViewModel: SavedItemDetailViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val settingsViewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
+    val notificationHistoryViewModel: com.laterbox.app.ui.notifications.NotificationHistoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
 
     // Current route observation
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -103,7 +104,7 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(bottom = if (currentRoute != LaterboxDestination.Settings.route) 84.dp else 16.dp)
+                    .padding(bottom = if (currentRoute != LaterboxDestination.Settings.route && currentRoute != LaterboxDestination.NotificationHistory.route) 84.dp else 16.dp)
             ) {
                 SnackbarHost(
                     hostState = snackbarHostState,
@@ -149,6 +150,9 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         },
                         onSettingsClick = {
                             navController.navigate(LaterboxDestination.Settings.route)
+                        },
+                        onNotificationHistoryClick = {
+                            navController.navigate(LaterboxDestination.NotificationHistory.route)
                         },
                         onToggleViewMode = inboxViewModel::onToggleViewMode,
                         onRefresh = inboxViewModel::refresh,
@@ -308,9 +312,23 @@ fun LaterboxApp(modifier: Modifier = Modifier) {
                         onBackClick = { navController.popBackStack() }
                     )
                 }
+
+                // Notification History Screen
+                composable(LaterboxDestination.NotificationHistory.route) {
+                    com.laterbox.app.ui.notifications.NotificationHistoryScreen(
+                        viewModel = notificationHistoryViewModel,
+                        onNavigateBack = { navController.popBackStack() },
+                        onOpenUrl = { url, linkId ->
+                            BrowserLauncher.openUrl(context, url, colors)
+                            if (linkId != null) {
+                                inboxViewModel.onLinkOpened(linkId)
+                            }
+                        }
+                    )
+                }
             }
 
-            if (currentRoute != LaterboxDestination.Settings.route) {
+            if (currentRoute != LaterboxDestination.Settings.route && currentRoute != LaterboxDestination.NotificationHistory.route) {
                 LaterboxBottomBar(
                     currentDestination = currentBottomDestination,
                     onDestinationSelected = { destination ->

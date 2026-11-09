@@ -20,7 +20,8 @@ class BootReceiver : BroadcastReceiver() {
             action != Intent.ACTION_MY_PACKAGE_REPLACED &&
             action != Intent.ACTION_TIMEZONE_CHANGED &&
             action != Intent.ACTION_TIME_CHANGED &&
-            action != "android.intent.action.TIME_SET"
+            action != "android.intent.action.TIME_SET" &&
+            action != "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"
         ) {
             return
         }

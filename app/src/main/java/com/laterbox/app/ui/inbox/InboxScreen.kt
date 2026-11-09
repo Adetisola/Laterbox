@@ -97,6 +97,7 @@ fun InboxScreen(
     onQuickOpenClick: (SavedLink) -> Unit,
     onAddLinkClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onNotificationHistoryClick: () -> Unit = {},
     onToggleViewMode: () -> Unit,
     onRefresh: () -> Unit,
     onCompleteOnboarding: () -> Unit,
@@ -140,7 +141,7 @@ fun InboxScreen(
             .background(colors.backgroundPrimary)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header: Brand / Title on left; Solo Settings button on right
+            // Header: Brand / Title on left; Notification Bell & Settings buttons on right
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -161,11 +162,33 @@ fun InboxScreen(
                     )
                 }
 
-                LaterboxIconButton(
-                    iconRes = LaterboxIcons.Settings,
-                    contentDescription = "Settings",
-                    onClick = onSettingsClick
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.Bell,
+                            contentDescription = "Notification History",
+                            onClick = onNotificationHistoryClick
+                        )
+                        if (uiState.unreadNotificationCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 6.dp, end = 6.dp)
+                                    .size(7.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(colors.accent)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(spacing.xs))
+
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Settings,
+                        contentDescription = "Settings",
+                        onClick = onSettingsClick
+                    )
+                }
             }
 
             // Search Row: [Search Field (weight 1f)] [Date Filter Button] [View Toggle Button]

@@ -22,10 +22,14 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+import com.laterbox.app.data.repository.NotificationHistoryRepository
+import kotlinx.coroutines.flow.flowOf
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class InboxViewModel(
     private val linkRepository: LinkRepository,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val notificationHistoryRepository: NotificationHistoryRepository? = null
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -51,6 +55,8 @@ class InboxViewModel(
         }
     }
 
+    private val unreadNotificationsFlow = notificationHistoryRepository?.unreadCount ?: flowOf(0)
+
     @Suppress("UNCHECKED_CAST")
     val uiState: StateFlow<InboxUiState> = combine(
         baseLinksFlow,
@@ -59,7 +65,8 @@ class InboxViewModel(
         _activeDateRangeFilter,
         _isRefreshing,
         _clipboardSuggestion,
-        userPreferencesRepository.userPreferences
+        userPreferencesRepository.userPreferences,
+        unreadNotificationsFlow
     ) { args: Array<Any?> ->
         val rawLinks = args[0] as List<SavedLink>
         val query = args[1] as String
@@ -68,6 +75,7 @@ class InboxViewModel(
         val refreshing = args[4] as Boolean
         val suggestion = args[5] as ClipboardSuggestion?
         val prefs = args[6] as UserPreferences
+        val unreadNotifs = args[7] as Int
 
         // If searching, filter out archived links since searchLinks searches all
         val unarchived = rawLinks.filter { !it.isArchived }
@@ -98,7 +106,8 @@ class InboxViewModel(
             pendingMetadataCount = pendingCount,
             viewMode = prefs.inboxViewMode,
             hasCompletedOnboarding = prefs.hasCompletedOnboarding,
-            clipboardSuggestion = suggestion
+            clipboardSuggestion = suggestion,
+            unreadNotificationCount = unreadNotifs
         )
     }.stateIn(
         scope = viewModelScope,

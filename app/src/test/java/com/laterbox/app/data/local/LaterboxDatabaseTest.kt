@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.laterbox.app.data.local.dao.CollectionDao
+import com.laterbox.app.data.local.dao.NotificationHistoryDao
 import com.laterbox.app.data.local.dao.SavedLinkDao
 import com.laterbox.app.data.local.entity.CollectionEntity
+import com.laterbox.app.data.local.entity.NotificationHistoryEntity
 import com.laterbox.app.data.local.entity.SavedLinkEntity
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.MetadataStatus
@@ -30,6 +32,7 @@ class LaterboxDatabaseTest {
     private lateinit var db: LaterboxDatabase
     private lateinit var linkDao: SavedLinkDao
     private lateinit var collectionDao: CollectionDao
+    private lateinit var notificationDao: NotificationHistoryDao
 
     @Before
     fun createDb() {
@@ -39,6 +42,7 @@ class LaterboxDatabaseTest {
             .build()
         linkDao = db.savedLinkDao()
         collectionDao = db.collectionDao()
+        notificationDao = db.notificationHistoryDao()
     }
 
     @After
@@ -606,6 +610,219 @@ class LaterboxDatabaseTest {
             maxNudgeCount = 3
         )
         assertEquals(2, candidatesForThree.size)
+    }
+
+    @Test
+    fun insertAndRetrieveNotificationHistoryItem() = runTest {
+        val entity = NotificationHistoryEntity(
+            url = "https://example.com/notification-item",
+            title = "Scheduled Read",
+            body = "Remember to review this article",
+            origin = "MANUAL_REMINDER",
+            domain = "example.com",
+            siteName = "Example",
+            isRead = false,
+            createdAt = 1000L
+        )
+        val id = notificationDao.insert(entity)
+        assertTrue(id > 0)
+
+        val history = notificationDao.getAllHistory().first()
+        assertEquals(1, history.size)
+        assertEquals("Scheduled Read", history[0].title)
+        assertEquals("https://example.com/notification-item", history[0].url)
+        assertFalse(history[0].isRead)
+    }
+
+    @Test
+    fun notificationMarkReadAndUnreadWorkflow() = runTest {
+        val id = notificationDao.insert(
+            NotificationHistoryEntity(
+                url = "https://example.com/item",
+                title = "Title",
+                body = "Body",
+                origin = "SMART_DIGEST",
+                domain = "example.com",
+                isRead = false,
+                createdAt = 2000L
+            )
+        )
+
+        assertEquals(1, notificationDao.getUnreadCount().first())
+
+        notificationDao.markAsRead(id)
+        assertEquals(0, notificationDao.getUnreadCount().first())
+        val readList = notificationDao.getAllHistory().first()
+        assertTrue(readList[0].isRead)
+
+        notificationDao.markAsUnread(id)
+        assertEquals(1, notificationDao.getUnreadCount().first())
+        val unreadList = notificationDao.getAllHistory().first()
+        assertFalse(unreadList[0].isRead)
+    }
+
+    @Test
+    fun notificationMarkReadByLinkId() = runTest {
+        val linkId = 777L
+        notificationDao.insert(
+            NotificationHistoryEntity(
+                linkId = linkId,
+                url = "https://example.com/item1",
+                title = "Item 1",
+                body = "Body 1",
+                origin = "SMART_DIGEST",
+                domain = "example.com",
+                isRead = false,
+                createdAt = 1000L
+            )
+        )
+        notificationDao.insert(
+            NotificationHistoryEntity(
+                linkId = linkId,
+                url = "https://example.com/item2",
+                title = "Item 2",
+                body = "Body 2",
+                origin = "MANUAL_REMINDER",
+                domain = "example.com",
+                isRead = false,
+                createdAt = 2000L
+            )
+        )
+
+        assertEquals(2, notificationDao.getUnreadCount().first())
+        notificationDao.markReadByLinkId(linkId)
+        assertEquals(0, notificationDao.getUnreadCount().first())
+    }
+
+    @Test
+    fun notificationClearAll() = runTest {
+        notificationDao.insert(
+            NotificationHistoryEntity(
+                url = "https://example.com/item1",
+                title = "Item 1",
+                body = "Body 1",
+                origin = "SMART_DIGEST",
+                domain = "example.com",
+                createdAt = 1000L
+            )
+        )
+        assertEquals(1, notificationDao.getAllHistory().first().size)
+        notificationDao.clearAll()
+        assertEquals(0, notificationDao.getAllHistory().first().size)
+    }
+
+    @Test
+    fun migration3To4CreatesNotificationHistoryTableAndPreservesData() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(3) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `collections` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `icon_name` TEXT,
+                            `created_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `saved_links` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `original_url` TEXT NOT NULL,
+                            `normalized_url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `description` TEXT,
+                            `site_name` TEXT,
+                            `domain` TEXT NOT NULL,
+                            `favicon_url` TEXT,
+                            `preview_image_url` TEXT,
+                            `content_type` TEXT NOT NULL,
+                            `collection_id` INTEGER,
+                            `personal_note` TEXT,
+                            `is_read` INTEGER NOT NULL,
+                            `is_archived` INTEGER NOT NULL,
+                            `metadata_status` TEXT NOT NULL,
+                            `retry_count` INTEGER NOT NULL,
+                            `last_fetched_at` INTEGER,
+                            `created_at` INTEGER NOT NULL,
+                            `updated_at` INTEGER NOT NULL,
+                            `reminder_at` INTEGER,
+                            `last_nudged_at` INTEGER,
+                            `nudge_count` INTEGER NOT NULL DEFAULT 0,
+                            `nudge_dismissed` INTEGER NOT NULL DEFAULT 0,
+                            FOREIGN KEY(`collection_id`) REFERENCES `collections`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `link_collection_cross_ref` (
+                            `link_id` INTEGER NOT NULL,
+                            `collection_id` INTEGER NOT NULL,
+                            PRIMARY KEY(`link_id`, `collection_id`),
+                            FOREIGN KEY(`link_id`) REFERENCES `saved_links`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE,
+                            FOREIGN KEY(`collection_id`) REFERENCES `collections`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                        """.trimIndent()
+                    )
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+
+        // Insert sample collection and link in v3 schema
+        sqliteDb.execSQL("INSERT INTO `collections` (`id`, `name`, `created_at`) VALUES (99, 'Reading', 1000)")
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `saved_links` (
+                `id`, `original_url`, `normalized_url`, `title`, `domain`, `content_type`,
+                `is_read`, `is_archived`, `metadata_status`, `retry_count`, `created_at`, `updated_at`,
+                `nudge_count`, `nudge_dismissed`
+            ) VALUES (
+                500, 'https://example.com/v3', 'https://example.com/v3', 'V3 Link', 'example.com',
+                'WEBSITE', 0, 0, 'SUCCESS', 0, 1000, 1000, 0, 0
+            )
+            """.trimIndent()
+        )
+
+        // Run MIGRATION_3_4
+        LaterboxDatabase.MIGRATION_3_4.migrate(sqliteDb)
+
+        // Verify notification_history table exists and supports inserts
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `notification_history` (
+                `url`, `title`, `body`, `origin`, `domain`, `is_read`, `created_at`
+            ) VALUES (
+                'https://example.com/migrated', 'Migrated Reminder', 'Test body', 'SMART_DIGEST', 'example.com', 0, 2000
+            )
+            """.trimIndent()
+        )
+
+        val cursor = sqliteDb.query("SELECT title, url FROM notification_history WHERE url = 'https://example.com/migrated'")
+        assertTrue(cursor.moveToFirst())
+        assertEquals("Migrated Reminder", cursor.getString(0))
+        cursor.close()
+
+        // Verify existing saved_links and collections are preserved
+        val linkCursor = sqliteDb.query("SELECT title FROM saved_links WHERE id = 500")
+        assertTrue(linkCursor.moveToFirst())
+        assertEquals("V3 Link", linkCursor.getString(0))
+        linkCursor.close()
+
+        helper.close()
     }
 }
 
