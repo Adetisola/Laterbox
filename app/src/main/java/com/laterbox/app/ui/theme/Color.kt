@@ -18,6 +18,8 @@ data class LaterboxColors(
     val accentPrimary: Color,
     val accentContainer: Color,
     val statusDanger: Color,
+    val statusSuccess: Color = Color(0xFF2E7D32),
+    val scrim: Color = Color(0x77000000),
     val isDark: Boolean
 )
 
@@ -35,6 +37,8 @@ val LightLaterboxColors = LaterboxColors(
     accentPrimary = Color(0xFFC85A32),
     accentContainer = Color(0xFFF9EBE5),
     statusDanger = Color(0xFFB8322A),
+    statusSuccess = Color(0xFF2E7D32),
+    scrim = Color(0x66000000),
     isDark = false
 )
 
@@ -52,6 +56,8 @@ val DarkLaterboxColors = LaterboxColors(
     accentPrimary = Color(0xFFE07048),
     accentContainer = Color(0xFF332019),
     statusDanger = Color(0xFFE55A50),
+    statusSuccess = Color(0xFF4CAF50),
+    scrim = Color(0x88000000),
     isDark = true
 )
 

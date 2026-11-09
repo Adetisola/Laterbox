@@ -49,18 +49,47 @@
             </intent-filter>
         </activity>
 
+        <!-- Dedicated Quick Save Translucent Activity from Tile -->
+        <activity
+            android:name=".quicksave.QuickSaveActivity"
+            android:exported="false"
+            android:label="@string/save_to_laterbox"
+            android:theme="@style/Theme.Laterbox.TransparentSheet"
+            android:taskAffinity="com.laterbox.app.quicksave"
+            android:launchMode="singleTask"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Quick Settings Tile Service -->
+        <service
+            android:name=".quicksave.QuickSaveTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_save"
+            android:label="@string/save_to_laterbox"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.quicksettings.ACTIVE_TILE"
+                android:value="false" />
+        </service>
+
         <!-- Reminder Alarm Receiver -->
         <receiver
             android:name=".reminders.ReminderReceiver"
             android:exported="false" />
 
-        <!-- Boot Completed Receiver to restore scheduled reminders -->
+        <!-- Boot Completed & Time Change Receiver to restore scheduled reminders -->
         <receiver
             android:name=".reminders.BootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
 

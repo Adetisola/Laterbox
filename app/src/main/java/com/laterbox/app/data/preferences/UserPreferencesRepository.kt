@@ -8,7 +8,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.laterbox.app.reminders.smart.CustomScheduleConfig
+import com.laterbox.app.reminders.smart.DailyDigestConfig
+import com.laterbox.app.reminders.smart.MorningEveningConfig
+import com.laterbox.app.reminders.smart.SmartReminderSettings
+import com.laterbox.app.reminders.smart.WeekendConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -20,7 +26,8 @@ enum class ThemeMode {
 
 enum class InboxViewMode {
     HERO,
-    COMPACT
+    COMPACT,
+    EDITORIAL
 }
 
 enum class FontSizeScale(val scaleFactor: Float, val label: String) {
@@ -29,11 +36,12 @@ enum class FontSizeScale(val scaleFactor: Float, val label: String) {
     LARGE(1.15f, "Large")
 }
 
+@Deprecated("Migrated to independent schedule toggles in SmartReminderSettings")
 enum class SmartReminderSchedule(val label: String, val description: String) {
     DAILY_DIGEST("Daily Digest", "Once a day at your chosen time"),
     TWICE_DAILY("Morning & Evening", "Twice a day at 9:00 AM and 8:00 PM"),
     WEEKEND_ROUNDUP("Weekend Roundup", "Every Saturday & Sunday morning"),
-    CONTINUOUS_MONITOR("Continuous Monitor", "Silently monitors unread links and nudges when idle")
+    CONTINUOUS_MONITOR("Continuous Monitor", "Monitors unread links and nudges when idle")
 }
 
 enum class SmartReminderPersistence(val maxNudges: Int, val label: String) {
@@ -41,17 +49,6 @@ enum class SmartReminderPersistence(val maxNudges: Int, val label: String) {
     TWICE(2, "2 times"),
     THRICE(3, "3 times"),
     UNTIL_READ(Int.MAX_VALUE, "Until read")
-}
-
-enum class AiEngine(val label: String, val description: String) {
-    CLOUD(
-        label = "Cloud (Gemini 2.5 Flash-Lite)",
-        description = "Fast, context-aware reminders powered by Firebase AI Logic"
-    ),
-    ON_DEVICE(
-        label = "On-device (Gemini Nano)",
-        description = "Private on-device inference with zero cloud transmission"
-    )
 }
 
 data class UserPreferences(
@@ -64,14 +61,61 @@ data class UserPreferences(
     val hasCompletedOnboarding: Boolean = false,
     val userName: String = "",
     val smartRemindersEnabled: Boolean = true,
-    val smartReminderSchedule: SmartReminderSchedule = SmartReminderSchedule.DAILY_DIGEST,
-    val smartReminderHour: Int = 20,
-    val smartReminderMinute: Int = 0,
+    // Morning & Evening schedule
+    val morningEveningEnabled: Boolean = false,
+    val morningHour: Int = 9,
+    val morningMinute: Int = 0,
+    val eveningHour: Int = 20,
+    val eveningMinute: Int = 0,
+    // Weekend Roundup schedule
+    val weekendRoundupEnabled: Boolean = false,
+    val weekendRoundupHour: Int = 10,
+    val weekendRoundupMinute: Int = 0,
+    // Daily Digest schedule
+    val dailyDigestEnabled: Boolean = true,
+    val dailyDigestHour: Int = 20,
+    val dailyDigestMinute: Int = 0,
+    val dailyDigestWeekdaysOnly: Boolean = false,
+    // Custom schedule
+    val customScheduleEnabled: Boolean = false,
+    val customScheduleDays: Set<Int> = setOf(1, 2, 3, 4, 5),
+    val customScheduleHour: Int = 12,
+    val customScheduleMinute: Int = 0,
+    // Persistence & API key
     val smartReminderPersistence: SmartReminderPersistence = SmartReminderPersistence.TWICE,
-    val aiEngine: AiEngine = AiEngine.CLOUD,
-    val geminiApiKey: String = ""
+    val geminiApiKey: String = "",
+    val deliveredSlotKeys: Set<String> = emptySet()
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
+
+    fun toSmartReminderSettings(): SmartReminderSettings = SmartReminderSettings(
+        enabled = smartRemindersEnabled,
+        morningEvening = MorningEveningConfig(
+            enabled = morningEveningEnabled,
+            morningHour = morningHour,
+            morningMinute = morningMinute,
+            eveningHour = eveningHour,
+            eveningMinute = eveningMinute
+        ),
+        weekendRoundup = WeekendConfig(
+            enabled = weekendRoundupEnabled,
+            hour = weekendRoundupHour,
+            minute = weekendRoundupMinute
+        ),
+        dailyDigest = DailyDigestConfig(
+            enabled = dailyDigestEnabled,
+            hour = dailyDigestHour,
+            minute = dailyDigestMinute,
+            weekdaysOnly = dailyDigestWeekdaysOnly
+        ),
+        custom = CustomScheduleConfig(
+            enabled = customScheduleEnabled,
+            daysOfWeek = customScheduleDays,
+            hour = customScheduleHour,
+            minute = customScheduleMinute
+        ),
+        persistence = smartReminderPersistence
+    )
 }
 
 val Context.userDataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
@@ -88,19 +132,47 @@ class UserPreferencesRepository(private val context: Context) {
         val HAS_COMPLETED_ONBOARDING = booleanPreferencesKey("has_completed_onboarding")
         val USER_NAME = stringPreferencesKey("user_name")
         val SMART_REMINDERS_ENABLED = booleanPreferencesKey("smart_reminders_enabled")
-        val SMART_REMINDER_SCHEDULE = stringPreferencesKey("smart_reminder_schedule")
-        val SMART_REMINDER_HOUR = intPreferencesKey("smart_reminder_hour")
-        val SMART_REMINDER_MINUTE = intPreferencesKey("smart_reminder_minute")
+        val SCHEDULES_MIGRATED_V2 = booleanPreferencesKey("schedules_migrated_v2")
+
+        // Legacy schedule keys for migration
+        val LEGACY_SMART_REMINDER_SCHEDULE = stringPreferencesKey("smart_reminder_schedule")
+        val LEGACY_SMART_REMINDER_HOUR = intPreferencesKey("smart_reminder_hour")
+        val LEGACY_SMART_REMINDER_MINUTE = intPreferencesKey("smart_reminder_minute")
+
+        // Morning & Evening
+        val MORNING_EVENING_ENABLED = booleanPreferencesKey("morning_evening_enabled")
+        val MORNING_HOUR = intPreferencesKey("morning_hour")
+        val MORNING_MINUTE = intPreferencesKey("morning_minute")
+        val EVENING_HOUR = intPreferencesKey("evening_hour")
+        val EVENING_MINUTE = intPreferencesKey("evening_minute")
+
+        // Weekend Roundup
+        val WEEKEND_ROUNDUP_ENABLED = booleanPreferencesKey("weekend_roundup_enabled")
+        val WEEKEND_ROUNDUP_HOUR = intPreferencesKey("weekend_roundup_hour")
+        val WEEKEND_ROUNDUP_MINUTE = intPreferencesKey("weekend_roundup_minute")
+
+        // Daily Digest
+        val DAILY_DIGEST_ENABLED = booleanPreferencesKey("daily_digest_enabled")
+        val DAILY_DIGEST_HOUR = intPreferencesKey("daily_digest_hour")
+        val DAILY_DIGEST_MINUTE = intPreferencesKey("daily_digest_minute")
+        val DAILY_DIGEST_WEEKDAYS_ONLY = booleanPreferencesKey("daily_digest_weekdays_only")
+
+        // Custom Schedule
+        val CUSTOM_SCHEDULE_ENABLED = booleanPreferencesKey("custom_schedule_enabled")
+        val CUSTOM_SCHEDULE_DAYS = stringSetPreferencesKey("custom_schedule_days")
+        val CUSTOM_SCHEDULE_HOUR = intPreferencesKey("custom_schedule_hour")
+        val CUSTOM_SCHEDULE_MINUTE = intPreferencesKey("custom_schedule_minute")
+
         val SMART_REMINDER_PERSISTENCE = stringPreferencesKey("smart_reminder_persistence")
-        val AI_ENGINE = stringPreferencesKey("ai_engine")
         val GEMINI_API_KEY = stringPreferencesKey("gemini_api_key")
+        val DELIVERED_SLOT_KEYS = stringSetPreferencesKey("delivered_slot_keys")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
         val themeModeStr = preferences[PreferencesKeys.THEME_MODE] ?: ThemeMode.SYSTEM.name
         val themeMode = try {
             ThemeMode.valueOf(themeModeStr)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             ThemeMode.SYSTEM
         }
 
@@ -111,46 +183,90 @@ class UserPreferencesRepository(private val context: Context) {
         val viewModeStr = preferences[PreferencesKeys.INBOX_VIEW_MODE] ?: InboxViewMode.HERO.name
         val inboxViewMode = try {
             InboxViewMode.valueOf(viewModeStr)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             InboxViewMode.HERO
         }
 
         val fontScaleStr = preferences[PreferencesKeys.FONT_SIZE_SCALE] ?: FontSizeScale.SYSTEM.name
         val fontSizeScale = try {
             FontSizeScale.valueOf(fontScaleStr)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             FontSizeScale.SYSTEM
         }
 
         val hasCompletedOnboarding = preferences[PreferencesKeys.HAS_COMPLETED_ONBOARDING] ?: false
         val userName = preferences[PreferencesKeys.USER_NAME] ?: ""
-
         val smartRemindersEnabled = preferences[PreferencesKeys.SMART_REMINDERS_ENABLED] ?: true
-        val scheduleStr = preferences[PreferencesKeys.SMART_REMINDER_SCHEDULE] ?: SmartReminderSchedule.DAILY_DIGEST.name
-        val smartReminderSchedule = try {
-            SmartReminderSchedule.valueOf(scheduleStr)
-        } catch (e: Exception) {
-            SmartReminderSchedule.DAILY_DIGEST
+
+        // Schedule migration logic
+        val isMigrated = preferences[PreferencesKeys.SCHEDULES_MIGRATED_V2] ?: false
+        val legacySchedule = preferences[PreferencesKeys.LEGACY_SMART_REMINDER_SCHEDULE]
+        val legacyHour = preferences[PreferencesKeys.LEGACY_SMART_REMINDER_HOUR] ?: 20
+        val legacyMinute = preferences[PreferencesKeys.LEGACY_SMART_REMINDER_MINUTE] ?: 0
+
+        val morningEveningEnabled: Boolean
+        val weekendRoundupEnabled: Boolean
+        val dailyDigestEnabled: Boolean
+        val dailyDigestHour: Int
+        val dailyDigestMinute: Int
+
+        if (!isMigrated && legacySchedule != null) {
+            when (legacySchedule) {
+                "TWICE_DAILY" -> {
+                    morningEveningEnabled = true
+                    weekendRoundupEnabled = false
+                    dailyDigestEnabled = false
+                    dailyDigestHour = legacyHour
+                    dailyDigestMinute = legacyMinute
+                }
+                "WEEKEND_ROUNDUP" -> {
+                    morningEveningEnabled = false
+                    weekendRoundupEnabled = true
+                    dailyDigestEnabled = false
+                    dailyDigestHour = legacyHour
+                    dailyDigestMinute = legacyMinute
+                }
+                else -> {
+                    morningEveningEnabled = false
+                    weekendRoundupEnabled = false
+                    dailyDigestEnabled = true
+                    dailyDigestHour = legacyHour
+                    dailyDigestMinute = legacyMinute
+                }
+            }
+        } else {
+            morningEveningEnabled = preferences[PreferencesKeys.MORNING_EVENING_ENABLED] ?: false
+            weekendRoundupEnabled = preferences[PreferencesKeys.WEEKEND_ROUNDUP_ENABLED] ?: false
+            dailyDigestEnabled = preferences[PreferencesKeys.DAILY_DIGEST_ENABLED] ?: true
+            dailyDigestHour = preferences[PreferencesKeys.DAILY_DIGEST_HOUR] ?: 20
+            dailyDigestMinute = preferences[PreferencesKeys.DAILY_DIGEST_MINUTE] ?: 0
         }
 
-        val smartReminderHour = preferences[PreferencesKeys.SMART_REMINDER_HOUR] ?: 20
-        val smartReminderMinute = preferences[PreferencesKeys.SMART_REMINDER_MINUTE] ?: 0
+        val morningHour = preferences[PreferencesKeys.MORNING_HOUR] ?: 9
+        val morningMinute = preferences[PreferencesKeys.MORNING_MINUTE] ?: 0
+        val eveningHour = preferences[PreferencesKeys.EVENING_HOUR] ?: 20
+        val eveningMinute = preferences[PreferencesKeys.EVENING_MINUTE] ?: 0
+
+        val weekendRoundupHour = preferences[PreferencesKeys.WEEKEND_ROUNDUP_HOUR] ?: 10
+        val weekendRoundupMinute = preferences[PreferencesKeys.WEEKEND_ROUNDUP_MINUTE] ?: 0
+
+        val dailyDigestWeekdaysOnly = preferences[PreferencesKeys.DAILY_DIGEST_WEEKDAYS_ONLY] ?: false
+
+        val customScheduleEnabled = preferences[PreferencesKeys.CUSTOM_SCHEDULE_ENABLED] ?: false
+        val customDaysRaw = preferences[PreferencesKeys.CUSTOM_SCHEDULE_DAYS] ?: setOf("1", "2", "3", "4", "5")
+        val customScheduleDays = customDaysRaw.mapNotNull { it.toIntOrNull() }.toSet()
+        val customScheduleHour = preferences[PreferencesKeys.CUSTOM_SCHEDULE_HOUR] ?: 12
+        val customScheduleMinute = preferences[PreferencesKeys.CUSTOM_SCHEDULE_MINUTE] ?: 0
 
         val persistenceStr = preferences[PreferencesKeys.SMART_REMINDER_PERSISTENCE] ?: SmartReminderPersistence.TWICE.name
         val smartReminderPersistence = try {
             SmartReminderPersistence.valueOf(persistenceStr)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             SmartReminderPersistence.TWICE
         }
 
-        val aiEngineStr = preferences[PreferencesKeys.AI_ENGINE] ?: AiEngine.CLOUD.name
-        val aiEngine = try {
-            AiEngine.valueOf(aiEngineStr)
-        } catch (e: Exception) {
-            AiEngine.CLOUD
-        }
-
         val geminiApiKey = preferences[PreferencesKeys.GEMINI_API_KEY] ?: ""
+        val deliveredSlotKeys = preferences[PreferencesKeys.DELIVERED_SLOT_KEYS] ?: emptySet()
 
         UserPreferences(
             themeMode = themeMode,
@@ -162,12 +278,25 @@ class UserPreferencesRepository(private val context: Context) {
             hasCompletedOnboarding = hasCompletedOnboarding,
             userName = userName,
             smartRemindersEnabled = smartRemindersEnabled,
-            smartReminderSchedule = smartReminderSchedule,
-            smartReminderHour = smartReminderHour,
-            smartReminderMinute = smartReminderMinute,
+            morningEveningEnabled = morningEveningEnabled,
+            morningHour = morningHour,
+            morningMinute = morningMinute,
+            eveningHour = eveningHour,
+            eveningMinute = eveningMinute,
+            weekendRoundupEnabled = weekendRoundupEnabled,
+            weekendRoundupHour = weekendRoundupHour,
+            weekendRoundupMinute = weekendRoundupMinute,
+            dailyDigestEnabled = dailyDigestEnabled,
+            dailyDigestHour = dailyDigestHour,
+            dailyDigestMinute = dailyDigestMinute,
+            dailyDigestWeekdaysOnly = dailyDigestWeekdaysOnly,
+            customScheduleEnabled = customScheduleEnabled,
+            customScheduleDays = customScheduleDays,
+            customScheduleHour = customScheduleHour,
+            customScheduleMinute = customScheduleMinute,
             smartReminderPersistence = smartReminderPersistence,
-            aiEngine = aiEngine,
-            geminiApiKey = geminiApiKey
+            geminiApiKey = geminiApiKey,
+            deliveredSlotKeys = deliveredSlotKeys
         )
     }
 
@@ -239,16 +368,78 @@ class UserPreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun setSmartReminderSchedule(schedule: SmartReminderSchedule) {
+    suspend fun setMorningEveningEnabled(enabled: Boolean) {
         context.userDataStore.edit { preferences ->
-            preferences[PreferencesKeys.SMART_REMINDER_SCHEDULE] = schedule.name
+            preferences[PreferencesKeys.MORNING_EVENING_ENABLED] = enabled
+            preferences[PreferencesKeys.SCHEDULES_MIGRATED_V2] = true
         }
     }
 
-    suspend fun setSmartReminderTime(hour: Int, minute: Int) {
+    suspend fun setMorningTime(hour: Int, minute: Int) {
         context.userDataStore.edit { preferences ->
-            preferences[PreferencesKeys.SMART_REMINDER_HOUR] = hour
-            preferences[PreferencesKeys.SMART_REMINDER_MINUTE] = minute
+            preferences[PreferencesKeys.MORNING_HOUR] = hour
+            preferences[PreferencesKeys.MORNING_MINUTE] = minute
+        }
+    }
+
+    suspend fun setEveningTime(hour: Int, minute: Int) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.EVENING_HOUR] = hour
+            preferences[PreferencesKeys.EVENING_MINUTE] = minute
+        }
+    }
+
+    suspend fun setWeekendRoundupEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.WEEKEND_ROUNDUP_ENABLED] = enabled
+            preferences[PreferencesKeys.SCHEDULES_MIGRATED_V2] = true
+        }
+    }
+
+    suspend fun setWeekendRoundupTime(hour: Int, minute: Int) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.WEEKEND_ROUNDUP_HOUR] = hour
+            preferences[PreferencesKeys.WEEKEND_ROUNDUP_MINUTE] = minute
+        }
+    }
+
+    suspend fun setDailyDigestEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.DAILY_DIGEST_ENABLED] = enabled
+            preferences[PreferencesKeys.SCHEDULES_MIGRATED_V2] = true
+        }
+    }
+
+    suspend fun setDailyDigestTime(hour: Int, minute: Int) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.DAILY_DIGEST_HOUR] = hour
+            preferences[PreferencesKeys.DAILY_DIGEST_MINUTE] = minute
+        }
+    }
+
+    suspend fun setDailyDigestWeekdaysOnly(weekdaysOnly: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.DAILY_DIGEST_WEEKDAYS_ONLY] = weekdaysOnly
+        }
+    }
+
+    suspend fun setCustomScheduleEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.CUSTOM_SCHEDULE_ENABLED] = enabled
+            preferences[PreferencesKeys.SCHEDULES_MIGRATED_V2] = true
+        }
+    }
+
+    suspend fun setCustomScheduleDays(days: Set<Int>) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.CUSTOM_SCHEDULE_DAYS] = days.map { it.toString() }.toSet()
+        }
+    }
+
+    suspend fun setCustomScheduleTime(hour: Int, minute: Int) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.CUSTOM_SCHEDULE_HOUR] = hour
+            preferences[PreferencesKeys.CUSTOM_SCHEDULE_MINUTE] = minute
         }
     }
 
@@ -258,15 +449,18 @@ class UserPreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun setAiEngine(engine: AiEngine) {
-        context.userDataStore.edit { preferences ->
-            preferences[PreferencesKeys.AI_ENGINE] = engine.name
-        }
-    }
-
     suspend fun setGeminiApiKey(apiKey: String) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.GEMINI_API_KEY] = apiKey.trim()
+        }
+    }
+
+    suspend fun recordDeliveredSlot(slotKey: String) {
+        context.userDataStore.edit { preferences ->
+            val current = preferences[PreferencesKeys.DELIVERED_SLOT_KEYS] ?: emptySet()
+            // Keep at most 60 recent slot keys to prevent unbounded growth
+            val updated = (current + slotKey).takeLast(60).toSet()
+            preferences[PreferencesKeys.DELIVERED_SLOT_KEYS] = updated
         }
     }
 }

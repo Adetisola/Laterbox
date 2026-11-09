@@ -2,10 +2,13 @@ package com.laterbox.app.ui.sheets
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laterbox.app.data.metadata.JsoupMetadataExtractor
 import com.laterbox.app.data.repository.CollectionRepository
 import com.laterbox.app.data.repository.LinkRepository
 import com.laterbox.app.domain.model.Collection
 import com.laterbox.app.domain.model.SavedLink
+import com.laterbox.app.domain.util.UrlValidator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +17,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+
+enum class MetadataPreviewStatus {
+    IDLE,
+    LOADING,
+    READY,
+    FAILED
+}
 
 data class SaveLinkUiState(
     val url: String = "",
@@ -26,6 +38,8 @@ data class SaveLinkUiState(
     val isSaving: Boolean = false,
     val isSavedSuccess: Boolean = false,
     val reminderAt: Long? = null,
+    val metadataStatus: MetadataPreviewStatus = MetadataPreviewStatus.IDLE,
+    val previewImageUrl: String? = null,
     val maxNoteLength: Int = 500,
     val maxTitleLength: Int = 200
 ) {
@@ -33,7 +47,7 @@ data class SaveLinkUiState(
         get() = selectedCollectionIds.firstOrNull()
 
     val canSave: Boolean
-        get() = !isSaving
+        get() = !isSaving && !isSavedSuccess
 }
 
 class SaveLinkViewModel(
@@ -50,32 +64,51 @@ class SaveLinkViewModel(
     private val _isSaving = MutableStateFlow(false)
     private val _isSavedSuccess = MutableStateFlow(false)
     private val _reminderAt = MutableStateFlow<Long?>(null)
+    private val _metadataStatus = MutableStateFlow(MetadataPreviewStatus.IDLE)
+    private val _previewImageUrl = MutableStateFlow<String?>(null)
 
     private var duplicateCheckJob: Job? = null
+    private var metadataFetchJob: Job? = null
 
     val uiState: StateFlow<SaveLinkUiState> = combine(
-        _url,
-        _urlError,
-        _title,
-        _personalNote,
-        _selectedCollectionIds,
-        _duplicateLink,
-        _isSaving,
-        _isSavedSuccess,
-        _reminderAt,
-        collectionRepository.collections
-    ) { params ->
+        combine(
+            _url,
+            _urlError,
+            _title,
+            _personalNote,
+            _selectedCollectionIds
+        ) { p1, p2, p3, p4, p5 ->
+            Tuple5(p1, p2, p3, p4, p5)
+        },
+        combine(
+            _duplicateLink,
+            _isSaving,
+            _isSavedSuccess,
+            _reminderAt,
+            _metadataStatus
+        ) { p6, p7, p8, p9, p10 ->
+            Tuple5(p6, p7, p8, p9, p10)
+        },
+        combine(
+            _previewImageUrl,
+            collectionRepository.collections
+        ) { p11, p12 ->
+            Pair(p11, p12)
+        }
+    ) { group1, group2, group3 ->
         SaveLinkUiState(
-            url = params[0] as String,
-            urlError = params[1] as String?,
-            title = params[2] as String,
-            personalNote = params[3] as String,
-            selectedCollectionIds = params[4] as Set<Long>,
-            duplicateLink = params[5] as SavedLink?,
-            isSaving = params[6] as Boolean,
-            isSavedSuccess = params[7] as Boolean,
-            reminderAt = params[8] as Long?,
-            collections = (params[9] as List<*>).filterIsInstance<Collection>()
+            url = group1.a,
+            urlError = group1.b,
+            title = group1.c,
+            personalNote = group1.d,
+            selectedCollectionIds = group1.e,
+            duplicateLink = group2.a,
+            isSaving = group2.b,
+            isSavedSuccess = group2.c,
+            reminderAt = group2.d,
+            metadataStatus = group2.e,
+            previewImageUrl = group3.first,
+            collections = group3.second
         )
     }.stateIn(
         scope = viewModelScope,
@@ -83,12 +116,31 @@ class SaveLinkViewModel(
         initialValue = SaveLinkUiState()
     )
 
+    fun prefill(url: String, title: String? = null, note: String? = null) {
+        val normalized = UrlValidator.normalize(url)
+        _url.value = normalized
+        _urlError.value = null
+        if (!title.isNullOrBlank()) {
+            _title.value = title.take(200)
+        }
+        if (!note.isNullOrBlank()) {
+            _personalNote.value = note.take(500)
+        }
+        checkDuplicate(normalized)
+        if (title.isNullOrBlank()) {
+            fetchMetadataPreview(normalized)
+        }
+    }
+
     fun onUrlChange(newUrl: String) {
         _url.value = newUrl
         if (_urlError.value != null) {
             _urlError.value = null
         }
         checkDuplicate(newUrl)
+        if (_title.value.isBlank() && UrlValidator.isValidUrl(newUrl)) {
+            fetchMetadataPreview(newUrl)
+        }
     }
 
     fun onTitleChange(newTitle: String) {
@@ -126,6 +178,10 @@ class SaveLinkViewModel(
         }
     }
 
+    fun onReminderAtChange(reminderAt: Long?) {
+        _reminderAt.value = reminderAt
+    }
+
     private fun checkDuplicate(rawUrl: String) {
         duplicateCheckJob?.cancel()
         val trimmed = rawUrl.trim()
@@ -136,39 +192,64 @@ class SaveLinkViewModel(
 
         duplicateCheckJob = viewModelScope.launch {
             delay(250) // Debounce
-            val formatted = if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-                "https://$trimmed"
-            } else {
-                trimmed
-            }
+            val formatted = UrlValidator.normalize(trimmed)
             val existing = linkRepository.findDuplicate(formatted)
             _duplicateLink.value = existing
+            if (existing != null) {
+                if (_title.value.isBlank()) {
+                    _title.value = existing.title
+                }
+                if (_personalNote.value.isBlank() && !existing.personalNote.isNullOrBlank()) {
+                    _personalNote.value = existing.personalNote
+                }
+            }
         }
     }
 
-    fun onReminderAtChange(reminderAt: Long?) {
-        _reminderAt.value = reminderAt
+    private fun fetchMetadataPreview(rawUrl: String) {
+        metadataFetchJob?.cancel()
+        val normalized = UrlValidator.normalize(rawUrl)
+        if (!UrlValidator.isValidUrl(normalized)) return
+
+        metadataFetchJob = viewModelScope.launch {
+            _metadataStatus.value = MetadataPreviewStatus.LOADING
+            try {
+                val meta = withTimeoutOrNull(4000) {
+                    withContext(Dispatchers.IO) {
+                        JsoupMetadataExtractor.extract(normalized)
+                    }
+                }
+                if (meta != null && !meta.title.isNullOrBlank()) {
+                    if (_title.value.isBlank()) {
+                        _title.value = meta.title.take(200)
+                    }
+                    _previewImageUrl.value = meta.imageUrl
+                    _metadataStatus.value = MetadataPreviewStatus.READY
+                } else {
+                    _metadataStatus.value = MetadataPreviewStatus.FAILED
+                }
+            } catch (_: Exception) {
+                _metadataStatus.value = MetadataPreviewStatus.FAILED
+            }
+        }
     }
 
     fun onSave(onSuccess: () -> Unit) {
+        if (_isSaving.value || _isSavedSuccess.value) return
+
         val rawUrl = _url.value.trim()
         if (rawUrl.isBlank()) {
             _urlError.value = "Please enter a website address"
             return
         }
 
-        if (!rawUrl.contains(".") && !rawUrl.startsWith("http://", ignoreCase = true) && !rawUrl.startsWith("https://", ignoreCase = true)) {
+        if (!UrlValidator.isValidUrl(rawUrl)) {
             _urlError.value = "Please enter a valid website address"
             return
         }
 
         _urlError.value = null
-
-        val finalUrl = if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-            "https://$rawUrl"
-        } else {
-            rawUrl
-        }
+        val finalUrl = UrlValidator.normalize(rawUrl)
 
         viewModelScope.launch {
             _isSaving.value = true
@@ -219,6 +300,15 @@ class SaveLinkViewModel(
         _reminderAt.value = null
         _isSaving.value = false
         _isSavedSuccess.value = false
+        _metadataStatus.value = MetadataPreviewStatus.IDLE
+        _previewImageUrl.value = null
     }
-}
 
+    private data class Tuple5<A, B, C, D, E>(
+        val a: A,
+        val b: B,
+        val c: C,
+        val d: D,
+        val e: E
+    )
+}

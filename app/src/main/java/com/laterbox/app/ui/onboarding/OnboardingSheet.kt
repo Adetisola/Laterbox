@@ -1,5 +1,10 @@
 package com.laterbox.app.ui.onboarding
 
+import android.app.StatusBarManager
+import android.content.ComponentName
+import android.graphics.drawable.Icon as AndroidIcon
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,9 +39,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.laterbox.app.R
+import com.laterbox.app.quicksave.QuickSaveTileService
+import com.laterbox.app.ui.components.LaterboxSecondaryButton
 import com.laterbox.app.ui.theme.LaterboxTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,25 +76,18 @@ fun OnboardingSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (currentStep == 1) LaterboxTheme.colors.accentPrimary
-                                else LaterboxTheme.colors.borderSubtle
-                            )
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (currentStep == 2) LaterboxTheme.colors.accentPrimary
-                                else LaterboxTheme.colors.borderSubtle
-                            )
-                    )
+                    (1..3).forEach { stepIndex ->
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (currentStep == stepIndex) LaterboxTheme.colors.accentPrimary
+                                    else LaterboxTheme.colors.borderSubtle
+                                )
+                        )
+                        if (stepIndex < 3) Spacer(modifier = Modifier.width(6.dp))
+                    }
                 }
 
                 TextButton(onClick = onDismiss) {
@@ -105,10 +107,10 @@ fun OnboardingSheet(
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "onboarding_step"
             ) { step ->
-                if (step == 1) {
-                    StepOneContent()
-                } else {
-                    StepTwoContent()
+                when (step) {
+                    1 -> StepOneContent()
+                    2 -> StepTwoContent()
+                    else -> StepThreeContent()
                 }
             }
 
@@ -117,8 +119,8 @@ fun OnboardingSheet(
             // Action Button
             Button(
                 onClick = {
-                    if (currentStep == 1) {
-                        currentStep = 2
+                    if (currentStep < 3) {
+                        currentStep += 1
                     } else {
                         onDismiss()
                     }
@@ -133,7 +135,11 @@ fun OnboardingSheet(
                 )
             ) {
                 Text(
-                    text = if (currentStep == 1) "Next: Quiet Library →" else "Enter Laterbox",
+                    text = when (currentStep) {
+                        1 -> "Next: Privacy & Offline →"
+                        2 -> "Next: Quick Capture Tile →"
+                        else -> "Enter Laterbox"
+                    },
                     style = LaterboxTheme.typography.uiMedium.copy(fontWeight = FontWeight.Medium)
                 )
             }
@@ -147,7 +153,7 @@ fun OnboardingSheet(
 private fun StepOneContent() {
     Column {
         Text(
-            text = "STEP 1 OF 2 — THE SHARE SHEET",
+            text = "STEP 1 OF 3 — THE SHARE SHEET",
             style = LaterboxTheme.typography.metadataMono,
             color = LaterboxTheme.colors.accentPrimary,
             letterSpacing = 1.sp
@@ -160,13 +166,12 @@ private fun StepOneContent() {
         )
         Spacer(modifier = Modifier.height(LaterboxTheme.spacing.s))
         Text(
-            text = "When you discover an article in Chrome, a video on YouTube, or a discussion on Reddit, simply tap Android's Share icon and select Laterbox. A quiet sheet saves it and returns you seamlessly to your task.",
+            text = "When you discover an article in Chrome, a video on YouTube, or a discussion on Reddit, tap Android's Share icon and select Laterbox. A quiet sheet saves it and returns you seamlessly to your task.",
             style = LaterboxTheme.typography.bodyPrimary,
             color = LaterboxTheme.colors.textSecondary
         )
         Spacer(modifier = Modifier.height(LaterboxTheme.spacing.m))
 
-        // Visual diagram card
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -193,7 +198,7 @@ private fun StepOneContent() {
 private fun StepTwoContent() {
     Column {
         Text(
-            text = "STEP 2 OF 2 — LOCAL-FIRST & PRIVATE",
+            text = "STEP 2 OF 3 — LOCAL-FIRST & PRIVATE",
             style = LaterboxTheme.typography.metadataMono,
             color = LaterboxTheme.colors.accentPrimary,
             letterSpacing = 1.sp
@@ -212,7 +217,6 @@ private fun StepTwoContent() {
         )
         Spacer(modifier = Modifier.height(LaterboxTheme.spacing.m))
 
-        // Visual diagram card
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -231,6 +235,74 @@ private fun StepTwoContent() {
                 style = LaterboxTheme.typography.metadataMono,
                 color = LaterboxTheme.colors.textPrimary
             )
+        }
+    }
+}
+
+@Composable
+private fun StepThreeContent() {
+    val context = LocalContext.current
+    Column {
+        Text(
+            text = "STEP 3 OF 3 — QUICK SETTINGS TILE",
+            style = LaterboxTheme.typography.metadataMono,
+            color = LaterboxTheme.colors.accentPrimary,
+            letterSpacing = 1.sp
+        )
+        Spacer(modifier = Modifier.height(LaterboxTheme.spacing.xs))
+        Text(
+            text = "Save copied links with a single tap.",
+            style = LaterboxTheme.typography.editorialDisplay.copy(fontSize = 24.sp, lineHeight = 30.sp),
+            color = LaterboxTheme.colors.textPrimary
+        )
+        Spacer(modifier = Modifier.height(LaterboxTheme.spacing.s))
+        Text(
+            text = "Copy any webpage link, swipe down Android Quick Settings, and tap 'Save to Laterbox'. Laterbox reads your copied URL safely once in the foreground and opens a compact quick-save preview.",
+            style = LaterboxTheme.typography.bodyPrimary,
+            color = LaterboxTheme.colors.textSecondary
+        )
+        Spacer(modifier = Modifier.height(LaterboxTheme.spacing.m))
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            LaterboxSecondaryButton(
+                text = "Add 'Save to Laterbox' Tile",
+                onClick = {
+                    val statusBarManager = context.getSystemService(StatusBarManager::class.java)
+                    val componentName = ComponentName(context, QuickSaveTileService::class.java)
+                    statusBarManager?.requestAddTileService(
+                        componentName,
+                        context.getString(R.string.save_to_laterbox),
+                        AndroidIcon.createWithResource(context, R.drawable.ic_tile_save),
+                        { it.run() },
+                        { result ->
+                            if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                                Toast.makeText(context, "Tile added to Quick Settings!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(LaterboxTheme.spacing.cardRadius))
+                    .background(LaterboxTheme.colors.surfaceSecondary)
+                    .border(
+                        width = LaterboxTheme.spacing.hairline,
+                        color = LaterboxTheme.colors.borderSubtle,
+                        shape = RoundedCornerShape(LaterboxTheme.spacing.cardRadius)
+                    )
+                    .padding(LaterboxTheme.spacing.m),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Pull down Quick Settings  →  Edit (Pencil)  →  Drag 'Save to Laterbox'",
+                    style = LaterboxTheme.typography.metadataMono,
+                    color = LaterboxTheme.colors.textPrimary
+                )
+            }
         }
     }
 }

@@ -23,6 +23,14 @@ object LaterboxSpacing {
     // Card border hairline width
     val hairline: Dp = 1.dp
 
+    // Component dimensions
+    val iconSmall: Dp = 16.dp
+    val iconMedium: Dp = 20.dp
+    val iconLarge: Dp = 24.dp
+    val chipHeight: Dp = 34.dp
+    val dragHandleWidth: Dp = 36.dp
+    val dragHandleHeight: Dp = 4.dp
+
     // Radii
     val cardRadius: Dp = 10.dp
     val thumbnailRadius: Dp = 6.dp

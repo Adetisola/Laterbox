@@ -1,16 +1,28 @@
 package com.laterbox.app.ui.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laterbox.app.ai.AiCopyResult
+import com.laterbox.app.ai.ReminderOrigin
+import com.laterbox.app.ai.SmartDigestEngine
 import com.laterbox.app.data.backup.BackupManager
 import com.laterbox.app.data.backup.BackupRestoreResult
+import com.laterbox.app.data.preferences.FontSizeScale
+import com.laterbox.app.data.preferences.SmartReminderPersistence
 import com.laterbox.app.data.preferences.ThemeMode
 import com.laterbox.app.data.preferences.UserPreferences
 import com.laterbox.app.data.preferences.UserPreferencesRepository
+import com.laterbox.app.data.repository.LinkRepository
+import com.laterbox.app.domain.model.ContentType
+import com.laterbox.app.domain.model.SavedLink
+import com.laterbox.app.reminders.NotificationHelper
+import com.laterbox.app.reminders.smart.SmartReminderCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.InputStream
@@ -19,8 +31,8 @@ import java.io.OutputStream
 class SettingsViewModel(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val backupManager: BackupManager,
-    private val linkRepository: com.laterbox.app.data.repository.LinkRepository? = null,
-    private val appContext: android.content.Context? = null
+    private val linkRepository: LinkRepository? = null,
+    private val appContext: Context? = null
 ) : ViewModel() {
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.userPreferences.stateIn(
@@ -38,7 +50,7 @@ class SettingsViewModel(
         }
     }
 
-    fun setFontSizeScale(scale: com.laterbox.app.data.preferences.FontSizeScale) {
+    fun setFontSizeScale(scale: FontSizeScale) {
         viewModelScope.launch {
             userPreferencesRepository.setFontSizeScale(scale)
         }
@@ -62,85 +74,100 @@ class SettingsViewModel(
         }
     }
 
+    private suspend fun syncReminders() {
+        appContext?.let { ctx ->
+            val p = userPreferencesRepository.userPreferencesFlow.first()
+            SmartReminderCoordinator.sync(ctx, p.toSmartReminderSettings())
+        }
+    }
+
     fun setSmartRemindersEnabled(enabled: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setSmartRemindersEnabled(enabled)
-            appContext?.let { ctx ->
-                val scheduler = com.laterbox.app.reminders.ReminderScheduler(ctx)
-                if (enabled) {
-                    val p = preferences.value
-                    scheduler.scheduleSmartDigest(
-                        targetHour = p.smartReminderHour,
-                        targetMinute = p.smartReminderMinute,
-                        schedule = p.smartReminderSchedule
-                    )
-                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
-                        context = ctx,
-                        schedule = p.smartReminderSchedule,
-                        targetHour = p.smartReminderHour,
-                        targetMinute = p.smartReminderMinute
-                    )
-                } else {
-                    scheduler.cancelSmartDigest()
-                    com.laterbox.app.ai.DailyDigestWorker.cancelPeriodic(ctx)
-                }
-            }
+            syncReminders()
         }
     }
 
-    fun setSmartReminderSchedule(schedule: com.laterbox.app.data.preferences.SmartReminderSchedule) {
+    fun setMorningEveningEnabled(enabled: Boolean) {
         viewModelScope.launch {
-            userPreferencesRepository.setSmartReminderSchedule(schedule)
-            appContext?.let { ctx ->
-                if (preferences.value.smartRemindersEnabled) {
-                    val p = preferences.value
-                    com.laterbox.app.reminders.ReminderScheduler(ctx).scheduleSmartDigest(
-                        targetHour = p.smartReminderHour,
-                        targetMinute = p.smartReminderMinute,
-                        schedule = schedule
-                    )
-                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
-                        context = ctx,
-                        schedule = schedule,
-                        targetHour = p.smartReminderHour,
-                        targetMinute = p.smartReminderMinute
-                    )
-                }
-            }
+            userPreferencesRepository.setMorningEveningEnabled(enabled)
+            syncReminders()
         }
     }
 
-    fun setSmartReminderTime(hour: Int, minute: Int) {
+    fun setMorningTime(hour: Int, minute: Int) {
         viewModelScope.launch {
-            userPreferencesRepository.setSmartReminderTime(hour, minute)
-            appContext?.let { ctx ->
-                if (preferences.value.smartRemindersEnabled) {
-                    val p = preferences.value
-                    com.laterbox.app.reminders.ReminderScheduler(ctx).scheduleSmartDigest(
-                        targetHour = hour,
-                        targetMinute = minute,
-                        schedule = p.smartReminderSchedule
-                    )
-                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
-                        context = ctx,
-                        schedule = p.smartReminderSchedule,
-                        targetHour = hour,
-                        targetMinute = minute
-                    )
-                }
-            }
+            userPreferencesRepository.setMorningTime(hour, minute)
+            syncReminders()
         }
     }
 
-    fun setSmartReminderPersistence(persistence: com.laterbox.app.data.preferences.SmartReminderPersistence) {
+    fun setEveningTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.setEveningTime(hour, minute)
+            syncReminders()
+        }
+    }
+
+    fun setWeekendRoundupEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setWeekendRoundupEnabled(enabled)
+            syncReminders()
+        }
+    }
+
+    fun setWeekendRoundupTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.setWeekendRoundupTime(hour, minute)
+            syncReminders()
+        }
+    }
+
+    fun setDailyDigestEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDailyDigestEnabled(enabled)
+            syncReminders()
+        }
+    }
+
+    fun setDailyDigestTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDailyDigestTime(hour, minute)
+            syncReminders()
+        }
+    }
+
+    fun setDailyDigestWeekdaysOnly(weekdaysOnly: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setDailyDigestWeekdaysOnly(weekdaysOnly)
+            syncReminders()
+        }
+    }
+
+    fun setCustomScheduleEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setCustomScheduleEnabled(enabled)
+            syncReminders()
+        }
+    }
+
+    fun setCustomScheduleDays(days: Set<Int>) {
+        viewModelScope.launch {
+            userPreferencesRepository.setCustomScheduleDays(days)
+            syncReminders()
+        }
+    }
+
+    fun setCustomScheduleTime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.setCustomScheduleTime(hour, minute)
+            syncReminders()
+        }
+    }
+
+    fun setSmartReminderPersistence(persistence: SmartReminderPersistence) {
         viewModelScope.launch {
             userPreferencesRepository.setSmartReminderPersistence(persistence)
-        }
-    }
-
-    fun setAiEngine(engine: com.laterbox.app.data.preferences.AiEngine) {
-        viewModelScope.launch {
-            userPreferencesRepository.setAiEngine(engine)
         }
     }
 
@@ -155,7 +182,7 @@ class SettingsViewModel(
         viewModelScope.launch {
             _aiConnectionStatus.value = Pair(false, "Testing connection...")
             val currentKey = preferences.value.geminiApiKey
-            val result = com.laterbox.app.ai.SmartDigestEngine.testGeminiApi(currentKey)
+            val result = SmartDigestEngine.testGeminiApi(currentKey)
             _aiConnectionStatus.value = result
         }
     }
@@ -164,32 +191,40 @@ class SettingsViewModel(
         val ctx = appContext ?: return false
         val currentPrefs = preferences.value
         val targetLink = linkRepository?.getSmartDigestCandidate()
-            ?: com.laterbox.app.domain.model.SavedLink(
+            ?: SavedLink(
                 id = 999_999L,
                 originalUrl = "https://instagram.com/p/sample",
                 normalizedUrl = "https://instagram.com/p/sample",
                 title = "Design systems and typography in practice",
                 domain = "instagram.com",
                 siteName = "Instagram",
-                contentType = com.laterbox.app.domain.model.ContentType.VIDEO,
+                contentType = ContentType.VIDEO,
                 createdAt = System.currentTimeMillis() - (3 * 24 * 60 * 60 * 1000L)
             )
 
-        val copy = com.laterbox.app.ai.SmartDigestEngine.generateDigestCopy(
+        val result = SmartDigestEngine.generateDigestCopy(
             link = targetLink,
             userName = currentPrefs.userName.ifBlank { null },
-            origin = com.laterbox.app.ai.ReminderOrigin.SMART_DIGEST,
-            engine = currentPrefs.aiEngine,
+            origin = ReminderOrigin.SMART_DIGEST,
             customApiKey = currentPrefs.geminiApiKey.ifBlank { null }
         )
 
-        return com.laterbox.app.reminders.NotificationHelper.showReminderNotification(
-            context = ctx,
-            link = targetLink,
-            userName = currentPrefs.userName.ifBlank { null },
-            origin = com.laterbox.app.ai.ReminderOrigin.SMART_DIGEST,
-            copy = copy
-        )
+        return when (result) {
+            is AiCopyResult.Success -> {
+                NotificationHelper.showReminderNotification(
+                    context = ctx,
+                    link = targetLink,
+                    userName = currentPrefs.userName.ifBlank { null },
+                    origin = ReminderOrigin.SMART_DIGEST,
+                    copy = result.copy
+                )
+                true
+            }
+            is AiCopyResult.Failure -> {
+                _aiConnectionStatus.value = Pair(false, "Test digest failed: ${result.reason.userMessage}")
+                false
+            }
+        }
     }
 
     suspend fun exportBackup(outputStream: OutputStream): Result<Int> {

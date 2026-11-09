@@ -12,6 +12,7 @@ import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderF
 import com.laterbox.app.data.metadata.MetadataSyncWorker
 import com.laterbox.app.di.AppContainer
 import com.laterbox.app.di.DefaultAppContainer
+import com.laterbox.app.reminders.smart.SmartReminderCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -73,19 +74,10 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
                 MetadataSyncWorker.enqueue(this@LaterboxApplication)
 
                 val prefs = container.userPreferencesRepository.userPreferencesFlow.first()
-                if (prefs.smartRemindersEnabled) {
-                    com.laterbox.app.reminders.ReminderScheduler(this@LaterboxApplication).scheduleSmartDigest(
-                        targetHour = prefs.smartReminderHour,
-                        targetMinute = prefs.smartReminderMinute,
-                        schedule = prefs.smartReminderSchedule
-                    )
-                    com.laterbox.app.ai.DailyDigestWorker.enqueuePeriodic(
-                        context = this@LaterboxApplication,
-                        schedule = prefs.smartReminderSchedule,
-                        targetHour = prefs.smartReminderHour,
-                        targetMinute = prefs.smartReminderMinute
-                    )
-                }
+                SmartReminderCoordinator.sync(
+                    context = this@LaterboxApplication,
+                    settings = prefs.toSmartReminderSettings()
+                )
             } catch (e: Exception) {
                 // Safeguard against test environments
             }

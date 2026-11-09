@@ -237,4 +237,20 @@ class SaveLinkViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun saveLinkViewModel_prefillPopulatesFields() = runTest(testDispatcher) {
+        val viewModel = SaveLinkViewModel(linkRepository, collectionRepository)
+        viewModel.prefill("https://example.com/prefill-test", "Custom Title", "Custom Note")
+
+        viewModel.uiState.test {
+            runCurrent()
+            val state = awaitItem()
+            assertEquals("https://example.com/prefill-test", state.url)
+            assertEquals("Custom Title", state.title)
+            assertEquals("Custom Note", state.personalNote)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
 }
+

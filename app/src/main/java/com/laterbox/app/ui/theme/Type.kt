@@ -42,7 +42,11 @@ data class LaterboxTypography(
     val metadataMono: TextStyle,
     val displayLarge: TextStyle = editorialDisplay,
     val titleSmall: TextStyle = cardTitle,
+    val sheetTitle: TextStyle = editorialTitle.copy(fontSize = 20.sp, lineHeight = 26.sp),
     val bodySecondary: TextStyle = bodyPrimary.copy(fontSize = 13.sp, lineHeight = 18.sp),
+    val fieldLabel: TextStyle = uiLabel.copy(fontSize = 12.sp, lineHeight = 16.sp),
+    val caption: TextStyle = metadataMono.copy(fontSize = 10.sp, lineHeight = 14.sp),
+    val buttonLabel: TextStyle = uiLabel.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
     val uiMedium: TextStyle = uiLabel,
     val metaText: TextStyle = metadataMono,
     val codeText: TextStyle = metadataMono
@@ -127,7 +131,11 @@ fun LaterboxTypography.scaled(scaleFactor: Float): LaterboxTypography {
         metadataMono = metadataMono.scale(),
         displayLarge = displayLarge.scale(),
         titleSmall = titleSmall.scale(),
+        sheetTitle = sheetTitle.scale(),
         bodySecondary = bodySecondary.scale(),
+        fieldLabel = fieldLabel.scale(),
+        caption = caption.scale(),
+        buttonLabel = buttonLabel.scale(),
         uiMedium = uiMedium.scale(),
         metaText = metaText.scale(),
         codeText = codeText.scale()

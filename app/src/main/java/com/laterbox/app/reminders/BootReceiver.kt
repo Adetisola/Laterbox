@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.laterbox.app.LaterboxApplication
+import com.laterbox.app.reminders.smart.SmartReminderCoordinator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -13,7 +15,12 @@ import kotlinx.coroutines.launch
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) {
+        val action = intent.action
+        if (action != Intent.ACTION_BOOT_COMPLETED &&
+            action != Intent.ACTION_MY_PACKAGE_REPLACED &&
+            action != Intent.ACTION_TIMEZONE_CHANGED &&
+            action != Intent.ACTION_TIME_SET
+        ) {
             return
         }
 
@@ -25,27 +32,26 @@ class BootReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val scheduledLinks = linkRepository.getScheduledReminders()
+                val now = System.currentTimeMillis()
                 for (link in scheduledLinks) {
                     link.reminderAt?.let { triggerAt ->
-                        reminderScheduler.scheduleReminder(
-                            linkId = link.id,
-                            triggerAtMillis = triggerAt,
-                            title = link.title,
-                            url = link.originalUrl
-                        )
+                        if (triggerAt > now) {
+                            reminderScheduler.scheduleReminder(
+                                linkId = link.id,
+                                triggerAtMillis = triggerAt,
+                                title = link.title,
+                                url = link.originalUrl
+                            )
+                        }
                     }
                 }
                 val prefs = appContainer.userPreferencesRepository.userPreferencesFlow.first()
-                if (prefs.smartRemindersEnabled) {
-                    reminderScheduler.scheduleSmartDigest(
-                        targetHour = prefs.smartReminderHour,
-                        targetMinute = prefs.smartReminderMinute,
-                        schedule = prefs.smartReminderSchedule
-                    )
-                }
-                Log.d(TAG, "Rescheduled ${scheduledLinks.size} reminders and smart digest after boot")
+                SmartReminderCoordinator.sync(context, prefs.toSmartReminderSettings())
+                Log.d(TAG, "Rescheduled reminders and synced smart reminders on $action")
+            } catch (ce: CancellationException) {
+                throw ce
             } catch (e: Exception) {
-                Log.e(TAG, "Error rescheduling reminders on boot", e)
+                Log.e(TAG, "Error rescheduling reminders on action $action", e)
             } finally {
                 pendingResult.finish()
             }

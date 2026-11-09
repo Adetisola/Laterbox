@@ -8,37 +8,11 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.concurrent.TimeUnit
 
 class SmartDigestTest {
 
     @Test
-    fun contextAwareCopyGenerator_withInstagramLinkAndUserName() {
-        val threeDaysAgo = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(3)
-        val link = SavedLink(
-            id = 1L,
-            originalUrl = "https://www.instagram.com/reel/C12345678",
-            normalizedUrl = "https://instagram.com/reel/C12345678",
-            title = "Incredible street food in Kyoto",
-            domain = "instagram.com",
-            siteName = "Instagram",
-            contentType = ContentType.VIDEO,
-            createdAt = threeDaysAgo
-        )
-
-        val copy = ContextAwareCopyGenerator.generateCopy(
-            link = link,
-            userName = "Alex",
-            now = System.currentTimeMillis()
-        )
-
-        assertEquals("Watch when you have a moment", copy.title)
-        assertTrue(copy.body.contains("Hey Alex, seems like you haven't checked the Instagram post you saved 3 days ago"))
-        assertFalse(copy.isAiGenerated)
-    }
-
-    @Test
-    fun contextAwareCopyGenerator_withPersonalNotePrioritizesNote() {
+    fun plainReminderCopy_forManualLink_prioritizesPersonalNote() {
         val link = SavedLink(
             id = 2L,
             originalUrl = "https://example.com/guide",
@@ -49,13 +23,30 @@ class SmartDigestTest {
             contentType = ContentType.ARTICLE
         )
 
-        val copy = ContextAwareCopyGenerator.generateCopy(
-            link = link,
-            userName = "Timi"
+        val copy = PlainReminderCopy.forManual(link)
+
+        assertEquals("Modern Kotlin Coroutines in Depth", copy.title)
+        assertEquals("Study chapter 4 before Monday team review", copy.body)
+        assertFalse(copy.isAiGenerated)
+        assertEquals(ReminderOrigin.MANUAL, copy.origin)
+    }
+
+    @Test
+    fun plainReminderCopy_withBlankTitle_usesDomain() {
+        val link = SavedLink(
+            id = 3L,
+            originalUrl = "https://kotlinlang.org",
+            normalizedUrl = "https://kotlinlang.org",
+            title = "",
+            domain = "kotlinlang.org",
+            contentType = ContentType.ARTICLE
         )
 
-        assertTrue(copy.body.contains("Study chapter 4 before Monday team review"))
-        assertTrue(copy.body.contains("Modern Kotlin Coroutines in Depth"))
+        val copy = PlainReminderCopy.forManual(link)
+
+        assertEquals("kotlinlang.org", copy.title)
+        assertFalse(copy.isAiGenerated)
+        assertEquals(ReminderOrigin.MANUAL, copy.origin)
     }
 
     @Test
@@ -100,25 +91,14 @@ class SmartDigestTest {
     }
 
     @Test
-    fun contextAwareCopyGenerator_withManualReminderOrigin() {
-        val link = SavedLink(
-            id = 3L,
-            originalUrl = "https://youtube.com/watch?v=123",
-            normalizedUrl = "https://youtube.com/watch?v=123",
-            title = "Introduction to Jetpack Compose",
-            domain = "youtube.com",
-            siteName = "YouTube",
-            contentType = ContentType.VIDEO
-        )
-
-        val copy = ContextAwareCopyGenerator.generateCopy(
-            link = link,
-            userName = "Timi",
-            origin = ReminderOrigin.MANUAL
-        )
-
-        assertEquals("Ready for Introduction to Jetpack?", copy.title)
-        assertTrue(copy.body.contains("Hey Timi, here is Introduction to Jetpack Compose from YouTube that you asked to revisit."))
-        assertEquals(ReminderOrigin.MANUAL, copy.origin)
+    fun aiFailure_userMessagesAreHonestAndInformative() {
+        assertEquals("No API key configured", AiFailure.NoApiKey.userMessage)
+        assertEquals("Network connection unavailable", AiFailure.Offline.userMessage)
+        assertEquals("Request timed out", AiFailure.Timeout.userMessage)
+        assertEquals("Rate limited by AI provider (429)", AiFailure.RateLimited(429).userMessage)
+        assertEquals("Invalid API key or unauthorized (401)", AiFailure.AuthError(401).userMessage)
+        assertEquals("AI server error (500)", AiFailure.ServerError(500).userMessage)
+        assertEquals("AI returned an empty response", AiFailure.EmptyResponse.userMessage)
+        assertEquals("AI returned unparseable content", AiFailure.MalformedResponse.userMessage)
     }
 }

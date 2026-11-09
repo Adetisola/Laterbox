@@ -1,13 +1,21 @@
 package com.laterbox.app.ui.settings
 
+import android.app.StatusBarManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.graphics.drawable.Icon as AndroidIcon
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,8 +25,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -30,7 +36,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -49,15 +54,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import com.laterbox.app.R
+import com.laterbox.app.data.preferences.FontSizeScale
 import com.laterbox.app.data.preferences.SmartReminderPersistence
 import com.laterbox.app.data.preferences.SmartReminderSchedule
 import com.laterbox.app.data.preferences.ThemeMode
 import com.laterbox.app.data.preferences.UserPreferences
+import com.laterbox.app.quicksave.QuickSaveTileService
+import com.laterbox.app.ui.components.LaterboxBanner
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxPrimaryButton
+import com.laterbox.app.ui.components.LaterboxSecondaryButton
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
 import kotlinx.coroutines.launch
@@ -75,12 +86,24 @@ fun SettingsScreen(
     onUserNameChange: (String) -> Unit,
     onAutoMarkAsReadChange: (Boolean) -> Unit,
     onAllowSystemBackupChange: (Boolean) -> Unit,
-    onFontSizeScaleChange: (com.laterbox.app.data.preferences.FontSizeScale) -> Unit,
+    onFontSizeScaleChange: (FontSizeScale) -> Unit,
     onSmartRemindersEnabledChange: (Boolean) -> Unit = {},
+    // Independent schedule controls
+    onMorningEveningEnabledChange: (Boolean) -> Unit = {},
+    onMorningTimeChange: (Int, Int) -> Unit = { _, _ -> },
+    onEveningTimeChange: (Int, Int) -> Unit = { _, _ -> },
+    onWeekendRoundupEnabledChange: (Boolean) -> Unit = {},
+    onWeekendRoundupTimeChange: (Int, Int) -> Unit = { _, _ -> },
+    onDailyDigestEnabledChange: (Boolean) -> Unit = {},
+    onDailyDigestTimeChange: (Int, Int) -> Unit = { _, _ -> },
+    onDailyDigestWeekdaysOnlyChange: (Boolean) -> Unit = {},
+    onCustomScheduleEnabledChange: (Boolean) -> Unit = {},
+    onCustomScheduleDaysChange: (Set<Int>) -> Unit = {},
+    onCustomScheduleTimeChange: (Int, Int) -> Unit = { _, _ -> },
+    onSmartReminderPersistenceChange: (SmartReminderPersistence) -> Unit = {},
+    // Legacy callbacks for compatibility
     onSmartReminderScheduleChange: (SmartReminderSchedule) -> Unit = {},
     onSmartReminderTimeChange: (Int, Int) -> Unit = { _, _ -> },
-    onSmartReminderPersistenceChange: (SmartReminderPersistence) -> Unit = {},
-    onAiEngineChange: (com.laterbox.app.data.preferences.AiEngine) -> Unit = {},
     aiConnectionStatus: Pair<Boolean, String>? = null,
     onGeminiApiKeyChange: (String) -> Unit = {},
     onTestAiConnection: () -> Unit = {},
@@ -95,8 +118,11 @@ fun SettingsScreen(
     val spacing = LaterboxTheme.spacing
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
     var showLicensesDialog by remember { mutableStateOf(false) }
-    var showCustomTimePicker by remember { mutableStateOf(false) }
+
+    // Time picker dialog states
+    var timePickerTarget by remember { mutableStateOf<TimePickerTarget?>(null) }
 
     // Storage Access Framework Launchers
     val exportLauncher = rememberLauncherForActivityResult(
@@ -131,14 +157,14 @@ fun SettingsScreen(
                     if (inputStream != null) {
                         val result = onImportBackup(inputStream)
                         if (result.isSuccess) {
-                            val r = result.getOrThrow()
+                            val stats = result.getOrNull()
                             Toast.makeText(
                                 context,
-                                "Restored ${r.restoredLinksCount} links, ${r.restoredCollectionsCount} collections (${r.skippedDuplicatesCount} duplicates skipped)",
+                                "Restored ${stats?.linksRestored ?: 0} links, ${stats?.collectionsRestored ?: 0} collections",
                                 Toast.LENGTH_LONG
                             ).show()
                         } else {
-                            Toast.makeText(context, "Import failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Restore failed: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                         }
                     }
                 } catch (e: Exception) {
@@ -158,37 +184,29 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            // Header with back navigation
+            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = spacing.base, vertical = spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Back button with tactile backdrop
                 LaterboxIconButton(
                     iconRes = LaterboxIcons.ArrowLeft,
-                    contentDescription = "Back to inbox",
+                    contentDescription = "Back",
                     onClick = onBackClick
                 )
 
                 Spacer(modifier = Modifier.width(spacing.sm))
 
-                Column {
-                    Text(
-                        text = "Settings",
-                        style = typography.displayLarge.copy(fontSize = 22.sp),
-                        color = colors.textPrimary
-                    )
-                    Text(
-                        text = "Preferences & privacy",
-                        style = typography.metaText,
-                        color = colors.textSecondary
-                    )
-                }
+                Text(
+                    text = "Settings",
+                    style = typography.wordmark,
+                    color = colors.textPrimary
+                )
             }
 
-            Spacer(modifier = Modifier.height(spacing.sm))
+            Spacer(modifier = Modifier.height(spacing.xs))
 
             // Section: Appearance
             SectionHeader(title = "Appearance")
@@ -202,7 +220,7 @@ fun SettingsScreen(
                     .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
                     .padding(spacing.md)
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
                     Text(
                         text = "Theme",
                         style = typography.uiMedium,
@@ -210,30 +228,34 @@ fun SettingsScreen(
                     )
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(spacing.xs)
                     ) {
                         ThemeOptionChip(
-                            label = "System",
+                            label = "System Default",
                             isSelected = preferences.themeMode == ThemeMode.SYSTEM,
-                            onClick = { onThemeModeChange(ThemeMode.SYSTEM) },
-                            modifier = Modifier.weight(1f)
+                            onClick = { onThemeModeChange(ThemeMode.SYSTEM) }
                         )
                         ThemeOptionChip(
-                            label = "Ivory (Light)",
+                            label = "Light (Ivory)",
                             isSelected = preferences.themeMode == ThemeMode.LIGHT,
-                            onClick = { onThemeModeChange(ThemeMode.LIGHT) },
-                            modifier = Modifier.weight(1f)
+                            onClick = { onThemeModeChange(ThemeMode.LIGHT) }
                         )
                         ThemeOptionChip(
-                            label = "Charcoal (Dark)",
+                            label = "Dark (Charcoal)",
                             isSelected = preferences.themeMode == ThemeMode.DARK,
-                            onClick = { onThemeModeChange(ThemeMode.DARK) },
-                            modifier = Modifier.weight(1f)
+                            onClick = { onThemeModeChange(ThemeMode.DARK) }
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(spacing.sm))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(spacing.hairline)
+                            .background(colors.borderSubtle)
+                    )
 
                     Text(
                         text = "Font Size",
@@ -242,49 +264,16 @@ fun SettingsScreen(
                     )
 
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(spacing.xs)
-                    ) {
-                        ThemeOptionChip(
-                            label = "Small",
-                            isSelected = preferences.fontSizeScale == com.laterbox.app.data.preferences.FontSizeScale.SMALL,
-                            onClick = { onFontSizeScaleChange(com.laterbox.app.data.preferences.FontSizeScale.SMALL) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        ThemeOptionChip(
-                            label = "System",
-                            isSelected = preferences.fontSizeScale == com.laterbox.app.data.preferences.FontSizeScale.SYSTEM,
-                            onClick = { onFontSizeScaleChange(com.laterbox.app.data.preferences.FontSizeScale.SYSTEM) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        ThemeOptionChip(
-                            label = "Large",
-                            isSelected = preferences.fontSizeScale == com.laterbox.app.data.preferences.FontSizeScale.LARGE,
-                            onClick = { onFontSizeScaleChange(com.laterbox.app.data.preferences.FontSizeScale.LARGE) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-
-                    // Live Typography Preview Box
-                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                            .background(colors.surfaceSecondary)
-                            .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
-                            .padding(spacing.sm)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(spacing.xs)
                     ) {
-                        Column {
-                            Text(
-                                text = "Preview (${preferences.fontSizeScale.label})",
-                                style = typography.metaText,
-                                color = colors.accentPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Find something interesting. Save it. Get back to it later.",
-                                style = typography.bodyPrimary,
-                                color = colors.textPrimary
+                        FontSizeScale.values().forEach { scale ->
+                            ThemeOptionChip(
+                                label = scale.label,
+                                isSelected = preferences.fontSizeScale == scale,
+                                onClick = { onFontSizeScaleChange(scale) }
                             )
                         }
                     }
@@ -293,8 +282,8 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
-            // Section: Profile & Personalisation
-            SectionHeader(title = "Profile & Personalisation")
+            // Section: Profile & Personalization
+            SectionHeader(title = "Profile")
 
             Box(
                 modifier = Modifier
@@ -306,43 +295,31 @@ fun SettingsScreen(
                     .padding(spacing.md)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(spacing.xs)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = LaterboxIcons.User),
-                            contentDescription = null,
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "What should we call you?",
-                            style = typography.uiMedium,
-                            color = colors.textPrimary
-                        )
-                    }
-
                     Text(
-                        text = "Optional. Used for smart notifications and quiet background reminders.",
-                        style = typography.metaText,
+                        text = "Your Name",
+                        style = typography.uiMedium,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = "Used locally to personalize your reminder greetings.",
+                        style = typography.bodySecondary.copy(fontSize = 12.sp),
                         color = colors.textSecondary
                     )
 
                     Spacer(modifier = Modifier.height(spacing.xxs))
 
-                    var nameInput by remember(preferences.userName) { mutableStateOf(preferences.userName) }
+                    var userNameInput by remember(preferences.userName) { mutableStateOf(preferences.userName) }
 
                     OutlinedTextField(
-                        value = nameInput,
-                        onValueChange = { newValue ->
-                            nameInput = newValue.take(50)
-                            onUserNameChange(newValue)
+                        value = userNameInput,
+                        onValueChange = {
+                            userNameInput = it
+                            onUserNameChange(it)
                         },
                         placeholder = {
                             Text(
-                                text = "Your name or nickname",
-                                style = typography.bodyPrimary,
+                                text = "e.g. Alex",
+                                style = typography.bodySecondary,
                                 color = colors.textTertiary
                             )
                         },
@@ -363,7 +340,7 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
-            // Section: Smart Reminders
+            // Section: Smart Reminders (Calendar Scheduling & Google AI Studio)
             SectionHeader(title = "Smart Reminders")
 
             Box(
@@ -376,7 +353,7 @@ fun SettingsScreen(
                     .padding(spacing.md)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
-                    // Smart Reminders Master Toggle
+                    // Master Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -400,7 +377,7 @@ fun SettingsScreen(
                                 )
                             }
                             Text(
-                                text = "Quiet, context-aware nudges powered by Gemini 2.5 Flash Lite",
+                                text = "Quiet, context-aware nudges powered by Google AI Studio",
                                 style = typography.bodySecondary.copy(fontSize = 12.sp),
                                 color = colors.textSecondary
                             )
@@ -417,96 +394,203 @@ fun SettingsScreen(
                     }
 
                     if (preferences.smartRemindersEnabled) {
-                        Spacer(modifier = Modifier.height(spacing.xxs))
+                        // Notification Permission Check Banner
+                        val notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                        if (!notificationsEnabled) {
+                            LaterboxBanner(
+                                text = "Notifications are disabled. Laterbox cannot deliver your scheduled reminders.",
+                                isWarning = true,
+                                actionText = "Settings",
+                                onActionClick = {
+                                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                    }
+                                    context.startActivity(intent)
+                                }
+                            )
+                        }
 
-                        // Schedule / Frequency
+                        Divider(colors.borderSubtle)
+
                         Text(
-                            text = "Schedule",
+                            text = "Reminder Schedules",
                             style = typography.uiMedium,
                             color = colors.textPrimary
                         )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(spacing.xs)
-                        ) {
-                            SmartReminderSchedule.values().forEach { sched ->
-                                ThemeOptionChip(
-                                    label = sched.label,
-                                    isSelected = preferences.smartReminderSchedule == sched,
-                                    onClick = { onSmartReminderScheduleChange(sched) }
-                                )
-                            }
-                        }
-
                         Text(
-                            text = preferences.smartReminderSchedule.description,
+                            text = "Enable the calendar schedules you prefer. WorkManager coordinates each time slot reliably.",
                             style = typography.metaText,
                             color = colors.textSecondary
                         )
 
-                        // If Daily Digest, show Delivery Time Presets + Custom option
-                        if (preferences.smartReminderSchedule == SmartReminderSchedule.DAILY_DIGEST) {
-                            Spacer(modifier = Modifier.height(spacing.xxs))
-
-                            Text(
-                                text = "Delivery Time",
-                                style = typography.uiMedium,
-                                color = colors.textPrimary
-                            )
-
+                        // 1. Daily Digest Schedule
+                        ScheduleRow(
+                            title = "Daily Digest",
+                            description = "Daily reading digest around ${formatTime(preferences.dailyDigestHour, preferences.dailyDigestMinute)}" +
+                                if (preferences.dailyDigestWeekdaysOnly) " (Weekdays only)" else "",
+                            enabled = preferences.dailyDigestEnabled,
+                            onEnabledChange = onDailyDigestEnabledChange
+                        ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(spacing.xs)
                             ) {
-                                val isMorning = preferences.smartReminderHour == 9 && preferences.smartReminderMinute == 0
-                                val isAfternoon = preferences.smartReminderHour == 13 && preferences.smartReminderMinute == 0
-                                val isEvening = preferences.smartReminderHour == 20 && preferences.smartReminderMinute == 0
+                                val isMorning = preferences.dailyDigestHour == 9 && preferences.dailyDigestMinute == 0
+                                val isAfternoon = preferences.dailyDigestHour == 13 && preferences.dailyDigestMinute == 0
+                                val isEvening = preferences.dailyDigestHour == 20 && preferences.dailyDigestMinute == 0
                                 val isCustom = !isMorning && !isAfternoon && !isEvening
 
                                 ThemeOptionChip(
                                     label = "Morning (9:00 AM)",
                                     isSelected = isMorning,
-                                    onClick = { onSmartReminderTimeChange(9, 0) }
+                                    onClick = { onDailyDigestTimeChange(9, 0) }
                                 )
                                 ThemeOptionChip(
                                     label = "Afternoon (1:00 PM)",
                                     isSelected = isAfternoon,
-                                    onClick = { onSmartReminderTimeChange(13, 0) }
+                                    onClick = { onDailyDigestTimeChange(13, 0) }
                                 )
                                 ThemeOptionChip(
                                     label = "Evening (8:00 PM)",
                                     isSelected = isEvening,
-                                    onClick = { onSmartReminderTimeChange(20, 0) }
+                                    onClick = { onDailyDigestTimeChange(20, 0) }
                                 )
                                 ThemeOptionChip(
-                                    label = "Custom…",
+                                    label = if (isCustom) formatTime(preferences.dailyDigestHour, preferences.dailyDigestMinute) else "Custom…",
                                     isSelected = isCustom,
-                                    onClick = { showCustomTimePicker = true }
+                                    onClick = {
+                                        timePickerTarget = TimePickerTarget.DailyDigest(
+                                            preferences.dailyDigestHour,
+                                            preferences.dailyDigestMinute
+                                        )
+                                    }
+                                )
+                                ThemeOptionChip(
+                                    label = if (preferences.dailyDigestWeekdaysOnly) "Weekdays (Mon–Fri)" else "Every Day",
+                                    isSelected = preferences.dailyDigestWeekdaysOnly,
+                                    onClick = { onDailyDigestWeekdaysOnlyChange(!preferences.dailyDigestWeekdaysOnly) }
                                 )
                             }
-
-                            val displayHour = when {
-                                preferences.smartReminderHour == 0 -> 12
-                                preferences.smartReminderHour > 12 -> preferences.smartReminderHour - 12
-                                else -> preferences.smartReminderHour
-                            }
-                            val amPm = if (preferences.smartReminderHour >= 12) "PM" else "AM"
-                            val formattedTime = String.format(Locale.getDefault(), "%d:%02d %s", displayHour, preferences.smartReminderMinute, amPm)
-                            Text(
-                                text = "Delivers daily around $formattedTime",
-                                style = typography.metaText,
-                                color = colors.accentPrimary
-                            )
                         }
 
-                        Spacer(modifier = Modifier.height(spacing.xxs))
+                        Divider(colors.borderSubtle)
 
-                        // Reminder Persistence / Max Nudges
+                        // 2. Morning & Evening Schedule
+                        ScheduleRow(
+                            title = "Morning & Evening",
+                            description = "Two distinct daily times: ${formatTime(preferences.morningHour, preferences.morningMinute)} and ${formatTime(preferences.eveningHour, preferences.eveningMinute)}",
+                            enabled = preferences.morningEveningEnabled,
+                            onEnabledChange = onMorningEveningEnabledChange
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                ThemeOptionChip(
+                                    label = "Morning: " + formatTime(preferences.morningHour, preferences.morningMinute),
+                                    isSelected = true,
+                                    onClick = {
+                                        timePickerTarget = TimePickerTarget.Morning(
+                                            preferences.morningHour,
+                                            preferences.morningMinute
+                                        )
+                                    }
+                                )
+                                ThemeOptionChip(
+                                    label = "Evening: " + formatTime(preferences.eveningHour, preferences.eveningMinute),
+                                    isSelected = true,
+                                    onClick = {
+                                        timePickerTarget = TimePickerTarget.Evening(
+                                            preferences.eveningHour,
+                                            preferences.eveningMinute
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
+                        Divider(colors.borderSubtle)
+
+                        // 3. Weekend Roundup Schedule
+                        ScheduleRow(
+                            title = "Weekend Roundup",
+                            description = "Saturday and Sunday morning around ${formatTime(preferences.weekendRoundupHour, preferences.weekendRoundupMinute)}",
+                            enabled = preferences.weekendRoundupEnabled,
+                            onEnabledChange = onWeekendRoundupEnabledChange
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                ThemeOptionChip(
+                                    label = "Delivery: " + formatTime(preferences.weekendRoundupHour, preferences.weekendRoundupMinute),
+                                    isSelected = true,
+                                    onClick = {
+                                        timePickerTarget = TimePickerTarget.Weekend(
+                                            preferences.weekendRoundupHour,
+                                            preferences.weekendRoundupMinute
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
+                        Divider(colors.borderSubtle)
+
+                        // 4. Custom Schedule
+                        ScheduleRow(
+                            title = "Custom Schedule",
+                            description = "Nudges only on specific days at ${formatTime(preferences.customScheduleHour, preferences.customScheduleMinute)}",
+                            enabled = preferences.customScheduleEnabled,
+                            onEnabledChange = onCustomScheduleEnabledChange
+                        ) {
+                            val daysLabels = listOf(
+                                1 to "Mon", 2 to "Tue", 3 to "Wed",
+                                4 to "Thu", 5 to "Fri", 6 to "Sat", 7 to "Sun"
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xxs)
+                            ) {
+                                daysLabels.forEach { (dayVal, dayLabel) ->
+                                    val isSelected = preferences.customScheduleDays.contains(dayVal)
+                                    ThemeOptionChip(
+                                        label = dayLabel,
+                                        isSelected = isSelected,
+                                        onClick = {
+                                            val updated = if (isSelected) {
+                                                preferences.customScheduleDays - dayVal
+                                            } else {
+                                                preferences.customScheduleDays + dayVal
+                                            }
+                                            onCustomScheduleDaysChange(updated)
+                                        }
+                                    )
+                                }
+                                ThemeOptionChip(
+                                    label = formatTime(preferences.customScheduleHour, preferences.customScheduleMinute),
+                                    isSelected = true,
+                                    onClick = {
+                                        timePickerTarget = TimePickerTarget.Custom(
+                                            preferences.customScheduleHour,
+                                            preferences.customScheduleMinute
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
+                        Divider(colors.borderSubtle)
+
+                        // Persistence
                         Text(
                             text = "Max Nudges per Link",
                             style = typography.uiMedium,
@@ -534,9 +618,9 @@ fun SettingsScreen(
                             color = colors.textSecondary
                         )
 
-                        Spacer(modifier = Modifier.height(spacing.xs))
+                        Divider(colors.borderSubtle)
 
-                        // Google AI Studio API Key & Connection Test
+                        // Google AI Studio Configuration
                         Text(
                             text = "Google AI Studio API Key",
                             style = typography.uiMedium,
@@ -544,7 +628,7 @@ fun SettingsScreen(
                         )
 
                         Text(
-                            text = "Laterbox connects to Gemini 2.5 Flash Lite. By default, it uses the embedded app key. If your app key hits Google Cloud service restrictions or quota limits, paste your free Gemini API key from aistudio.google.com here.",
+                            text = "Laterbox uses Gemini 2.5 Flash Lite via Google AI Studio. By default, it uses the embedded app key. If you reach quota limits, paste your key from aistudio.google.com.",
                             style = typography.metaText,
                             color = colors.textSecondary
                         )
@@ -559,14 +643,14 @@ fun SettingsScreen(
                             },
                             placeholder = {
                                 Text(
-                                    text = "AIzaSy... (leave blank for default)",
+                                    text = "AIzaSy... (leave blank for default key)",
                                     style = typography.bodySecondary.copy(fontSize = 12.sp),
                                     color = colors.textTertiary
                                 )
                             },
                             textStyle = typography.codeText.copy(fontSize = 12.sp, color = colors.textPrimary),
                             singleLine = true,
-                            shape = RoundedCornerShape(spacing.radiusSmall),
+                            shape = LaterboxShapeTokens.InputField,
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = colors.accentPrimary,
                                 unfocusedBorderColor = colors.borderSubtle,
@@ -593,97 +677,97 @@ fun SettingsScreen(
                         )
 
                         // Test AI Connection Button
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(spacing.minTouchTarget)
-                                .clip(RoundedCornerShape(spacing.radiusSmall))
-                                .background(colors.surfaceSecondary)
-                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
-                                .clickable { onTestAiConnection() }
-                                .padding(horizontal = spacing.md),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = LaterboxIcons.Sparkles),
-                                    contentDescription = null,
-                                    tint = colors.accentPrimary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "Test AI Connection",
-                                    style = typography.uiMedium.copy(fontSize = 13.sp),
-                                    color = colors.accentPrimary
-                                )
-                            }
-                        }
+                        LaterboxSecondaryButton(
+                            text = "Test AI Connection",
+                            leadingIcon = LaterboxIcons.Sparkles,
+                            onClick = onTestAiConnection,
+                            modifier = Modifier.fillMaxWidth()
+                        )
 
                         // Status banner if tested
                         aiConnectionStatus?.let { (isSuccess, message) ->
-                            val statusBorder = if (isSuccess) colors.accentPrimary else colors.statusDanger
-                            val statusColor = if (isSuccess) colors.textPrimary else colors.statusDanger
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(spacing.radiusSmall))
-                                    .background(colors.surfaceSecondary)
-                                    .border(spacing.hairline, statusBorder, RoundedCornerShape(spacing.radiusSmall))
-                                    .padding(spacing.sm)
-                            ) {
-                                Text(
-                                    text = if (isSuccess) "✓ $message" else "⚠ $message",
-                                    style = typography.metaText.copy(fontSize = 12.sp),
-                                    color = statusColor
-                                )
-                            }
+                            LaterboxBanner(
+                                text = if (isSuccess) "✓ $message" else "⚠ $message",
+                                isSuccess = isSuccess,
+                                isWarning = !isSuccess
+                            )
                         }
 
-                        Spacer(modifier = Modifier.height(spacing.xxs))
-
-                        // Send test notification button
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(spacing.minTouchTarget)
-                                .clip(RoundedCornerShape(spacing.radiusSmall))
-                                .background(colors.surfaceSecondary)
-                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
-                                .clickable {
-                                    coroutineScope.launch {
-                                        val sent = onSendTestSmartDigest()
-                                        if (sent) {
-                                            Toast.makeText(context, "Test reminder sent! Check notification shade.", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Could not send notification. Ensure notification permissions are enabled.", Toast.LENGTH_LONG).show()
-                                        }
+                        // Send Test Smart Reminder
+                        LaterboxSecondaryButton(
+                            text = "Send Test Smart Reminder",
+                            leadingIcon = LaterboxIcons.Sparkles,
+                            onClick = {
+                                coroutineScope.launch {
+                                    val sent = onSendTestSmartDigest()
+                                    if (sent) {
+                                        Toast.makeText(context, "Test reminder sent! Check notification shade.", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Could not send test reminder. Check notification permission and AI connection.", Toast.LENGTH_LONG).show()
                                     }
                                 }
-                                .padding(horizontal = spacing.md),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = LaterboxIcons.Sparkles),
-                                    contentDescription = null,
-                                    tint = colors.accentPrimary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "Send Test Smart Reminder",
-                                    style = typography.uiMedium.copy(fontSize = 13.sp),
-                                    color = colors.accentPrimary
-                                )
-                            }
-                        }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.lg))
+
+            // Section: Quick Capture (Quick Settings Tile)
+            SectionHeader(title = "Quick Capture")
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = spacing.base)
+                    .clip(RoundedCornerShape(spacing.radiusMedium))
+                    .background(colors.surfacePrimary)
+                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
+                    .padding(spacing.md)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                    Text(
+                        text = "Quick Settings Tile",
+                        style = typography.uiMedium,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = "Save any copied link instantly from the Android Quick Settings drawer without switching apps.",
+                        style = typography.bodySecondary.copy(fontSize = 12.sp),
+                        color = colors.textSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(spacing.xs))
+
+                    LaterboxPrimaryButton(
+                        text = "Add Tile to Quick Settings",
+                        onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                val statusBarManager = context.getSystemService(StatusBarManager::class.java)
+                                val componentName = ComponentName(context, QuickSaveTileService::class.java)
+                                statusBarManager?.requestAddTileService(
+                                    componentName,
+                                    context.getString(R.string.save_to_laterbox),
+                                    AndroidIcon.createWithResource(context, R.drawable.ic_tile_save),
+                                    { it.run() },
+                                    { result ->
+                                        if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                                            Toast.makeText(context, "Tile added to Quick Settings!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Swipe down Quick Settings, tap the pencil edit icon, and drag 'Save to Laterbox' into your tiles.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
@@ -731,12 +815,7 @@ fun SettingsScreen(
                         )
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(spacing.hairline)
-                            .background(colors.borderSubtle)
-                    )
+                    Divider(colors.borderSubtle)
 
                     // System backup toggle
                     Row(
@@ -771,7 +850,7 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(spacing.lg))
 
-            // Section: Data & Backup (Local-First)
+            // Section: Data & Storage (Local-First)
             SectionHeader(title = "Data & Storage (Local-First)")
 
             Box(
@@ -801,48 +880,22 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(spacing.sm)
                     ) {
-                        // Export button (min 48dp touch target)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(spacing.minTouchTarget)
-                                .clip(RoundedCornerShape(spacing.radiusSmall))
-                                .background(colors.surfaceSecondary)
-                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
-                                .clickable {
-                                    val dateStr = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-                                    exportLauncher.launch("laterbox_backup_$dateStr.json")
-                                }
-                                .padding(horizontal = spacing.sm),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Export JSON",
-                                style = typography.uiMedium.copy(fontSize = 13.sp),
-                                color = colors.accentPrimary
-                            )
-                        }
+                        LaterboxSecondaryButton(
+                            text = "Export JSON",
+                            onClick = {
+                                val dateStr = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+                                exportLauncher.launch("laterbox_backup_$dateStr.json")
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
 
-                        // Import button (min 48dp touch target)
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(spacing.minTouchTarget)
-                                .clip(RoundedCornerShape(spacing.radiusSmall))
-                                .background(colors.surfaceSecondary)
-                                .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusSmall))
-                                .clickable {
-                                    importLauncher.launch(arrayOf("application/json", "text/*"))
-                                }
-                                .padding(horizontal = spacing.sm),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Import JSON",
-                                style = typography.uiMedium.copy(fontSize = 13.sp),
-                                color = colors.textPrimary
-                            )
-                        }
+                        LaterboxSecondaryButton(
+                            text = "Import JSON",
+                            onClick = {
+                                importLauncher.launch(arrayOf("application/json", "text/*"))
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -863,7 +916,7 @@ fun SettingsScreen(
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
                     Text(
-                        text = "Laterbox v1.0.5",
+                        text = "Laterbox v1.0.9",
                         style = typography.uiMedium,
                         color = colors.textPrimary
                     )
@@ -875,23 +928,11 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(spacing.xs))
 
-                    // Open source licenses button (min 48dp touch target)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(spacing.minTouchTarget)
-                            .clip(RoundedCornerShape(spacing.radiusSmall))
-                            .background(colors.surfaceSecondary)
-                            .clickable { showLicensesDialog = true }
-                            .padding(horizontal = spacing.md),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Text(
-                            text = "Open Source Licenses & Typography",
-                            style = typography.uiMedium.copy(fontSize = 13.sp),
-                            color = colors.accentPrimary
-                        )
-                    }
+                    LaterboxSecondaryButton(
+                        text = "Open Source Licenses & Typography",
+                        onClick = { showLicensesDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
@@ -942,33 +983,40 @@ fun SettingsScreen(
             )
         }
 
-        if (showCustomTimePicker) {
+        // Generic Time Picker Dialog for any schedule target
+        timePickerTarget?.let { target ->
             val timePickerState = rememberTimePickerState(
-                initialHour = preferences.smartReminderHour,
-                initialMinute = preferences.smartReminderMinute,
+                initialHour = target.hour,
+                initialMinute = target.minute,
                 is24Hour = false
             )
             AlertDialog(
-                onDismissRequest = { showCustomTimePicker = false },
+                onDismissRequest = { timePickerTarget = null },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            onSmartReminderTimeChange(timePickerState.hour, timePickerState.minute)
-                            showCustomTimePicker = false
+                            when (target) {
+                                is TimePickerTarget.DailyDigest -> onDailyDigestTimeChange(timePickerState.hour, timePickerState.minute)
+                                is TimePickerTarget.Morning -> onMorningTimeChange(timePickerState.hour, timePickerState.minute)
+                                is TimePickerTarget.Evening -> onEveningTimeChange(timePickerState.hour, timePickerState.minute)
+                                is TimePickerTarget.Weekend -> onWeekendRoundupTimeChange(timePickerState.hour, timePickerState.minute)
+                                is TimePickerTarget.Custom -> onCustomScheduleTimeChange(timePickerState.hour, timePickerState.minute)
+                            }
+                            timePickerTarget = null
                         }
                     ) {
                         Text("Set Time", color = colors.accentPrimary, style = typography.uiMedium)
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showCustomTimePicker = false }) {
+                    TextButton(onClick = { timePickerTarget = null }) {
                         Text("Cancel", color = colors.textSecondary, style = typography.uiMedium)
                     }
                 },
                 containerColor = colors.surfaceElevated,
                 title = {
                     Text(
-                        text = "Daily Reminder Time",
+                        text = target.title,
                         style = typography.uiMedium,
                         color = colors.textPrimary
                     )
@@ -992,6 +1040,83 @@ fun SettingsScreen(
             )
         }
     }
+}
+
+private sealed class TimePickerTarget(val title: String, val hour: Int, val minute: Int) {
+    class DailyDigest(h: Int, m: Int) : TimePickerTarget("Daily Digest Time", h, m)
+    class Morning(h: Int, m: Int) : TimePickerTarget("Morning Reminder Time", h, m)
+    class Evening(h: Int, m: Int) : TimePickerTarget("Evening Reminder Time", h, m)
+    class Weekend(h: Int, m: Int) : TimePickerTarget("Weekend Roundup Time", h, m)
+    class Custom(h: Int, m: Int) : TimePickerTarget("Custom Schedule Time", h, m)
+}
+
+@Composable
+private fun ScheduleRow(
+    title: String,
+    description: String,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
+    Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = typography.uiMedium,
+                    color = colors.textPrimary
+                )
+                Text(
+                    text = description,
+                    style = typography.metaText,
+                    color = colors.textSecondary
+                )
+            }
+
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = colors.surfaceElevated,
+                    checkedTrackColor = colors.accentPrimary
+                )
+            )
+        }
+
+        if (enabled) {
+            Spacer(modifier = Modifier.height(spacing.xxs))
+            content()
+        }
+    }
+}
+
+@Composable
+private fun Divider(color: androidx.compose.ui.graphics.Color) {
+    val spacing = LaterboxTheme.spacing
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(spacing.hairline)
+            .background(color)
+    )
+}
+
+private fun formatTime(hour: Int, minute: Int): String {
+    val displayHour = when {
+        hour == 0 -> 12
+        hour > 12 -> hour - 12
+        else -> hour
+    }
+    val amPm = if (hour >= 12) "PM" else "AM"
+    return String.format(Locale.getDefault(), "%d:%02d %s", displayHour, minute, amPm)
 }
 
 @Composable
@@ -1025,7 +1150,7 @@ private fun ThemeOptionChip(
 
     Box(
         modifier = modifier
-            .height(36.dp)
+            .height(spacing.chipHeight)
             .clip(RoundedCornerShape(spacing.radiusSmall))
             .background(bg)
             .border(spacing.hairline, borderColor, RoundedCornerShape(spacing.radiusSmall))
@@ -1035,7 +1160,7 @@ private fun ThemeOptionChip(
     ) {
         Text(
             text = label,
-            style = typography.metaText.copy(fontSize = 11.sp),
+            style = typography.metaText,
             color = textColor,
             maxLines = 1
         )

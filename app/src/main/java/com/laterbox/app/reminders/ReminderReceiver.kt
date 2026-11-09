@@ -6,8 +6,12 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.laterbox.app.LaterboxApplication
+import com.laterbox.app.ai.AiCopyResult
+import com.laterbox.app.ai.PlainReminderCopy
 import com.laterbox.app.ai.ReminderOrigin
 import com.laterbox.app.ai.SmartDigestEngine
+import com.laterbox.app.reminders.smart.SmartReminderCoordinator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -33,12 +37,20 @@ class ReminderReceiver : BroadcastReceiver() {
                         if (link != null && !link.isArchived && !link.nudgeDismissed) {
                             val prefs = userPreferencesRepository.userPreferencesFlow.first()
                             val userName = prefs.userName.ifBlank { null }
-                            val copy = SmartDigestEngine.generateDigestCopy(
+                            val aiResult = SmartDigestEngine.generateDigestCopy(
                                 link = link,
                                 userName = userName,
                                 origin = ReminderOrigin.MANUAL,
                                 customApiKey = prefs.geminiApiKey.ifBlank { null }
                             )
+
+                            val copy = when (aiResult) {
+                                is AiCopyResult.Success -> aiResult.copy
+                                is AiCopyResult.Failure -> {
+                                    Log.d(TAG, "AI reminder generation failed (${aiResult.reason.userMessage}); using honest plain copy")
+                                    PlainReminderCopy.forManual(link)
+                                }
+                            }
 
                             NotificationHelper.showReminderNotification(
                                 context = context,
@@ -51,36 +63,10 @@ class ReminderReceiver : BroadcastReceiver() {
                         }
                     }
                     ACTION_TRIGGER_SMART_DIGEST -> {
+                        // Legacy alarm action migration: cancel old alarm and sync via coordinator
+                        ReminderScheduler(context).cancelLegacySmartDigest()
                         val prefs = userPreferencesRepository.userPreferencesFlow.first()
-                        if (prefs.smartRemindersEnabled) {
-                            val candidate = linkRepository.getSmartDigestCandidate(
-                                maxNudgeCount = prefs.smartReminderPersistence.maxNudges
-                            )
-                            if (candidate != null) {
-                                val userName = prefs.userName.ifBlank { null }
-                                val copy = SmartDigestEngine.generateDigestCopy(
-                                    link = candidate,
-                                    userName = userName,
-                                    origin = ReminderOrigin.SMART_DIGEST,
-                                    customApiKey = prefs.geminiApiKey.ifBlank { null }
-                                )
-
-                                NotificationHelper.showReminderNotification(
-                                    context = context,
-                                    link = candidate,
-                                    userName = userName,
-                                    origin = ReminderOrigin.SMART_DIGEST,
-                                    copy = copy
-                                )
-                                linkRepository.recordNudge(candidate.id)
-                            }
-                            // Reschedule next exact alarm for tomorrow
-                            ReminderScheduler(context).scheduleSmartDigest(
-                                targetHour = prefs.smartReminderHour,
-                                targetMinute = prefs.smartReminderMinute,
-                                schedule = prefs.smartReminderSchedule
-                            )
-                        }
+                        SmartReminderCoordinator.sync(context, prefs.toSmartReminderSettings())
                     }
                     ACTION_DISMISS_REMINDER -> {
                         linkRepository.dismissReminder(linkId)
@@ -92,6 +78,8 @@ class ReminderReceiver : BroadcastReceiver() {
                         Log.d(TAG, "Dismissed reminder for link $linkId (notifId $notifId)")
                     }
                 }
+            } catch (ce: CancellationException) {
+                throw ce
             } catch (e: Exception) {
                 Log.e(TAG, "Error handling reminder broadcast for action $action", e)
             } finally {
