@@ -2,6 +2,9 @@ package com.laterbox.app.ai
 
 import android.util.Log
 import com.google.firebase.Firebase
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.GenerativeBackend
+import com.google.firebase.ai.type.generationConfig
 import com.google.firebase.app
 import com.laterbox.app.domain.model.SavedLink
 import kotlinx.coroutines.CancellationException
@@ -33,13 +36,70 @@ object SmartDigestEngine {
         origin: ReminderOrigin = ReminderOrigin.SMART_DIGEST,
         customApiKey: String? = null
     ): AiCopyResult {
-        val apiKey = resolveApiKey(customApiKey)
+        // 1. If user entered a custom API key, use direct REST endpoint
+        if (!customApiKey.isNullOrBlank()) {
+            return try {
+                withTimeout(AI_TIMEOUT_MS) {
+                    withContext(Dispatchers.IO) {
+                        executeDirectGeminiRequest(link, userName, origin, customApiKey.trim())
+                    }
+                }
+            } catch (ce: CancellationException) {
+                if (ce is TimeoutCancellationException) {
+                    AiCopyResult.Failure(AiFailure.Timeout)
+                } else {
+                    throw ce
+                }
+            } catch (e: Exception) {
+                AiCopyResult.Failure(AiFailure.ServerError(code = -1, details = e.message))
+            }
+        }
+
+        // 2. Default: Official Firebase AI Logic SDK (matches Firebase AI Logic API in project credentials)
+        try {
+            val prompt = buildPrompt(link, userName, origin)
+            val result = withTimeout(AI_TIMEOUT_MS) {
+                val generativeModel = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+                    modelName = CLOUD_MODEL_NAME,
+                    generationConfig = generationConfig {
+                        temperature = 0.85f
+                        maxOutputTokens = 160
+                    }
+                )
+                val response = generativeModel.generateContent(prompt)
+                val responseText = response.text?.trim()
+                if (responseText.isNullOrBlank()) {
+                    AiCopyResult.Failure(AiFailure.EmptyResponse)
+                } else {
+                    val parsed = parseAiResponse(responseText, origin)
+                    if (parsed != null) {
+                        AiCopyResult.Success(parsed)
+                    } else {
+                        AiCopyResult.Failure(AiFailure.MalformedResponse)
+                    }
+                }
+            }
+            if (result is AiCopyResult.Success) {
+                return result
+            }
+        } catch (ce: CancellationException) {
+            if (ce is TimeoutCancellationException) {
+                return AiCopyResult.Failure(AiFailure.Timeout)
+            } else {
+                throw ce
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Firebase AI Logic SDK attempt failed (${e.javaClass.simpleName}: ${e.message}). Testing direct endpoint fallback...")
+        }
+
+        // 3. Fallback: Direct REST endpoint with project API key
+        val fallbackKey = resolveApiKey(null)
             ?: return AiCopyResult.Failure(AiFailure.NoApiKey)
 
         return try {
             withTimeout(AI_TIMEOUT_MS) {
                 withContext(Dispatchers.IO) {
-                    executeGeminiRequest(link, userName, origin, apiKey)
+                    executeDirectGeminiRequest(link, userName, origin, fallbackKey)
                 }
             }
         } catch (ce: CancellationException) {
@@ -48,20 +108,12 @@ object SmartDigestEngine {
             } else {
                 throw ce
             }
-        } catch (e: UnknownHostException) {
-            AiCopyResult.Failure(AiFailure.Offline)
-        } catch (e: ConnectException) {
-            AiCopyResult.Failure(AiFailure.Offline)
-        } catch (e: SocketTimeoutException) {
-            AiCopyResult.Failure(AiFailure.Timeout)
-        } catch (e: IOException) {
-            AiCopyResult.Failure(AiFailure.ServerError(code = -1, details = e.message))
         } catch (e: Exception) {
             AiCopyResult.Failure(AiFailure.ServerError(code = -1, details = e.message))
         }
     }
 
-    private fun executeGeminiRequest(
+    private fun executeDirectGeminiRequest(
         link: SavedLink,
         userName: String?,
         origin: ReminderOrigin,
@@ -157,9 +209,39 @@ object SmartDigestEngine {
     }
 
     suspend fun testGeminiApi(customApiKey: String?): Pair<Boolean, String> {
-        val apiKey = resolveApiKey(customApiKey)
-            ?: return Pair(false, "No API key configured.")
+        if (!customApiKey.isNullOrBlank()) {
+            return testDirectGeminiApi(customApiKey.trim())
+        }
 
+        // 1. Test via official Firebase AI Logic SDK (matches Firebase AI Logic API)
+        try {
+            return withTimeout(AI_TIMEOUT_MS) {
+                val generativeModel = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+                    modelName = CLOUD_MODEL_NAME
+                )
+                val response = generativeModel.generateContent(
+                    "Respond with exact JSON: {\"title\":\"Connected\",\"body\":\"Google AI Studio is active\"}"
+                )
+                val text = response.text?.trim() ?: ""
+                if (text.isNotBlank()) {
+                    Pair(true, "Connected to Google AI Studio (Firebase AI Logic)")
+                } else {
+                    Pair(false, "Received empty response from Google AI Studio")
+                }
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (e: Exception) {
+            Log.w(TAG, "Firebase AI test failed (${e.javaClass.simpleName}: ${e.message}). Testing direct endpoint fallback...")
+        }
+
+        // 2. Fallback: Test direct REST endpoint with project API key
+        val fallbackKey = resolveApiKey(null)
+            ?: return Pair(false, "No API key configured.")
+        return testDirectGeminiApi(fallbackKey)
+    }
+
+    private suspend fun testDirectGeminiApi(apiKey: String): Pair<Boolean, String> {
         return withContext(Dispatchers.IO) {
             val payload = JSONObject().apply {
                 val partsArray = JSONArray().apply {
@@ -194,7 +276,7 @@ object SmartDigestEngine {
                     val errorStreamText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
                     val message = when {
                         errorStreamText.contains("API_KEY_SERVICE_BLOCKED") ->
-                            "Google Generative Language API is blocked on this key. Please enable 'Generative Language API' in Google Cloud Console or use an AI Studio key."
+                            "Google Generative Language API is blocked on this key. In Google Cloud Console, select 'Don't restrict key' or add 'Generative Language API'."
                         code == 429 ->
                             "Rate limit reached (429). Please wait a moment."
                         code == 400 || code == 401 || code == 403 ->
