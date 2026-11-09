@@ -214,7 +214,7 @@ fun CustomReminderPickerDialog(
                 )
                 Text(
                     text = "Custom Reminder",
-                    style = typography.headlineSecondary,
+                    style = typography.detailTitle,
                     color = colors.textPrimary
                 )
             }

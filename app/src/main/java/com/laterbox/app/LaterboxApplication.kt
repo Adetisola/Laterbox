@@ -1,5 +1,6 @@
 package com.laterbox.app
 
+import android.app.Application
 import android.util.Log
 import coil.ImageLoader
 import coil.ImageLoaderFactory

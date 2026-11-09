@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.laterbox.app.ui.theme.LaterboxTheme
 
 /**
  * Cohesive shape tokens across Laterbox:
@@ -54,24 +55,28 @@ fun LaterboxIconButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     selected: Boolean = false,
-    tint: Color = LaterboxTheme.colors.textPrimary,
-    containerColor: Color = LaterboxTheme.colors.surfaceCard,
-    borderColor: Color = LaterboxTheme.colors.borderSubtle,
+    tint: Color = Color.Unspecified,
+    containerColor: Color = Color.Unspecified,
+    borderColor: Color = Color.Unspecified,
     badge: (@Composable () -> Unit)? = null
 ) {
     val colors = LaterboxTheme.colors
+    val resolvedTint = if (tint != Color.Unspecified) tint else colors.textPrimary
+    val resolvedContainerColor = if (containerColor != Color.Unspecified) containerColor else colors.surfaceCard
+    val resolvedBorderColor = if (borderColor != Color.Unspecified) borderColor else colors.borderSubtle
+
     val interactionSource = remember { MutableInteractionSource() }
     val effectiveContainerColor = when {
-        !enabled -> containerColor.copy(alpha = 0.4f)
+        !enabled -> resolvedContainerColor.copy(alpha = 0.4f)
         selected -> colors.accentContainer
-        else -> containerColor
+        else -> resolvedContainerColor
     }
     val effectiveTint = when {
-        !enabled -> tint.copy(alpha = 0.38f)
+        !enabled -> resolvedTint.copy(alpha = 0.38f)
         selected -> colors.accentPrimary
-        else -> tint
+        else -> resolvedTint
     }
-    val effectiveBorderColor = if (selected) colors.accentPrimary else borderColor
+    val effectiveBorderColor = if (selected) colors.accentPrimary else resolvedBorderColor
 
     Box(
         modifier = modifier
