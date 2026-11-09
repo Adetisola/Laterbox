@@ -459,7 +459,7 @@ class UserPreferencesRepository(private val context: Context) {
         context.userDataStore.edit { preferences ->
             val current = preferences[PreferencesKeys.DELIVERED_SLOT_KEYS] ?: emptySet()
             // Keep at most 60 recent slot keys to prevent unbounded growth
-            val updated = (current + slotKey).takeLast(60).toSet()
+            val updated = (current + slotKey).toList().takeLast(60).toSet()
             preferences[PreferencesKeys.DELIVERED_SLOT_KEYS] = updated
         }
     }
