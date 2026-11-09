@@ -564,7 +564,7 @@ fun SettingsScreen(
                                     color = colors.textTertiary
                                 )
                             },
-                            textStyle = typography.codeBlock.copy(fontSize = 12.sp, color = colors.textPrimary),
+                            textStyle = typography.codeText.copy(fontSize = 12.sp, color = colors.textPrimary),
                             singleLine = true,
                             shape = RoundedCornerShape(spacing.radiusSmall),
                             colors = OutlinedTextFieldDefaults.colors(

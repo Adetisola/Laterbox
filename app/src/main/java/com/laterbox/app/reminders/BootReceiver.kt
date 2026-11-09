@@ -7,6 +7,7 @@ import android.util.Log
 import com.laterbox.app.LaterboxApplication
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class BootReceiver : BroadcastReceiver() {
