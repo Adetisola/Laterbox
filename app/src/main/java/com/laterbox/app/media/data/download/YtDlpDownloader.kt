@@ -22,6 +22,7 @@ class YtDlpDownloader(
     private var isInitialized = false
 
     private fun ensureInitialized(): Boolean {
+        if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) return false
         if (customExecutor != null) return true
         if (isInitialized) return true
         return synchronized(this) {

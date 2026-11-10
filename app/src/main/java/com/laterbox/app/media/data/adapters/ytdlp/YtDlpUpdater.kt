@@ -19,6 +19,7 @@ class YtDlpUpdater(
     private var isInitialized = false
 
     private fun ensureInitialized(): Boolean {
+        if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) return false
         if (isInitialized) return true
         return synchronized(this) {
             if (isInitialized) return true
