@@ -47,7 +47,16 @@ object AppViewModelProvider {
         }
         initializer {
             val app = laterboxApplication()
-            SavedItemDetailViewModel(app.container.linkRepository, app.container.collectionRepository)
+            SavedItemDetailViewModel(
+                linkRepository = app.container.linkRepository,
+                collectionRepository = app.container.collectionRepository,
+                mediaRepository = app.container.mediaRepository,
+                platformResolver = app.container.platformResolver
+            )
+        }
+        initializer {
+            val app = laterboxApplication()
+            com.laterbox.app.media.ui.downloads.DownloadsViewModel(app.container.mediaRepository)
         }
         initializer {
             val app = laterboxApplication()
@@ -55,7 +64,8 @@ object AppViewModelProvider {
                 userPreferencesRepository = app.container.userPreferencesRepository,
                 backupManager = app.container.backupManager,
                 linkRepository = app.container.linkRepository,
-                appContext = app.applicationContext
+                appContext = app.applicationContext,
+                ytDlpUpdater = app.container.ytDlpUpdater
             )
         }
     }

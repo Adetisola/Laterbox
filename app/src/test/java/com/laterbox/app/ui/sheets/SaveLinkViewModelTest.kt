@@ -168,6 +168,7 @@ class SaveLinkViewModelTest {
 
             cancelAndIgnoreRemainingEvents()
         }
+        advanceUntilIdle()
     }
 
     @Test
@@ -190,6 +191,7 @@ class SaveLinkViewModelTest {
 
             cancelAndIgnoreRemainingEvents()
         }
+        advanceUntilIdle()
     }
 
     @Test

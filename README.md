@@ -87,6 +87,12 @@ This is a public repository:
 - Release signing secrets are managed solely via GitHub Secrets.
 - Sample data and automated test fixtures use strictly synthetic, public domains (`example.com`, `wikipedia.org`) with zero private user information.
 
+### Media Library & yt-dlp Privacy Notes
+
+Laterbox includes an on-device Media Library for downloading media from saved links directly into local app storage:
+- **Zero Third-Party Relays**: All extractions and byte transfers occur strictly on-device between your device and the original media hosts. Links and files are never sent to external download services or intermediate proxy servers.
+- **yt-dlp Extractor Engine Updates**: To keep extractors functional when media platforms update their layouts, Laterbox periodically queries the official `yt-dlp` GitHub releases repository (checked at most once every 24 hours on app launch, or manually via Settings). This network request contacts GitHub solely to check for new binary updates—no user links, browsing history, or personal identifiers are ever transmitted.
+
 ---
 
 ## Licensing Notice

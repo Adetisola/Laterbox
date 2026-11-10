@@ -16,6 +16,9 @@ interface AppContainer {
     val backupManager: BackupManager
     val reminderScheduler: com.laterbox.app.reminders.ReminderScheduler
     val notificationHistoryRepository: NotificationHistoryRepository
+    val mediaRepository: com.laterbox.app.media.domain.repository.MediaRepository
+    val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver
+    val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -46,5 +49,30 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val notificationHistoryRepository: NotificationHistoryRepository by lazy {
         NotificationHistoryRepository(database.notificationHistoryDao())
+    }
+
+    override val mediaRepository: com.laterbox.app.media.domain.repository.MediaRepository by lazy {
+        com.laterbox.app.media.data.repository.MediaRepositoryImpl(
+            context = context.applicationContext,
+            assetDao = database.downloadedAssetDao(),
+            taskDao = database.downloadTaskDao()
+        )
+    }
+
+    override val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater by lazy {
+        com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater(
+            appContext = context.applicationContext,
+            userPreferencesRepository = userPreferencesRepository
+        )
+    }
+
+    override val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver by lazy {
+        val directAdapter = com.laterbox.app.media.data.adapters.direct.DirectUrlAdapter(okhttp3.OkHttpClient())
+        val ytDlpAdapter = com.laterbox.app.media.data.adapters.ytdlp.YtDlpAdapter(context.applicationContext)
+        val metadataAdapter = com.laterbox.app.media.data.adapters.metadata.MetadataOnlyAdapter(okhttp3.OkHttpClient())
+        val registry = com.laterbox.app.media.domain.adapter.AdapterRegistry(
+            listOf(directAdapter, ytDlpAdapter, metadataAdapter)
+        )
+        com.laterbox.app.media.domain.adapter.PlatformResolver(registry)
     }
 }

@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import com.laterbox.app.domain.model.MetadataStatus
 import com.laterbox.app.ui.components.ContentTypeBadge
@@ -85,7 +86,15 @@ fun SavedItemDetailSheet(
     onQuickOpen: (String) -> Unit,
     onRetryMetadata: () -> Unit,
     onDismissRequest: () -> Unit,
-    onCollectionChange: (Long?) -> Unit = {}
+    onCollectionChange: (Long?) -> Unit = {},
+    onInspectMedia: () -> Unit = {},
+    onDownloadCandidate: (com.laterbox.app.media.domain.model.MediaCandidate) -> Unit = {},
+    onOpenMediaAsset: (com.laterbox.app.media.domain.model.MediaAsset) -> Unit = {},
+    onExportMediaAsset: (com.laterbox.app.media.domain.model.MediaAsset) -> Unit = {},
+    onDeleteMediaAsset: (com.laterbox.app.media.domain.model.MediaAsset) -> Unit = {},
+    onOverrideCellular: (String) -> Unit = {},
+    onCancelTask: (String) -> Unit = {},
+    onDeleteWithFiles: (Boolean) -> Unit = {}
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
@@ -617,6 +626,23 @@ fun SavedItemDetailSheet(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(spacing.md))
+
+            com.laterbox.app.media.ui.linkdetail.MediaSection(
+                linkUrl = link.originalUrl,
+                assets = uiState.assets,
+                activeTasks = uiState.activeTasks,
+                inspectionResult = uiState.inspectionResult,
+                isInspecting = uiState.isInspecting,
+                onInspectClick = onInspectMedia,
+                onDownloadCandidate = onDownloadCandidate,
+                onOpenAsset = onOpenMediaAsset,
+                onExportAsset = onExportMediaAsset,
+                onDeleteAsset = onDeleteMediaAsset,
+                onOverrideCellular = onOverrideCellular,
+                onCancelTask = onCancelTask
+            )
         }
 
         // New Collection inline creation dialog
@@ -679,45 +705,99 @@ fun SavedItemDetailSheet(
 
         // Delete confirmation dialog
         if (showDeleteConfirm) {
-            AlertDialog(
-                onDismissRequest = { showDeleteConfirm = false },
-                containerColor = colors.surfaceElevated,
-                title = {
-                    Text(
-                        text = "Delete Link?",
-                        style = typography.titleSmall,
-                        color = colors.textPrimary
-                    )
-                },
-                text = {
-                    Text(
-                        text = "\"${link.title}\" will be permanently deleted.",
-                        style = typography.bodySecondary,
-                        color = colors.textSecondary
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        showDeleteConfirm = false
-                        onDelete()
-                    }) {
+            if (uiState.assets.isNotEmpty()) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteConfirm = false },
+                    containerColor = colors.surfaceElevated,
+                    title = {
                         Text(
-                            text = "Delete",
-                            style = typography.uiMedium,
-                            color = colors.accentPrimary
+                            text = "Delete Link",
+                            style = typography.titleSmall,
+                            color = colors.textPrimary
                         )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showDeleteConfirm = false }) {
+                    },
+                    text = {
                         Text(
-                            text = "Cancel",
-                            style = typography.uiMedium,
+                            text = "\"${link.title}\" has ${uiState.assets.size} downloaded file(s). Do you want to keep them in your Downloads library or delete them?",
+                            style = typography.bodySecondary,
                             color = colors.textSecondary
                         )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showDeleteConfirm = false
+                            onDeleteWithFiles(true)
+                        }) {
+                            Text(
+                                text = "Delete Link & Files",
+                                style = typography.uiMedium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(onClick = { showDeleteConfirm = false }) {
+                                Text(
+                                    text = "Cancel",
+                                    style = typography.uiMedium,
+                                    color = colors.textSecondary
+                                )
+                            }
+                            TextButton(onClick = {
+                                showDeleteConfirm = false
+                                onDeleteWithFiles(false)
+                            }) {
+                                Text(
+                                    text = "Keep Files",
+                                    style = typography.uiMedium,
+                                    color = colors.accentPrimary
+                                )
+                            }
+                        }
                     }
-                }
-            )
+                )
+            } else {
+                AlertDialog(
+                    onDismissRequest = { showDeleteConfirm = false },
+                    containerColor = colors.surfaceElevated,
+                    title = {
+                        Text(
+                            text = "Delete Link?",
+                            style = typography.titleSmall,
+                            color = colors.textPrimary
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "\"${link.title}\" will be permanently deleted.",
+                            style = typography.bodySecondary,
+                            color = colors.textSecondary
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showDeleteConfirm = false
+                            onDelete()
+                        }) {
+                            Text(
+                                text = "Delete",
+                                style = typography.uiMedium,
+                                color = colors.accentPrimary
+                            )
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteConfirm = false }) {
+                            Text(
+                                text = "Cancel",
+                                style = typography.uiMedium,
+                                color = colors.textSecondary
+                            )
+                        }
+                    }
+                )
+            }
         }
 
         if (showCustomReminderPicker) {

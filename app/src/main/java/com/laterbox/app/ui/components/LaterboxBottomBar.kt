@@ -46,6 +46,7 @@ enum class BottomBarDestination(
 ) {
     INBOX("Inbox", LaterboxIcons.Inbox),
     COLLECTIONS("Collections", LaterboxIcons.Folder),
+    DOWNLOADS("Downloads", LaterboxIcons.Download),
     ARCHIVE("Archive", LaterboxIcons.Archive)
 }
 

@@ -53,6 +53,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        ndk {
+            abiFilters += listOf("x86", "x86_64", "armeabi-v7a", "arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -137,8 +141,18 @@ dependencies {
 
     // Background & Networking
     implementation(libs.work.runtime.ktx)
+    implementation(libs.okhttp)
     implementation(libs.jsoup)
     implementation(libs.coil.compose)
+
+    // Media3 Playback
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    implementation(libs.media3.common)
+
+    // youtubedl-android
+    implementation(libs.youtubedl.library)
+    implementation(libs.youtubedl.ffmpeg)
 
     // Firebase & Generative AI Logic (Google AI Studio backend)
     implementation(platform(libs.firebase.bom))
@@ -153,6 +167,7 @@ dependencies {
     testImplementation(libs.compose.ui.test.junit4)
     testImplementation(libs.robolectric)
     testImplementation(libs.mockwebserver)
+    testImplementation(libs.work.testing)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)
 

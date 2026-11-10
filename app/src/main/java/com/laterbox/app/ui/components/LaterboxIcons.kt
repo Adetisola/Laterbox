@@ -34,4 +34,5 @@ object LaterboxIcons {
     @DrawableRes val Sparkles = R.drawable.ic_huge_sparkles
     @DrawableRes val User = R.drawable.ic_huge_user
     @DrawableRes val Globe = R.drawable.ic_platform_web
+    @DrawableRes val Download = R.drawable.ic_huge_download
 }

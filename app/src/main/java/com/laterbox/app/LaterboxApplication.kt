@@ -78,6 +78,13 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
                     context = this@LaterboxApplication,
                     settings = prefs.toSmartReminderSettings()
                 )
+
+                // Recover any interrupted media downloads and sweep orphan files
+                container.mediaRepository.recoverInterruptedTasks()
+                container.mediaRepository.runOrphanSweep()
+
+                // Check for yt-dlp binary updates if > 24 hours
+                container.ytDlpUpdater.updateIfStale()
             } catch (e: Exception) {
                 // Safeguard against test environments
             }

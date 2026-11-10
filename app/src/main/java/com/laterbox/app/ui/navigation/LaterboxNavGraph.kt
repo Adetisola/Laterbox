@@ -84,6 +84,7 @@ fun LaterboxApp(
     val savedItemDetailViewModel: SavedItemDetailViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val settingsViewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val notificationHistoryViewModel: com.laterbox.app.ui.notifications.NotificationHistoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
+    val downloadsViewModel: com.laterbox.app.media.ui.downloads.DownloadsViewModel = viewModel(factory = AppViewModelProvider.Factory)
 
     // Current route observation
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -91,6 +92,7 @@ fun LaterboxApp(
 
     val currentBottomDestination = when {
         currentRoute == LaterboxDestination.Collections.route || currentRoute?.startsWith("collection/") == true -> BottomBarDestination.COLLECTIONS
+        currentRoute == LaterboxDestination.Downloads.route -> BottomBarDestination.DOWNLOADS
         currentRoute == LaterboxDestination.Archive.route -> BottomBarDestination.ARCHIVE
         else -> BottomBarDestination.INBOX
     }
@@ -98,6 +100,7 @@ fun LaterboxApp(
     // Modal sheet states
     var showSaveSheet by remember { mutableStateOf(false) }
     var selectedLinkForDetails by remember { mutableStateOf<SavedLink?>(null) }
+    var activeViewerAsset by remember { mutableStateOf<com.laterbox.app.media.domain.model.MediaAsset?>(null) }
     val saveSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val snackbarHostState = remember { SnackbarHostState() }
@@ -323,17 +326,34 @@ fun LaterboxApp(
                     )
                 }
 
+                // Downloads Screen
+                composable(LaterboxDestination.Downloads.route) {
+                    com.laterbox.app.media.ui.downloads.DownloadsScreen(
+                        viewModel = downloadsViewModel,
+                        onSettingsClick = {
+                            navController.navigate(LaterboxDestination.Settings.route)
+                        }
+                    )
+                }
+
                 // Settings Screen
                 composable(LaterboxDestination.Settings.route) {
                     val preferences by settingsViewModel.preferences.collectAsState()
                     val aiConnectionStatus by settingsViewModel.aiConnectionStatus.collectAsState()
                     val isCheckingUpdate by settingsViewModel.isCheckingUpdate.collectAsState()
                     val availableUpdateInfo by settingsViewModel.updateCheckResult.collectAsState()
+                    val isUpdatingYtDlp by settingsViewModel.isUpdatingYtDlp.collectAsState()
 
                     SettingsScreen(
                         preferences = preferences,
                         isCheckingUpdate = isCheckingUpdate,
                         availableUpdateInfo = availableUpdateInfo,
+                        isUpdatingYtDlp = isUpdatingYtDlp,
+                        onUpdateYtDlpClick = {
+                            settingsViewModel.updateYtDlp { msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         onCheckForUpdates = {
                             settingsViewModel.checkForUpdates { msg ->
                                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
@@ -368,6 +388,8 @@ fun LaterboxApp(
                         onAccessibilityCaptureEnabledChange = settingsViewModel::setAccessibilityCaptureEnabled,
                         onClipboardSuggestionEnabledChange = settingsViewModel::setClipboardSuggestionEnabled,
                         onToggleExcludedPackage = settingsViewModel::toggleExcludedCapturePackage,
+                        onMediaDownloadNetworkPolicyChange = settingsViewModel::setMediaDownloadNetworkPolicy,
+                        onAutoInspectMediaOnSaveChange = settingsViewModel::setAutoInspectMediaOnSave,
                         onBackClick = { navController.popBackStack() }
                     )
                 }
@@ -399,6 +421,11 @@ fun LaterboxApp(
                             }
                             BottomBarDestination.COLLECTIONS -> {
                                 navController.navigate(LaterboxDestination.Collections.route) {
+                                    popUpTo(LaterboxDestination.Inbox.route)
+                                }
+                            }
+                            BottomBarDestination.DOWNLOADS -> {
+                                navController.navigate(LaterboxDestination.Downloads.route) {
                                     popUpTo(LaterboxDestination.Inbox.route)
                                 }
                             }
@@ -488,7 +515,7 @@ fun LaterboxApp(
                 }
             },
             onDelete = {
-                savedItemDetailViewModel.deleteWithUndo { deletedLink ->
+                savedItemDetailViewModel.deleteWithUndo(deleteFiles = false) { deletedLink ->
                     coroutineScope.launch {
                         detailSheetState.hide()
                         selectedLinkForDetails = null
@@ -503,6 +530,43 @@ fun LaterboxApp(
                     }
                 }
             },
+            onDeleteWithFiles = { deleteFiles ->
+                savedItemDetailViewModel.deleteWithUndo(deleteFiles = deleteFiles) { deletedLink ->
+                    coroutineScope.launch {
+                        detailSheetState.hide()
+                        selectedLinkForDetails = null
+                        val result = snackbarHostState.showSnackbar(
+                            message = if (deleteFiles) "Deleted link & files" else "Deleted link",
+                            actionLabel = "Undo",
+                            duration = SnackbarDuration.Short
+                        )
+                        if (result == SnackbarResult.ActionPerformed) {
+                            inboxViewModel.restoreLink(deletedLink)
+                        }
+                    }
+                }
+            },
+            onInspectMedia = savedItemDetailViewModel::inspectLink,
+            onDownloadCandidate = savedItemDetailViewModel::downloadCandidate,
+            onOpenMediaAsset = { asset ->
+                when (asset.mediaType) {
+                    com.laterbox.app.media.domain.model.MediaType.IMAGE -> activeViewerAsset = asset
+                    com.laterbox.app.media.domain.model.MediaType.VIDEO, com.laterbox.app.media.domain.model.MediaType.AUDIO -> activeViewerAsset = asset
+                    com.laterbox.app.media.domain.model.MediaType.DOCUMENT, com.laterbox.app.media.domain.model.MediaType.OTHER -> com.laterbox.app.media.ui.viewer.DocumentOpener.openDocument(context, asset)
+                }
+            },
+            onExportMediaAsset = { asset ->
+                savedItemDetailViewModel.exportAsset(asset.id) { success ->
+                    android.widget.Toast.makeText(
+                        context,
+                        if (success) "Exported successfully" else "Failed to export",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onDeleteMediaAsset = { asset -> savedItemDetailViewModel.deleteAsset(asset.id) },
+            onOverrideCellular = savedItemDetailViewModel::overrideCellular,
+            onCancelTask = savedItemDetailViewModel::cancelTask,
             onQuickOpen = { url ->
                 BrowserLauncher.openUrl(context, url, colors)
                 selectedLinkForDetails?.let { inboxViewModel.onLinkOpened(it.id) }
@@ -515,6 +579,45 @@ fun LaterboxApp(
                 }
             }
         )
+    }
+
+    // Active Media Viewer Overlay
+    activeViewerAsset?.let { asset ->
+        when (asset.mediaType) {
+            com.laterbox.app.media.domain.model.MediaType.IMAGE -> {
+                com.laterbox.app.media.ui.viewer.ImageViewer(
+                    asset = asset,
+                    onDismiss = { activeViewerAsset = null },
+                    onExport = {
+                        savedItemDetailViewModel.exportAsset(asset.id) { success ->
+                            android.widget.Toast.makeText(
+                                context,
+                                if (success) "Exported to gallery" else "Failed to export",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                )
+            }
+            com.laterbox.app.media.domain.model.MediaType.VIDEO, com.laterbox.app.media.domain.model.MediaType.AUDIO -> {
+                com.laterbox.app.media.ui.viewer.MediaPlayerScreen(
+                    asset = asset,
+                    onDismiss = { activeViewerAsset = null },
+                    onExport = {
+                        savedItemDetailViewModel.exportAsset(asset.id) { success ->
+                            android.widget.Toast.makeText(
+                                context,
+                                if (success) "Exported to storage" else "Failed to export",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                )
+            }
+            else -> {
+                activeViewerAsset = null
+            }
+        }
     }
 
     if (appUpdateInfoToPrompt != null) {

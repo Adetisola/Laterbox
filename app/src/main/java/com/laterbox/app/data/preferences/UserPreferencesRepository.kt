@@ -52,6 +52,12 @@ enum class SmartReminderPersistence(val maxNudges: Int, val label: String) {
     UNTIL_READ(Int.MAX_VALUE, "Until read")
 }
 
+enum class MediaDownloadNetworkPolicy(val label: String) {
+    WIFI_ONLY("Wi-Fi only"),
+    WIFI_OVER_20MB("Wi-Fi for files over 20 MB"),
+    ANY_NETWORK("Any network")
+}
+
 data class UserPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val autoMarkAsRead: Boolean = true,
@@ -94,7 +100,11 @@ data class UserPreferences(
     val overlayYRatio: Float = 0.82f,
     val lastUpdateCheckTime: Long = 0L,
     val dismissedUpdateVersion: String = "",
-    val dismissedUpdateTimestamp: Long = 0L
+    val dismissedUpdateTimestamp: Long = 0L,
+    val mediaDownloadNetworkPolicy: MediaDownloadNetworkPolicy = MediaDownloadNetworkPolicy.WIFI_OVER_20MB,
+    val autoInspectMediaOnSave: Boolean = false,
+    val ytDlpVersion: String = "",
+    val lastYtDlpUpdateCheck: Long = 0L
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 
@@ -185,6 +195,10 @@ class UserPreferencesRepository(private val context: Context) {
         val LAST_UPDATE_CHECK_TIME = longPreferencesKey("last_update_check_time")
         val DISMISSED_UPDATE_VERSION = stringPreferencesKey("dismissed_update_version")
         val DISMISSED_UPDATE_TIMESTAMP = longPreferencesKey("dismissed_update_timestamp")
+        val MEDIA_DOWNLOAD_NETWORK_POLICY = stringPreferencesKey("media_download_network_policy")
+        val AUTO_INSPECT_MEDIA_ON_SAVE = booleanPreferencesKey("auto_inspect_media_on_save")
+        val YTDLP_VERSION = stringPreferencesKey("ytdlp_version")
+        val LAST_YTDLP_UPDATE_CHECK = longPreferencesKey("last_ytdlp_update_check")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -296,6 +310,15 @@ class UserPreferencesRepository(private val context: Context) {
         val lastUpdateCheckTime = preferences[PreferencesKeys.LAST_UPDATE_CHECK_TIME] ?: 0L
         val dismissedUpdateVersion = preferences[PreferencesKeys.DISMISSED_UPDATE_VERSION] ?: ""
         val dismissedUpdateTimestamp = preferences[PreferencesKeys.DISMISSED_UPDATE_TIMESTAMP] ?: 0L
+        val mediaPolicyStr = preferences[PreferencesKeys.MEDIA_DOWNLOAD_NETWORK_POLICY] ?: MediaDownloadNetworkPolicy.WIFI_OVER_20MB.name
+        val mediaDownloadNetworkPolicy = try {
+            MediaDownloadNetworkPolicy.valueOf(mediaPolicyStr)
+        } catch (_: Exception) {
+            MediaDownloadNetworkPolicy.WIFI_OVER_20MB
+        }
+        val autoInspectMediaOnSave = preferences[PreferencesKeys.AUTO_INSPECT_MEDIA_ON_SAVE] ?: false
+        val ytDlpVersion = preferences[PreferencesKeys.YTDLP_VERSION] ?: ""
+        val lastYtDlpUpdateCheck = preferences[PreferencesKeys.LAST_YTDLP_UPDATE_CHECK] ?: 0L
 
         UserPreferences(
             themeMode = themeMode,
@@ -334,7 +357,11 @@ class UserPreferencesRepository(private val context: Context) {
             overlayYRatio = overlayYRatio,
             lastUpdateCheckTime = lastUpdateCheckTime,
             dismissedUpdateVersion = dismissedUpdateVersion,
-            dismissedUpdateTimestamp = dismissedUpdateTimestamp
+            dismissedUpdateTimestamp = dismissedUpdateTimestamp,
+            mediaDownloadNetworkPolicy = mediaDownloadNetworkPolicy,
+            autoInspectMediaOnSave = autoInspectMediaOnSave,
+            ytDlpVersion = ytDlpVersion,
+            lastYtDlpUpdateCheck = lastYtDlpUpdateCheck
         )
     }
 
@@ -565,6 +592,25 @@ class UserPreferencesRepository(private val context: Context) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.DISMISSED_UPDATE_VERSION] = version
             preferences[PreferencesKeys.DISMISSED_UPDATE_TIMESTAMP] = timestamp
+        }
+    }
+
+    suspend fun setMediaDownloadNetworkPolicy(policy: MediaDownloadNetworkPolicy) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.MEDIA_DOWNLOAD_NETWORK_POLICY] = policy.name
+        }
+    }
+
+    suspend fun setAutoInspectMediaOnSave(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.AUTO_INSPECT_MEDIA_ON_SAVE] = enabled
+        }
+    }
+
+    suspend fun recordYtDlpUpdate(version: String, timestamp: Long = System.currentTimeMillis()) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.YTDLP_VERSION] = version
+            preferences[PreferencesKeys.LAST_YTDLP_UPDATE_CHECK] = timestamp
         }
     }
 }

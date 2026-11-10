@@ -31,9 +31,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
@@ -116,6 +118,10 @@ fun SettingsScreen(
     onAccessibilityCaptureEnabledChange: (Boolean) -> Unit = {},
     onClipboardSuggestionEnabledChange: (Boolean) -> Unit = {},
     onToggleExcludedPackage: (String) -> Unit = {},
+    onMediaDownloadNetworkPolicyChange: (com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy) -> Unit = {},
+    onAutoInspectMediaOnSaveChange: (Boolean) -> Unit = {},
+    isUpdatingYtDlp: Boolean = false,
+    onUpdateYtDlpClick: () -> Unit = {},
     isCheckingUpdate: Boolean = false,
     availableUpdateInfo: com.laterbox.app.update.AppUpdateInfo? = null,
     onCheckForUpdates: () -> Unit = {},
@@ -978,6 +984,140 @@ fun SettingsScreen(
                                 checkedTrackColor = colors.accentPrimary
                             )
                         )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.lg))
+
+            // Section: Media Library & Downloads
+            SectionHeader(title = "Media Library & Downloads")
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = spacing.base)
+                    .clip(RoundedCornerShape(spacing.radiusMedium))
+                    .background(colors.surfacePrimary)
+                    .border(spacing.hairline, colors.borderSubtle, RoundedCornerShape(spacing.radiusMedium))
+                    .padding(spacing.md)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
+                    // Download network policy
+                    Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                        Text(
+                            text = "Download Network Policy",
+                            style = typography.uiMedium,
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = "Choose which network connection to use for media downloads",
+                            style = typography.bodySecondary.copy(fontSize = 12.sp),
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(spacing.xxs))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                        ) {
+                            ThemeOptionChip(
+                                label = "Wi-Fi Only",
+                                isSelected = preferences.mediaDownloadNetworkPolicy == com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy.WIFI_ONLY,
+                                onClick = { onMediaDownloadNetworkPolicyChange(com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy.WIFI_ONLY) }
+                            )
+                            ThemeOptionChip(
+                                label = "Wi-Fi for >20 MB (Default)",
+                                isSelected = preferences.mediaDownloadNetworkPolicy == com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy.WIFI_OVER_20MB,
+                                onClick = { onMediaDownloadNetworkPolicyChange(com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy.WIFI_OVER_20MB) }
+                            )
+                            ThemeOptionChip(
+                                label = "Any Network",
+                                isSelected = preferences.mediaDownloadNetworkPolicy == com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy.ANY_NETWORK,
+                                onClick = { onMediaDownloadNetworkPolicyChange(com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy.ANY_NETWORK) }
+                            )
+                        }
+                    }
+
+                    Divider(colors.borderSubtle)
+
+                    // Auto-inspect links on save
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-inspect links on save",
+                                style = typography.uiMedium,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = "Automatically detect downloadable media when links are saved",
+                                style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                color = colors.textSecondary
+                            )
+                        }
+
+                        Switch(
+                            checked = preferences.autoInspectMediaOnSave,
+                            onCheckedChange = onAutoInspectMediaOnSaveChange,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.surfaceElevated,
+                                checkedTrackColor = colors.accentPrimary
+                            )
+                        )
+                    }
+
+                    Divider(colors.borderSubtle)
+
+                    // yt-dlp extractor engine status and update button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Media Extractor (yt-dlp)",
+                                style = typography.uiMedium,
+                                color = colors.textPrimary
+                            )
+                            val versionText = if (preferences.ytDlpVersion.isNotBlank()) {
+                                "Version: ${preferences.ytDlpVersion}"
+                            } else {
+                                "Installed on device (bundled)"
+                            }
+                            Text(
+                                text = "$versionText · Updates automatically when extractors change",
+                                style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                color = colors.textSecondary
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(spacing.sm))
+
+                        OutlinedButton(
+                            onClick = onUpdateYtDlpClick,
+                            enabled = !isUpdatingYtDlp,
+                            shape = LaterboxShapeTokens.Button
+                        ) {
+                            if (isUpdatingYtDlp) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = colors.accentPrimary
+                                )
+                            } else {
+                                Text(
+                                    text = "Check Update",
+                                    style = typography.uiMedium.copy(fontSize = 13.sp),
+                                    color = colors.accentPrimary
+                                )
+                            }
+                        }
                     }
                 }
             }

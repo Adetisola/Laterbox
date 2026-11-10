@@ -824,5 +824,228 @@ class LaterboxDatabaseTest {
 
         helper.close()
     }
+
+    @Test
+    fun migration4To5CreatesMediaTablesAndMaintainsForeignKeys() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(4) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `collections` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `name` TEXT NOT NULL,
+                            `icon_name` TEXT,
+                            `created_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `saved_links` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `original_url` TEXT NOT NULL,
+                            `normalized_url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `description` TEXT,
+                            `site_name` TEXT,
+                            `domain` TEXT NOT NULL,
+                            `favicon_url` TEXT,
+                            `preview_image_url` TEXT,
+                            `content_type` TEXT NOT NULL,
+                            `collection_id` INTEGER,
+                            `personal_note` TEXT,
+                            `is_read` INTEGER NOT NULL,
+                            `is_archived` INTEGER NOT NULL,
+                            `metadata_status` TEXT NOT NULL,
+                            `retry_count` INTEGER NOT NULL,
+                            `last_fetched_at` INTEGER,
+                            `created_at` INTEGER NOT NULL,
+                            `updated_at` INTEGER NOT NULL,
+                            `reminder_at` INTEGER,
+                            `last_nudged_at` INTEGER,
+                            `nudge_count` INTEGER NOT NULL DEFAULT 0,
+                            `nudge_dismissed` INTEGER NOT NULL DEFAULT 0,
+                            FOREIGN KEY(`collection_id`) REFERENCES `collections`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_saved_links_normalized_url` ON `saved_links` (`normalized_url`)")
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `notification_history` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `link_id` INTEGER,
+                            `url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `body` TEXT NOT NULL,
+                            `origin` TEXT NOT NULL,
+                            `domain` TEXT NOT NULL,
+                            `site_name` TEXT,
+                            `preview_image_url` TEXT,
+                            `favicon_url` TEXT,
+                            `is_read` INTEGER NOT NULL DEFAULT 0,
+                            `created_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+
+        // Insert sample link in v4 schema
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `saved_links` (
+                `id`, `original_url`, `normalized_url`, `title`, `domain`, `content_type`,
+                `is_read`, `is_archived`, `metadata_status`, `retry_count`, `created_at`, `updated_at`,
+                `nudge_count`, `nudge_dismissed`
+            ) VALUES (
+                1001, 'https://example.com/media-link', 'https://example.com/media-link', 'Media Link', 'example.com',
+                'WEBSITE', 0, 0, 'SUCCESS', 0, 1000, 1000, 0, 0
+            )
+            """.trimIndent()
+        )
+
+        // Run MIGRATION_4_5
+        LaterboxDatabase.MIGRATION_4_5.migrate(sqliteDb)
+
+        // Insert downloaded_asset and download_task referencing saved_links(id = 1001)
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `downloaded_asset` (
+                `id`, `savedLinkId`, `sourcePlatform`, `originalSourceUrl`, `title`, `mimeType`,
+                `mediaType`, `localPath`, `fileStatus`, `fileSize`, `checksum`, `createdAt`
+            ) VALUES (
+                'asset-1', 1001, 'Direct', 'https://example.com/media.mp4', 'Sample Video', 'video/mp4',
+                'VIDEO', 'video/abc123.mp4', 'AVAILABLE', 10240, 'abc123sha256', 2000
+            )
+            """.trimIndent()
+        )
+
+        sqliteDb.execSQL(
+            """
+            INSERT INTO `download_task` (
+                `id`, `savedLinkId`, `sourceUrl`, `sourcePlatform`, `mediaType`,
+                `status`, `progress`, `downloadedBytes`, `retryCount`, `createdAt`, `updatedAt`
+            ) VALUES (
+                'task-1', 1001, 'https://example.com/media.mp4', 'Direct', 'VIDEO',
+                'QUEUED', 0, 0, 0, 2000, 2000
+            )
+            """.trimIndent()
+        )
+
+        // Verify inserted rows exist
+        val assetCursor = sqliteDb.query("SELECT id, savedLinkId, title FROM downloaded_asset WHERE id = 'asset-1'")
+        assertTrue(assetCursor.moveToFirst())
+        assertEquals("asset-1", assetCursor.getString(0))
+        assertEquals(1001L, assetCursor.getLong(1))
+        assertEquals("Sample Video", assetCursor.getString(2))
+        assetCursor.close()
+
+        val taskCursor = sqliteDb.query("SELECT id, status FROM download_task WHERE id = 'task-1'")
+        assertTrue(taskCursor.moveToFirst())
+        assertEquals("task-1", taskCursor.getString(0))
+        assertEquals("QUEUED", taskCursor.getString(1))
+        taskCursor.close()
+
+        helper.close()
+    }
+
+    @Test
+    fun resetInterruptedTasksToQueued_resetsActiveTasksWhilePreservingPausedAndCompleted() = runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/test-active",
+            normalizedUrl = "https://example.com/test-active",
+            title = "Test Link",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+        val taskDao = db.downloadTaskDao()
+
+        val taskDownloading = com.laterbox.app.media.data.db.entity.DownloadTaskEntity(
+            id = "task-downloading",
+            savedLinkId = linkId,
+            sourceUrl = "https://example.com/video1.mp4",
+            sourcePlatform = "Direct",
+            candidateId = null,
+            formatSelector = null,
+            mediaType = "VIDEO",
+            qualityLabel = null,
+            title = "Downloading Video",
+            status = "DOWNLOADING",
+            createdAt = 1000L,
+            updatedAt = 1000L
+        )
+
+        val taskProcessing = com.laterbox.app.media.data.db.entity.DownloadTaskEntity(
+            id = "task-processing",
+            savedLinkId = linkId,
+            sourceUrl = "https://example.com/video2.mp4",
+            sourcePlatform = "Direct",
+            candidateId = null,
+            formatSelector = null,
+            mediaType = "VIDEO",
+            qualityLabel = null,
+            title = "Processing Video",
+            status = "PROCESSING",
+            createdAt = 1000L,
+            updatedAt = 1000L
+        )
+
+        val taskPaused = com.laterbox.app.media.data.db.entity.DownloadTaskEntity(
+            id = "task-paused",
+            savedLinkId = linkId,
+            sourceUrl = "https://example.com/video3.mp4",
+            sourcePlatform = "Direct",
+            candidateId = null,
+            formatSelector = null,
+            mediaType = "VIDEO",
+            qualityLabel = null,
+            title = "Paused Video",
+            status = "PAUSED",
+            createdAt = 1000L,
+            updatedAt = 1000L
+        )
+
+        val taskCompleted = com.laterbox.app.media.data.db.entity.DownloadTaskEntity(
+            id = "task-completed",
+            savedLinkId = linkId,
+            sourceUrl = "https://example.com/video4.mp4",
+            sourcePlatform = "Direct",
+            candidateId = null,
+            formatSelector = null,
+            mediaType = "VIDEO",
+            qualityLabel = null,
+            title = "Completed Video",
+            status = "COMPLETED",
+            createdAt = 1000L,
+            updatedAt = 1000L
+        )
+
+        taskDao.insertTask(taskDownloading)
+        taskDao.insertTask(taskProcessing)
+        taskDao.insertTask(taskPaused)
+        taskDao.insertTask(taskCompleted)
+
+        val updatedCount = taskDao.resetInterruptedTasksToQueued()
+        assertEquals(2, updatedCount)
+
+        assertEquals("QUEUED", taskDao.getEntityById("task-downloading")?.status)
+        assertEquals("QUEUED", taskDao.getEntityById("task-processing")?.status)
+        assertEquals("PAUSED", taskDao.getEntityById("task-paused")?.status)
+        assertEquals("COMPLETED", taskDao.getEntityById("task-completed")?.status)
+    }
 }
 

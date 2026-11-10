@@ -32,7 +32,8 @@ class SettingsViewModel(
     private val userPreferencesRepository: UserPreferencesRepository,
     private val backupManager: BackupManager,
     private val linkRepository: LinkRepository? = null,
-    private val appContext: Context? = null
+    private val appContext: Context? = null,
+    private val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater? = null
 ) : ViewModel() {
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.userPreferences.stateIn(
@@ -43,6 +44,9 @@ class SettingsViewModel(
 
     private val _aiConnectionStatus = MutableStateFlow<Pair<Boolean, String>?>(null)
     val aiConnectionStatus: StateFlow<Pair<Boolean, String>?> = _aiConnectionStatus.asStateFlow()
+
+    private val _isUpdatingYtDlp = MutableStateFlow(false)
+    val isUpdatingYtDlp: StateFlow<Boolean> = _isUpdatingYtDlp.asStateFlow()
 
     fun setThemeMode(themeMode: ThemeMode) {
         viewModelScope.launch {
@@ -293,6 +297,45 @@ class SettingsViewModel(
         _updateCheckResult.value = null
         viewModelScope.launch {
             userPreferencesRepository.dismissUpdate(version)
+        }
+    }
+
+    fun setMediaDownloadNetworkPolicy(policy: com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy) {
+        viewModelScope.launch {
+            userPreferencesRepository.setMediaDownloadNetworkPolicy(policy)
+        }
+    }
+
+    fun setAutoInspectMediaOnSave(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setAutoInspectMediaOnSave(enabled)
+        }
+    }
+
+    fun updateYtDlp(onResult: (String) -> Unit) {
+        if (_isUpdatingYtDlp.value) return
+        _isUpdatingYtDlp.value = true
+        viewModelScope.launch {
+            try {
+                val updater = ytDlpUpdater ?: appContext?.let { ctx ->
+                    com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater(ctx, userPreferencesRepository)
+                }
+                if (updater == null) {
+                    onResult("Updater not available")
+                    return@launch
+                }
+                val result = updater.forceUpdate()
+                if (result.isSuccess) {
+                    val version = result.getOrThrow()
+                    onResult("yt-dlp updated ($version)")
+                } else {
+                    onResult("Failed to update yt-dlp: ${result.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                onResult("Error updating yt-dlp: ${e.message}")
+            } finally {
+                _isUpdatingYtDlp.value = false
+            }
         }
     }
 }

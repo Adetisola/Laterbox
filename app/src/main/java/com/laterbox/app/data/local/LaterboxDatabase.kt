@@ -13,15 +13,21 @@ import com.laterbox.app.data.local.dao.SavedLinkDao
 import com.laterbox.app.data.local.entity.CollectionEntity
 import com.laterbox.app.data.local.entity.NotificationHistoryEntity
 import com.laterbox.app.data.local.entity.SavedLinkEntity
+import com.laterbox.app.media.data.db.dao.DownloadedAssetDao
+import com.laterbox.app.media.data.db.dao.DownloadTaskDao
+import com.laterbox.app.media.data.db.entity.DownloadedAssetEntity
+import com.laterbox.app.media.data.db.entity.DownloadTaskEntity
 
 @Database(
     entities = [
         SavedLinkEntity::class,
         CollectionEntity::class,
         com.laterbox.app.data.local.entity.LinkCollectionCrossRef::class,
-        NotificationHistoryEntity::class
+        NotificationHistoryEntity::class,
+        DownloadedAssetEntity::class,
+        DownloadTaskEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -30,6 +36,8 @@ abstract class LaterboxDatabase : RoomDatabase() {
     abstract fun savedLinkDao(): SavedLinkDao
     abstract fun collectionDao(): CollectionDao
     abstract fun notificationHistoryDao(): NotificationHistoryDao
+    abstract fun downloadedAssetDao(): DownloadedAssetDao
+    abstract fun downloadTaskDao(): DownloadTaskDao
 
     companion object {
         private const val DATABASE_NAME = "laterbox.db"
@@ -255,6 +263,74 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from version 4 to version 5:
+         * 1. Creates downloaded_asset table with foreign key to saved_links(id) (ON DELETE SET NULL),
+         *    and indices on savedLinkId, checksum, and localPath.
+         * 2. Creates download_task table with foreign key to saved_links(id) (ON DELETE CASCADE),
+         *    and indices on savedLinkId and status.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `downloaded_asset` (
+                        `id` TEXT NOT NULL,
+                        `savedLinkId` INTEGER,
+                        `sourcePlatform` TEXT NOT NULL,
+                        `originalSourceUrl` TEXT NOT NULL,
+                        `title` TEXT,
+                        `mimeType` TEXT NOT NULL,
+                        `mediaType` TEXT NOT NULL,
+                        `localPath` TEXT NOT NULL,
+                        `exportedUri` TEXT,
+                        `fileStatus` TEXT NOT NULL DEFAULT 'AVAILABLE',
+                        `fileSize` INTEGER NOT NULL,
+                        `durationMs` INTEGER,
+                        `width` INTEGER,
+                        `height` INTEGER,
+                        `qualityLabel` TEXT,
+                        `checksum` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`savedLinkId`) REFERENCES `saved_links`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_downloaded_asset_savedLinkId` ON `downloaded_asset` (`savedLinkId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_downloaded_asset_checksum` ON `downloaded_asset` (`checksum`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_downloaded_asset_localPath` ON `downloaded_asset` (`localPath`)")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `download_task` (
+                        `id` TEXT NOT NULL,
+                        `savedLinkId` INTEGER NOT NULL,
+                        `sourceUrl` TEXT NOT NULL,
+                        `sourcePlatform` TEXT NOT NULL,
+                        `candidateId` TEXT,
+                        `formatSelector` TEXT,
+                        `mediaType` TEXT NOT NULL,
+                        `qualityLabel` TEXT,
+                        `title` TEXT,
+                        `assetId` TEXT,
+                        `status` TEXT NOT NULL,
+                        `progress` INTEGER NOT NULL DEFAULT 0,
+                        `downloadedBytes` INTEGER NOT NULL DEFAULT 0,
+                        `totalBytes` INTEGER,
+                        `allowCellularOverride` INTEGER NOT NULL DEFAULT 0,
+                        `supportsRange` INTEGER NOT NULL DEFAULT 1,
+                        `retryCount` INTEGER NOT NULL DEFAULT 0,
+                        `errorCode` TEXT,
+                        `errorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`savedLinkId`) REFERENCES `saved_links`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_download_task_savedLinkId` ON `download_task` (`savedLinkId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_download_task_status` ON `download_task` (`status`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -265,7 +341,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { INSTANCE = it }
             }

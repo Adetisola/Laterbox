@@ -7,13 +7,23 @@ import com.laterbox.app.data.repository.LinkRepository
 import com.laterbox.app.domain.model.Collection
 import com.laterbox.app.domain.model.MetadataStatus
 import com.laterbox.app.domain.model.SavedLink
+import com.laterbox.app.media.data.adapters.direct.DirectUrlAdapter
+import com.laterbox.app.media.domain.model.DownloadTask
+import com.laterbox.app.media.domain.model.InspectionResult
+import com.laterbox.app.media.domain.model.MediaAsset
+import com.laterbox.app.media.domain.model.MediaCandidate
+import com.laterbox.app.media.domain.repository.MediaRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
 
 data class SavedItemDetailUiState(
     val link: SavedLink? = null,
@@ -21,15 +31,22 @@ data class SavedItemDetailUiState(
     val editedNote: String = "",
     val selectedCollectionIds: Set<Long> = emptySet(),
     val collections: List<Collection> = emptyList(),
-    val isSaving: Boolean = false
+    val isSaving: Boolean = false,
+    val assets: List<MediaAsset> = emptyList(),
+    val activeTasks: List<DownloadTask> = emptyList(),
+    val inspectionResult: InspectionResult? = null,
+    val isInspecting: Boolean = false
 ) {
     val selectedCollectionId: Long?
         get() = selectedCollectionIds.firstOrNull()
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SavedItemDetailViewModel(
     private val linkRepository: LinkRepository,
-    private val collectionRepository: CollectionRepository
+    private val collectionRepository: CollectionRepository,
+    private val mediaRepository: MediaRepository,
+    private val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver
 ) : ViewModel() {
 
     private val _currentLink = MutableStateFlow<SavedLink?>(null)
@@ -37,22 +54,38 @@ class SavedItemDetailViewModel(
     private val _editedNote = MutableStateFlow("")
     private val _selectedCollectionIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _isSaving = MutableStateFlow(false)
+    private val _inspectionResult = MutableStateFlow<InspectionResult?>(null)
+    private val _isInspecting = MutableStateFlow(false)
+
+    private val _assets = _currentLink.flatMapLatest { link ->
+        if (link == null) flowOf(emptyList()) else mediaRepository.getAssetsForLink(link.id)
+    }
+
+    private val _tasks = _currentLink.flatMapLatest { link ->
+        if (link == null) flowOf(emptyList()) else mediaRepository.getTasksForLink(link.id)
+    }
 
     val uiState: StateFlow<SavedItemDetailUiState> = combine(
-        _currentLink,
-        _editedTitle,
-        _editedNote,
-        _selectedCollectionIds,
-        _isSaving,
-        collectionRepository.collections
-    ) { params ->
-        SavedItemDetailUiState(
-            link = params[0] as SavedLink?,
-            editedTitle = params[1] as String,
-            editedNote = params[2] as String,
-            selectedCollectionIds = params[3] as Set<Long>,
-            isSaving = params[4] as Boolean,
-            collections = (params[5] as List<*>).filterIsInstance<Collection>()
+        combine(_currentLink, _editedTitle, _editedNote, _selectedCollectionIds, _isSaving) { link, title, note, colIds, saving ->
+            SavedItemDetailUiState(
+                link = link,
+                editedTitle = title,
+                editedNote = note,
+                selectedCollectionIds = colIds,
+                isSaving = saving
+            )
+        },
+        collectionRepository.collections,
+        _assets,
+        _tasks,
+        combine(_inspectionResult, _isInspecting) { res, inspecting -> res to inspecting }
+    ) { base, collections, assets, tasks, (res, inspecting) ->
+        base.copy(
+            collections = collections,
+            assets = assets,
+            activeTasks = tasks,
+            inspectionResult = res,
+            isInspecting = inspecting
         )
     }.stateIn(
         scope = viewModelScope,
@@ -65,6 +98,8 @@ class SavedItemDetailViewModel(
         _editedTitle.value = link.title
         _editedNote.value = link.personalNote.orEmpty()
         _selectedCollectionIds.value = link.collectionIds.toSet()
+        _inspectionResult.value = null
+        _isInspecting.value = false
     }
 
     fun onTitleChange(newTitle: String) {
@@ -154,18 +189,24 @@ class SavedItemDetailViewModel(
         }
     }
 
-    fun onDelete(onDeleted: () -> Unit) {
+    fun onDelete(deleteFiles: Boolean = false, onDeleted: () -> Unit) {
         val link = _currentLink.value ?: return
         viewModelScope.launch {
+            if (deleteFiles) {
+                mediaRepository.deleteAssetsForLink(link.id, deleteFiles = true)
+            }
             linkRepository.deleteLink(link.id)
             _currentLink.value = null
             onDeleted()
         }
     }
 
-    fun deleteWithUndo(onDeleted: (SavedLink) -> Unit) {
+    fun deleteWithUndo(deleteFiles: Boolean = false, onDeleted: (SavedLink) -> Unit) {
         val link = _currentLink.value ?: return
         viewModelScope.launch {
+            if (deleteFiles) {
+                mediaRepository.deleteAssetsForLink(link.id, deleteFiles = true)
+            }
             linkRepository.deleteLink(link.id)
             _currentLink.value = null
             onDeleted(link)
@@ -194,6 +235,63 @@ class SavedItemDetailViewModel(
         viewModelScope.launch {
             linkRepository.setReminder(link.id, reminderAt)
             _currentLink.value = link.copy(reminderAt = reminderAt, nudgeDismissed = false)
+        }
+    }
+
+    // Media library actions
+    fun inspectLink() {
+        val link = _currentLink.value ?: return
+        viewModelScope.launch {
+            _isInspecting.value = true
+            try {
+                val result = platformResolver.resolveAndInspect(link.originalUrl)
+                _inspectionResult.value = result
+            } catch (e: Exception) {
+                _inspectionResult.value = InspectionResult.Failed(
+                    code = com.laterbox.app.media.domain.model.FailureCode.UNKNOWN,
+                    message = e.localizedMessage ?: "Failed to inspect",
+                    retryable = true
+                )
+            } finally {
+                _isInspecting.value = false
+            }
+        }
+    }
+
+    fun downloadCandidate(candidate: MediaCandidate) {
+        val link = _currentLink.value ?: return
+        viewModelScope.launch {
+            mediaRepository.enqueueDownload(
+                linkId = link.id,
+                candidate = candidate,
+                sourcePlatform = "Direct",
+                title = link.title
+            )
+        }
+    }
+
+    fun overrideCellular(taskId: String) {
+        viewModelScope.launch {
+            mediaRepository.overrideCellularRequirement(taskId)
+        }
+    }
+
+    fun cancelTask(taskId: String) {
+        viewModelScope.launch {
+            mediaRepository.cancelDownload(taskId)
+        }
+    }
+
+    fun deleteAsset(assetId: String) {
+        viewModelScope.launch {
+            mediaRepository.deleteAsset(assetId)
+        }
+    }
+
+    fun exportAsset(assetId: String, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val result = mediaRepository.exportAsset(assetId)
+            onResult(result.isSuccess)
         }
     }
 }

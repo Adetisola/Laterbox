@@ -1,0 +1,108 @@
+package com.laterbox.app.media.data.download
+
+import android.content.Context
+import com.laterbox.app.media.data.adapters.ytdlp.YtDlpOutputParser
+import com.laterbox.app.media.domain.model.FailureCode
+import com.yausername.ffmpeg.FFmpeg
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLException
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.yausername.youtubedl_android.YoutubeDLResponse
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
+class YtDlpDownloader(
+    private val appContext: Context,
+    private val customExecutor: ((YoutubeDLRequest, String, (Float, Long, String) -> Unit) -> YoutubeDLResponse)? = null
+) {
+
+    @Volatile
+    private var isInitialized = false
+
+    private fun ensureInitialized() {
+        if (!isInitialized && customExecutor == null) {
+            synchronized(this) {
+                if (!isInitialized) {
+                    try {
+                        YoutubeDL.getInstance().init(appContext)
+                        FFmpeg.getInstance().init(appContext)
+                    } catch (e: Exception) {
+                        android.util.Log.w("YtDlpDownloader", "Native YoutubeDL/FFmpeg init exception: ${e.message}")
+                    }
+                    isInitialized = true
+                }
+            }
+        }
+    }
+
+    suspend fun download(
+        url: String,
+        formatSelector: String,
+        destinationFile: File,
+        taskId: String,
+        onProgress: suspend (bytesDownloaded: Long, totalBytes: Long?, percent: Int) -> Unit
+    ): DownloadResult = withContext(Dispatchers.IO) {
+        ensureInitialized()
+
+        destinationFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
+
+        val request = YoutubeDLRequest(url).apply {
+            addOption("-f", formatSelector)
+            addOption("-o", destinationFile.absolutePath)
+            addOption("--merge-output-format", "mp4")
+            addOption("--continue")
+            addOption("--socket-timeout", "15")
+            addOption("--no-playlist")
+        }
+
+        try {
+            var lastReportedPercent = -1
+            val progressCallback: (Float, Long, String) -> Unit = { progress, etaInSeconds, line ->
+                val percent = progress.toInt().coerceIn(0, 100)
+                if (percent != lastReportedPercent) {
+                    lastReportedPercent = percent
+                    kotlinx.coroutines.runBlocking {
+                        onProgress(destinationFile.length(), null, percent)
+                    }
+                }
+            }
+
+            val response = if (customExecutor != null) {
+                customExecutor.invoke(request, taskId, progressCallback)
+            } else {
+                YoutubeDL.getInstance().execute(request, taskId, progressCallback)
+            }
+
+            if (destinationFile.exists() && destinationFile.length() > 0L) {
+                val fileSize = destinationFile.length()
+                onProgress(fileSize, fileSize, 100)
+                DownloadResult.Success(fileSize, fileSize)
+            } else {
+                val err = response.err ?: "yt-dlp exited without creating output file"
+                val code = YtDlpOutputParser.parseFailureCode(err)
+                DownloadResult.Failure(code = code, message = err)
+            }
+        } catch (ce: CancellationException) {
+            cancel(taskId)
+            throw ce
+        } catch (ye: YoutubeDLException) {
+            val errText = ye.message ?: "yt-dlp execution error"
+            val code = YtDlpOutputParser.parseFailureCode(errText)
+            DownloadResult.Failure(code = code, message = errText)
+        } catch (e: Exception) {
+            DownloadResult.Failure(
+                code = FailureCode.UNKNOWN,
+                message = e.localizedMessage ?: "Unknown download failure"
+            )
+        }
+    }
+
+    fun cancel(taskId: String) {
+        try {
+            YoutubeDL.getInstance().destroyProcessById(taskId)
+        } catch (_: Exception) {
+        }
+    }
+}
