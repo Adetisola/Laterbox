@@ -69,6 +69,7 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
 
         // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue workers
         applicationScope.launch {
+            try {
                 // Safely initialize YoutubeDL and FFmpeg in background
                 try {
                     com.yausername.youtubedl_android.YoutubeDL.getInstance().init(this@LaterboxApplication)
