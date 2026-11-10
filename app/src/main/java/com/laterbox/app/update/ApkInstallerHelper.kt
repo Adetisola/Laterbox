@@ -38,15 +38,26 @@ object ApkInstallerHelper {
         data object Valid : ApkVerificationResult()
         data class SignatureMismatch(val message: String) : ApkVerificationResult()
         data class InvalidPackage(val expected: String, val actual: String) : ApkVerificationResult()
+        data class IncompatibleAbi(val message: String) : ApkVerificationResult()
         data class Error(val message: String) : ApkVerificationResult()
+    }
+
+    fun getApkFileName(versionName: String, assetName: String = ""): String {
+        return if (assetName.isNotBlank() && assetName.endsWith(".apk", ignoreCase = true)) {
+            val base = assetName.removeSuffix(".apk").removeSuffix(".APK")
+            if (base.contains(versionName)) "$base.apk" else "$base-$versionName.apk"
+        } else {
+            "Laterbox-$versionName.apk"
+        }
     }
 
     /**
      * Checks if an APK for the specified version is already downloaded and verified on disk.
      */
-    fun getExistingDownloadedApk(context: Context, versionName: String): File? {
+    fun getExistingDownloadedApk(context: Context, versionName: String, assetName: String = ""): File? {
         val updatesDir = File(context.cacheDir, "updates")
-        val file = File(updatesDir, "Laterbox-$versionName.apk")
+        val fileName = getApkFileName(versionName, assetName)
+        val file = File(updatesDir, fileName)
         return if (file.exists() && file.length() > 0 && verifyApk(context, file)) {
             file
         } else {
@@ -62,10 +73,12 @@ object ApkInstallerHelper {
         context: Context,
         downloadUrl: String,
         versionName: String,
+        assetName: String = "",
         onProgress: (DownloadProgress) -> Unit
     ): File? = withContext(Dispatchers.IO) {
         val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
-        val outputFile = File(updatesDir, "Laterbox-$versionName.apk")
+        val fileName = getApkFileName(versionName, assetName)
+        val outputFile = File(updatesDir, fileName)
 
         // 1. If the file is already fully downloaded and verified, return immediately
         if (outputFile.exists() && outputFile.length() > 0 && verifyApk(context, outputFile)) {
@@ -269,6 +282,35 @@ object ApkInstallerHelper {
                 return ApkVerificationResult.SignatureMismatch(
                     "Signature mismatch: The update was signed with the official release key, but your currently installed app was built with a debug or local key. Android security requires uninstalling the existing app first."
                 )
+            }
+
+            // 3. Verify native library ABI compatibility
+            val apkAbis = mutableSetOf<String>()
+            try {
+                java.util.zip.ZipFile(apkFile).use { zip ->
+                    val entries = zip.entries()
+                    while (entries.hasMoreElements()) {
+                        val entry = entries.nextElement()
+                        if (entry.name.startsWith("lib/") && !entry.isDirectory) {
+                            val parts = entry.name.split("/")
+                            if (parts.size >= 2 && parts[1].isNotBlank()) {
+                                apkAbis.add(parts[1])
+                            }
+                        }
+                    }
+                }
+            } catch (ze: Exception) {
+                Log.w(TAG, "Could not inspect APK entries for ABI: ${ze.message}")
+            }
+
+            if (apkAbis.isNotEmpty()) {
+                val deviceAbis = Build.SUPPORTED_ABIS ?: emptyArray()
+                val isCompatible = deviceAbis.any { it in apkAbis }
+                if (!isCompatible) {
+                    val msg = "Incompatible architecture: This APK was packaged for [${apkAbis.joinToString()}], which is not compatible with your device [${deviceAbis.joinToString()}]."
+                    Log.w(TAG, msg)
+                    return ApkVerificationResult.IncompatibleAbi(msg)
+                }
             }
 
             return ApkVerificationResult.Valid

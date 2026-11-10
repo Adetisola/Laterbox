@@ -18,6 +18,7 @@ interface AppContainer {
     val notificationHistoryRepository: NotificationHistoryRepository
     val mediaRepository: com.laterbox.app.media.domain.repository.MediaRepository
     val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver
+    val ytDlpRuntimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager
     val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater
 }
 
@@ -59,16 +60,24 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         )
     }
 
+    override val ytDlpRuntimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager by lazy {
+        com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager(context.applicationContext)
+    }
+
     override val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater by lazy {
         com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater(
             appContext = context.applicationContext,
-            userPreferencesRepository = userPreferencesRepository
+            userPreferencesRepository = userPreferencesRepository,
+            runtimeManager = ytDlpRuntimeManager
         )
     }
 
     override val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver by lazy {
         val directAdapter = com.laterbox.app.media.data.adapters.direct.DirectUrlAdapter(okhttp3.OkHttpClient())
-        val ytDlpAdapter = com.laterbox.app.media.data.adapters.ytdlp.YtDlpAdapter(context.applicationContext)
+        val ytDlpAdapter = com.laterbox.app.media.data.adapters.ytdlp.YtDlpAdapter(
+            appContext = context.applicationContext,
+            runtimeManager = ytDlpRuntimeManager
+        )
         val metadataAdapter = com.laterbox.app.media.data.adapters.metadata.MetadataOnlyAdapter(okhttp3.OkHttpClient())
         val registry = com.laterbox.app.media.domain.adapter.AdapterRegistry(
             listOf(directAdapter, ytDlpAdapter, metadataAdapter)

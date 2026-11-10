@@ -10,7 +10,9 @@ data class AppUpdateInfo(
     val downloadUrl: String,
     val releasePageUrl: String,
     val apkSize: Long = 0L,
-    val isNewer: Boolean = false
+    val isNewer: Boolean = false,
+    val targetAbiLabel: String = "",
+    val assetName: String = ""
 ) {
     companion object {
         fun cleanVersion(raw: String): String {

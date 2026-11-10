@@ -70,17 +70,19 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
         // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue workers
         applicationScope.launch {
             try {
-                // Safely initialize YoutubeDL and FFmpeg in background
+                // Initialize yt-dlp core engine asynchronously via YtDlpRuntimeManager
                 try {
-                    com.yausername.youtubedl_android.YoutubeDL.getInstance().init(this@LaterboxApplication)
-                    try {
-                        com.yausername.ffmpeg.FFmpeg.getInstance().init(this@LaterboxApplication)
-                    } catch (t: Throwable) {
-                        Log.w("LaterboxApplication", "FFmpeg init warning: ${t.message}")
+                    container.ytDlpRuntimeManager.ensureYtDlpInitialized()
+                    // Pre-warm FFmpeg asynchronously without blocking other startup tasks
+                    applicationScope.launch {
+                        try {
+                            container.ytDlpRuntimeManager.ensureFfmpegInitialized()
+                        } catch (t: Throwable) {
+                            Log.w("LaterboxApplication", "FFmpeg background pre-warm warning: ${t.message}")
+                        }
                     }
-                    Log.d("LaterboxApplication", "YoutubeDL initialized")
                 } catch (t: Throwable) {
-                    Log.w("LaterboxApplication", "YoutubeDL init warning: ${t.message}")
+                    Log.w("LaterboxApplication", "yt-dlp runtime init warning: ${t.message}")
                 }
 
                 container.database.savedLinkDao().resetStuckFetchingLinks()
@@ -96,8 +98,15 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
                 container.mediaRepository.recoverInterruptedTasks()
                 container.mediaRepository.runOrphanSweep()
 
-                // Check for yt-dlp binary updates if > 24 hours
-                container.ytDlpUpdater.updateIfStale()
+                // Check for yt-dlp binary updates if > 24 hours (deferred to prevent startup lock contention)
+                applicationScope.launch {
+                    kotlinx.coroutines.delay(15_000L)
+                    try {
+                        container.ytDlpUpdater.updateIfStale()
+                    } catch (t: Throwable) {
+                        Log.w("LaterboxApplication", "Deferred yt-dlp update check error: ${t.message}")
+                    }
+                }
             } catch (e: Exception) {
                 // Safeguard against test environments
             }

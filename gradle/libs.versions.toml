@@ -79,6 +79,8 @@ mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", versio
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 androidx-test-core = { group = "androidx.test", name = "core-ktx", version.ref = "androidxTest" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTest" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version = "1.2.1" }
 compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 

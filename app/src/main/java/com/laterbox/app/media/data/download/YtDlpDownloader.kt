@@ -1,9 +1,10 @@
 package com.laterbox.app.media.data.download
 
 import android.content.Context
+import com.laterbox.app.LaterboxApplication
 import com.laterbox.app.media.data.adapters.ytdlp.YtDlpOutputParser
+import com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager
 import com.laterbox.app.media.domain.model.FailureCode
-import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -15,33 +16,9 @@ import java.io.File
 
 class YtDlpDownloader(
     private val appContext: Context,
+    private val runtimeManager: YtDlpRuntimeManager = (appContext.applicationContext as? LaterboxApplication)?.container?.ytDlpRuntimeManager ?: YtDlpRuntimeManager(appContext),
     private val customExecutor: ((YoutubeDLRequest, String, (Float, Long, String) -> Unit) -> YoutubeDLResponse)? = null
 ) {
-
-    @Volatile
-    private var isInitialized = false
-
-    private fun ensureInitialized(): Boolean {
-        if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) return false
-        if (customExecutor != null) return true
-        if (isInitialized) return true
-        return synchronized(this) {
-            if (isInitialized) return true
-            try {
-                YoutubeDL.getInstance().init(appContext)
-                try {
-                    FFmpeg.getInstance().init(appContext)
-                } catch (t: Throwable) {
-                    android.util.Log.w("YtDlpDownloader", "FFmpeg init warning: ${t.message}")
-                }
-                isInitialized = true
-                true
-            } catch (t: Throwable) {
-                android.util.Log.e("YtDlpDownloader", "Native YoutubeDL init failed: ${t.message}", t)
-                false
-            }
-        }
-    }
 
     suspend fun download(
         url: String,
@@ -50,12 +27,21 @@ class YtDlpDownloader(
         taskId: String,
         onProgress: suspend (bytesDownloaded: Long, totalBytes: Long?, percent: Int) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
-        val initialized = ensureInitialized()
-        if (!initialized && customExecutor == null) {
-            return@withContext DownloadResult.Failure(
-                code = FailureCode.UNKNOWN,
-                message = "yt-dlp engine could not be initialized on this device"
-            )
+        if (customExecutor == null) {
+            val ytDlpInitResult = runtimeManager.ensureYtDlpInitialized()
+            if (ytDlpInitResult.isFailure) {
+                val err = ytDlpInitResult.exceptionOrNull()
+                return@withContext DownloadResult.Failure(
+                    code = FailureCode.UNKNOWN,
+                    message = err?.message ?: "yt-dlp engine could not be initialized on this device"
+                )
+            }
+
+            // Attempt FFmpeg initialization for audio/video stream merging
+            val ffmpegInitResult = runtimeManager.ensureFfmpegInitialized()
+            if (ffmpegInitResult.isFailure) {
+                android.util.Log.w("YtDlpDownloader", "FFmpeg not available: ${ffmpegInitResult.exceptionOrNull()?.message}")
+            }
         }
 
         destinationFile.parentFile?.let { if (!it.exists()) it.mkdirs() }

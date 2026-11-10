@@ -77,8 +77,8 @@ fun AppUpdateDialog(
     var saveStatusMessage by remember { mutableStateOf<String?>(null) }
 
     // Check if an APK for this update is already cached on disk and verified
-    LaunchedEffect(updateInfo.versionName) {
-        val existing = ApkInstallerHelper.getExistingDownloadedApk(context, updateInfo.versionName)
+    LaunchedEffect(updateInfo.versionName, updateInfo.assetName) {
+        val existing = ApkInstallerHelper.getExistingDownloadedApk(context, updateInfo.versionName, updateInfo.assetName)
         if (existing != null) {
             downloadedFile = existing
             currentStep = UpdateStep.READY_TO_INSTALL
@@ -95,6 +95,7 @@ fun AppUpdateDialog(
                 context = context,
                 downloadUrl = updateInfo.downloadUrl,
                 versionName = updateInfo.versionName,
+                assetName = updateInfo.assetName,
                 onProgress = { progress ->
                     when (progress) {
                         is ApkInstallerHelper.DownloadProgress.Downloading -> {
@@ -134,6 +135,10 @@ fun AppUpdateDialog(
                     }
                     is ApkInstallerHelper.ApkVerificationResult.InvalidPackage -> {
                         errorMessage = "Package mismatch: expected ${verification.expected}, found ${verification.actual}"
+                        currentStep = UpdateStep.FAILED
+                    }
+                    is ApkInstallerHelper.ApkVerificationResult.IncompatibleAbi -> {
+                        errorMessage = verification.message
                         currentStep = UpdateStep.FAILED
                     }
                     is ApkInstallerHelper.ApkVerificationResult.Error -> {
@@ -186,12 +191,28 @@ fun AppUpdateDialog(
                             style = typography.sheetTitle,
                             color = colors.textPrimary
                         )
-                        Text(
-                            text = "Version ${updateInfo.versionName}",
-                            style = typography.bodySecondary,
-                            color = colors.accentPrimary,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                        ) {
+                            Text(
+                                text = "v${updateInfo.versionName}",
+                                style = typography.bodySecondary,
+                                color = colors.accentPrimary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (updateInfo.targetAbiLabel.isNotBlank()) {
+                                val sizeText = if (updateInfo.apkSize > 0) {
+                                    val mb = updateInfo.apkSize / (1024f * 1024f)
+                                    " • ${String.format(Locale.US, "%.1f", mb)} MB"
+                                } else ""
+                                Text(
+                                    text = "• ${updateInfo.targetAbiLabel}$sizeText",
+                                    style = typography.caption,
+                                    color = colors.textSecondary
+                                )
+                            }
+                        }
                     }
                 }
 

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -122,6 +123,10 @@ fun SettingsScreen(
     onAutoInspectMediaOnSaveChange: (Boolean) -> Unit = {},
     isUpdatingYtDlp: Boolean = false,
     onUpdateYtDlpClick: () -> Unit = {},
+    ytDlpState: com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState = com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.NotInitialized,
+    ffmpegState: com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState = com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.NotInitialized,
+    onGetDiagnosticReport: () -> com.laterbox.app.media.data.adapters.ytdlp.YtDlpDiagnosticReport? = { null },
+    onRetryInitializeEngine: () -> Unit = {},
     isCheckingUpdate: Boolean = false,
     availableUpdateInfo: com.laterbox.app.update.AppUpdateInfo? = null,
     onCheckForUpdates: () -> Unit = {},
@@ -135,8 +140,11 @@ fun SettingsScreen(
     val spacing = LaterboxTheme.spacing
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
 
     var showLicensesDialog by remember { mutableStateOf(false) }
+    var showDiagnosticsDialog by remember { mutableStateOf(false) }
+    var diagnosticReport by remember { mutableStateOf<com.laterbox.app.media.data.adapters.ytdlp.YtDlpDiagnosticReport?>(null) }
     var showAccessibilityOnboarding by remember { mutableStateOf(false) }
     var showExcludedAppsDialog by remember { mutableStateOf(false) }
     val accessibilitySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1073,50 +1081,104 @@ fun SettingsScreen(
 
                     Divider(colors.borderSubtle)
 
-                    // yt-dlp extractor engine status and update button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                    // yt-dlp extractor engine status and diagnostics
+                    Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Media Extractor (yt-dlp)",
+                                    style = typography.uiMedium,
+                                    color = colors.textPrimary
+                                )
+                                val statusText = when (ytDlpState) {
+                                    is com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.Initialized -> {
+                                        val v = ytDlpState.version?.ifBlank { preferences.ytDlpVersion } ?: preferences.ytDlpVersion
+                                        if (v.isNotBlank()) "Ready (v$v)" else "Ready (bundled engine)"
+                                    }
+                                    is com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.Initializing -> "Initializing engine…"
+                                    is com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.Failed -> "Initialization failed"
+                                    is com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.NotInitialized -> "Not initialized"
+                                }
+                                Text(
+                                    text = statusText,
+                                    style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                    color = if (ytDlpState is com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.Failed) colors.statusDanger else colors.textSecondary
+                                )
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        diagnosticReport = onGetDiagnosticReport()
+                                        showDiagnosticsDialog = true
+                                    },
+                                    shape = LaterboxShapeTokens.Button
+                                ) {
+                                    Text(
+                                        text = "Diagnostics",
+                                        style = typography.uiMedium.copy(fontSize = 13.sp),
+                                        color = colors.accentPrimary
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = onUpdateYtDlpClick,
+                                    enabled = !isUpdatingYtDlp,
+                                    shape = LaterboxShapeTokens.Button
+                                ) {
+                                    if (isUpdatingYtDlp) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = colors.accentPrimary
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "Check Update",
+                                            style = typography.uiMedium.copy(fontSize = 13.sp),
+                                            color = colors.accentPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // FFmpeg status sub-row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "Media Extractor (yt-dlp)",
-                                style = typography.uiMedium,
-                                color = colors.textPrimary
+                                text = "Media Stream Muxer (FFmpeg)",
+                                style = typography.metaText,
+                                color = colors.textSecondary
                             )
-                            val versionText = if (preferences.ytDlpVersion.isNotBlank()) {
-                                "Version: ${preferences.ytDlpVersion}"
-                            } else {
-                                "Installed on device (bundled)"
+                            val ffmpegStatusText = when (ffmpegState) {
+                                is com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.Initialized -> "Ready (Audio/Video muxing enabled)"
+                                is com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.Initializing -> "Initializing…"
+                                is com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.Failed -> "Unavailable (single streams only)"
+                                is com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.NotInitialized -> "Pending"
                             }
                             Text(
-                                text = "$versionText · Updates automatically when extractors change",
-                                style = typography.bodySecondary.copy(fontSize = 12.sp),
-                                color = colors.textSecondary
+                                text = ffmpegStatusText,
+                                style = typography.metaText,
+                                color = if (ffmpegState is com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.Failed) colors.statusDanger else colors.textSecondary
                             )
                         }
 
-                        Spacer(modifier = Modifier.width(spacing.sm))
-
-                        OutlinedButton(
-                            onClick = onUpdateYtDlpClick,
-                            enabled = !isUpdatingYtDlp,
-                            shape = LaterboxShapeTokens.Button
-                        ) {
-                            if (isUpdatingYtDlp) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp,
-                                    color = colors.accentPrimary
-                                )
-                            } else {
-                                Text(
-                                    text = "Check Update",
-                                    style = typography.uiMedium.copy(fontSize = 13.sp),
-                                    color = colors.accentPrimary
-                                )
-                            }
+                        if (ytDlpState is com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.Failed) {
+                            val failure = (ytDlpState as com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.Failed).error
+                            LaterboxBanner(
+                                text = failure.message,
+                                isWarning = true,
+                                actionText = "Retry",
+                                onActionClick = onRetryInitializeEngine
+                            )
                         }
                     }
                 }
@@ -1267,6 +1329,75 @@ fun SettingsScreen(
                             text = "Close",
                             style = typography.uiMedium,
                             color = colors.accentPrimary
+                        )
+                    }
+                }
+            )
+        }
+
+        // Engine Diagnostics Dialog
+        if (showDiagnosticsDialog) {
+            AlertDialog(
+                onDismissRequest = { showDiagnosticsDialog = false },
+                containerColor = colors.surfaceElevated,
+                title = {
+                    Text(
+                        text = "Media Engine Diagnostics",
+                        style = typography.titleSmall,
+                        color = colors.textPrimary
+                    )
+                },
+                text = {
+                    val reportText = diagnosticReport?.toFormattedString() ?: "No diagnostics captured."
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 380.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(spacing.sm)
+                    ) {
+                        Text(
+                            text = reportText,
+                            style = typography.codeText.copy(fontSize = 11.sp),
+                            color = colors.textPrimary
+                        )
+                    }
+                },
+                confirmButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                        TextButton(
+                            onClick = {
+                                val reportText = diagnosticReport?.toFormattedString() ?: ""
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(reportText))
+                                android.widget.Toast.makeText(context, "Diagnostics copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Text(
+                                text = "Copy Report",
+                                style = typography.uiMedium,
+                                color = colors.accentPrimary
+                            )
+                        }
+                        TextButton(onClick = { showDiagnosticsDialog = false }) {
+                            Text(
+                                text = "Close",
+                                style = typography.uiMedium,
+                                color = colors.accentPrimary
+                            )
+                        }
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            onRetryInitializeEngine()
+                            diagnosticReport = onGetDiagnosticReport()
+                        }
+                    ) {
+                        Text(
+                            text = "Retry Init",
+                            style = typography.uiMedium,
+                            color = colors.textSecondary
                         )
                     }
                 }

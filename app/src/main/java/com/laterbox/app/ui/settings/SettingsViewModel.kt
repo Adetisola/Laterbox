@@ -33,8 +33,21 @@ class SettingsViewModel(
     private val backupManager: BackupManager,
     private val linkRepository: LinkRepository? = null,
     private val appContext: Context? = null,
-    private val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater? = null
+    private val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater? = null,
+    private val ytDlpRuntimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager? = null
 ) : ViewModel() {
+
+    private val runtimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager? =
+        ytDlpRuntimeManager ?: appContext?.let { ctx ->
+            (ctx.applicationContext as? com.laterbox.app.LaterboxApplication)?.container?.ytDlpRuntimeManager
+                ?: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager(ctx)
+        }
+
+    val ytDlpState: StateFlow<com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState> =
+        runtimeManager?.ytDlpState ?: MutableStateFlow(com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.NotInitialized).asStateFlow()
+
+    val ffmpegState: StateFlow<com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState> =
+        runtimeManager?.ffmpegState ?: MutableStateFlow(com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.NotInitialized).asStateFlow()
 
     val preferences: StateFlow<UserPreferences> = userPreferencesRepository.userPreferences.stateIn(
         scope = viewModelScope,
@@ -338,4 +351,30 @@ class SettingsViewModel(
             }
         }
     }
+
+    fun getDiagnosticReport(): com.laterbox.app.media.data.adapters.ytdlp.YtDlpDiagnosticReport? {
+        return runtimeManager?.captureDiagnosticReport()
+    }
+
+    fun retryInitializeEngine(onResult: (String) -> Unit) {
+        viewModelScope.launch {
+            val mgr = runtimeManager
+            if (mgr == null) {
+                onResult("Runtime manager not available")
+                return@launch
+            }
+            val ytResult = mgr.ensureYtDlpInitialized()
+            if (ytResult.isSuccess) {
+                val ffmpegResult = mgr.ensureFfmpegInitialized()
+                if (ffmpegResult.isSuccess) {
+                    onResult("Media engine (yt-dlp + FFmpeg) initialized successfully!")
+                } else {
+                    onResult("yt-dlp initialized, but FFmpeg failed: ${ffmpegResult.exceptionOrNull()?.message}")
+                }
+            } else {
+                onResult("Initialization failed: ${ytResult.exceptionOrNull()?.message}")
+            }
+        }
+    }
 }
+

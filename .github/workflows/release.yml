@@ -87,70 +87,109 @@ jobs:
           fi
           echo "Configured release build: versionName=$CLEAN_VERSION, versionCode=$COMPUTED_VERSION_CODE"
 
-      - name: Build Release APK
+      - name: Build Release APKs
         run: ./gradlew assembleRelease
 
-      - name: Locate & Verify Release APK
-        id: locate_apk
+      - name: Locate, Verify & Package Release APKs
+        id: locate_apks
         run: |
-          APK_PATH="app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$APK_PATH" ]; then
-            APK_PATH=$(find app/build/outputs/apk/release/ -name "*-release.apk" | head -n 1)
-          fi
-          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
-            echo "::error::Signed release APK not found in app/build/outputs/apk/release/"
-            exit 1
-          fi
-          echo "Found release APK at $APK_PATH"
-          echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-
+          mkdir -p release_artifacts
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name "apksigner" | sort -V | tail -n 1)
           AAPT2=$(find "$ANDROID_HOME/build-tools" -name "aapt2" | sort -V | tail -n 1)
-
-          echo "=== Verifying APK Badging with aapt2 ==="
-          BADGING=$("$AAPT2" dump badging "$APK_PATH")
-          PKG_LINE=$(echo "$BADGING" | grep "^package:")
-          echo "$PKG_LINE"
-
-          APK_PKG=$(echo "$PKG_LINE" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
-          APK_VCODE=$(echo "$PKG_LINE" | sed -n "s/.* versionCode='\([^']*\)'.*/\1/p")
-          APK_VNAME=$(echo "$PKG_LINE" | sed -n "s/.* versionName='\([^']*\)'.*/\1/p")
-
-          if [ "$APK_PKG" != "com.laterbox.app" ]; then
-            echo "::error::Unexpected applicationId: $APK_PKG (expected com.laterbox.app)"
-            exit 1
-          fi
-          if [ "$APK_VCODE" != "$VERSION_CODE" ] || [ "$APK_VCODE" -le 1 ]; then
-            echo "::error::Invalid versionCode: $APK_VCODE (expected $VERSION_CODE > 1)"
-            exit 1
-          fi
-          if [ "$APK_VNAME" != "$VERSION_NAME" ]; then
-            echo "::error::Unexpected versionName: $APK_VNAME (expected $VERSION_NAME)"
-            exit 1
-          fi
-
-          echo "=== Verifying APK Signature with apksigner ==="
-          CERT_OUT=$("$APKSIGNER" verify --verbose --print-certs "$APK_PATH")
-          echo "$CERT_OUT"
-
-          if echo "$CERT_OUT" | grep -qi "Android Debug"; then
-            echo "::error::Release APK is signed with an Android Debug certificate!"
-            exit 1
-          fi
-
           EXPECTED_SHA256="67388d12f96d7b15179ef02354842faabfaff944a49c466ad3f539d2a2063e32"
-          ACTUAL_SHA256=$(echo "$CERT_OUT" | grep -i "certificate SHA-256 digest:" | awk '{print $NF}' | tr '[:upper:]' '[:lower:]' | tr -d ':')
-          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "::error::Certificate SHA-256 mismatch! Got $ACTUAL_SHA256, expected $EXPECTED_SHA256"
+
+          ARM32_SRC=$(find app/build/outputs/apk/release/ -name "*armeabi-v7a*.apk" | head -n 1)
+          ARM64_SRC=$(find app/build/outputs/apk/release/ -name "*arm64-v8a*.apk" | head -n 1)
+          UNIVERSAL_SRC=$(find app/build/outputs/apk/release/ -name "*universal*.apk" | head -n 1)
+          if [ -z "$UNIVERSAL_SRC" ]; then
+            UNIVERSAL_SRC="app/build/outputs/apk/release/app-release.apk"
+          fi
+
+          if [ ! -f "$ARM32_SRC" ] || [ ! -f "$ARM64_SRC" ] || [ ! -f "$UNIVERSAL_SRC" ]; then
+            echo "::error::Could not find all 3 required release APKs in app/build/outputs/apk/release/!"
+            echo "ARM32: $ARM32_SRC"
+            echo "ARM64: $ARM64_SRC"
+            echo "Universal: $UNIVERSAL_SRC"
+            ls -la app/build/outputs/apk/release/
             exit 1
           fi
-          echo "Release APK verified: package=$APK_PKG versionCode=$APK_VCODE versionName=$APK_VNAME sha256=$ACTUAL_SHA256"
 
-      - name: Upload Release APK Artifact
+          cp "$ARM32_SRC" release_artifacts/Laterbox-ARM32.apk
+          cp "$ARM64_SRC" release_artifacts/Laterbox-ARM64.apk
+          cp "$UNIVERSAL_SRC" release_artifacts/Laterbox-Universal.apk
+
+          echo "=== Verifying APKs ==="
+          for TARGET in release_artifacts/Laterbox-ARM32.apk release_artifacts/Laterbox-ARM64.apk release_artifacts/Laterbox-Universal.apk; do
+            echo "--- Verifying $TARGET ---"
+            BADGING=$("$AAPT2" dump badging "$TARGET")
+            PKG_LINE=$(echo "$BADGING" | grep "^package:")
+            echo "$PKG_LINE"
+
+            APK_PKG=$(echo "$PKG_LINE" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+            APK_VCODE=$(echo "$PKG_LINE" | sed -n "s/.* versionCode='\([^']*\)'.*/\1/p")
+            APK_VNAME=$(echo "$PKG_LINE" | sed -n "s/.* versionName='\([^']*\)'.*/\1/p")
+
+            if [ "$APK_PKG" != "com.laterbox.app" ]; then
+              echo "::error::Unexpected applicationId in $TARGET: $APK_PKG"
+              exit 1
+            fi
+            if [ "$APK_VCODE" != "$VERSION_CODE" ] || [ "$APK_VCODE" -le 1 ]; then
+              echo "::error::Invalid versionCode in $TARGET: $APK_VCODE (expected $VERSION_CODE)"
+              exit 1
+            fi
+            if [ "$APK_VNAME" != "$VERSION_NAME" ]; then
+              echo "::error::Unexpected versionName in $TARGET: $APK_VNAME (expected $VERSION_NAME)"
+              exit 1
+            fi
+
+            CERT_OUT=$("$APKSIGNER" verify --verbose --print-certs "$TARGET")
+            if echo "$CERT_OUT" | grep -qi "Android Debug"; then
+              echo "::error::$TARGET is signed with an Android Debug certificate!"
+              exit 1
+            fi
+            ACTUAL_SHA256=$(echo "$CERT_OUT" | grep -i "certificate SHA-256 digest:" | awk '{print $NF}' | tr '[:upper:]' '[:lower:]' | tr -d ':')
+            if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+              echo "::error::Certificate SHA-256 mismatch in $TARGET! Got $ACTUAL_SHA256, expected $EXPECTED_SHA256"
+              exit 1
+            fi
+            ls -lh "$TARGET"
+          done
+
+          echo "=== Verifying Architecture Contents ==="
+          # ARM32 must contain armeabi-v7a and must NOT contain arm64-v8a
+          if ! unzip -l release_artifacts/Laterbox-ARM32.apk | grep -q "lib/armeabi-v7a/libpython.zip.so"; then
+            echo "::error::Laterbox-ARM32.apk missing lib/armeabi-v7a/libpython.zip.so!"
+            exit 1
+          fi
+          if unzip -l release_artifacts/Laterbox-ARM32.apk | grep -q "lib/arm64-v8a/"; then
+            echo "::error::Laterbox-ARM32.apk unexpectedly contains arm64-v8a native libraries!"
+            exit 1
+          fi
+
+          # ARM64 must contain arm64-v8a and must NOT contain armeabi-v7a
+          if ! unzip -l release_artifacts/Laterbox-ARM64.apk | grep -q "lib/arm64-v8a/libpython.zip.so"; then
+            echo "::error::Laterbox-ARM64.apk missing lib/arm64-v8a/libpython.zip.so!"
+            exit 1
+          fi
+          if unzip -l release_artifacts/Laterbox-ARM64.apk | grep -q "lib/armeabi-v7a/"; then
+            echo "::error::Laterbox-ARM64.apk unexpectedly contains armeabi-v7a native libraries!"
+            exit 1
+          fi
+
+          # Universal must contain both architectures
+          if ! unzip -l release_artifacts/Laterbox-Universal.apk | grep -q "lib/armeabi-v7a/libpython.zip.so" || \
+             ! unzip -l release_artifacts/Laterbox-Universal.apk | grep -q "lib/arm64-v8a/libpython.zip.so"; then
+            echo "::error::Laterbox-Universal.apk missing required dual-architecture native libraries!"
+            exit 1
+          fi
+
+          echo "All 3 APKs verified successfully!"
+
+      - name: Upload Release APKs Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: laterbox-release-apk
-          path: ${{ steps.locate_apk.outputs.apk_path }}
+          name: laterbox-release-apks
+          path: release_artifacts/*.apk
           retention-days: 30
 
       - name: Create GitHub Release
@@ -161,6 +200,10 @@ jobs:
           name: Laterbox ${{ github.event.inputs.version_tag || github.ref_name }}
           draft: false
           prerelease: false
-          files: ${{ steps.locate_apk.outputs.apk_path }}
+          files: |
+            release_artifacts/Laterbox-ARM32.apk
+            release_artifacts/Laterbox-ARM64.apk
+            release_artifacts/Laterbox-Universal.apk
           generate_release_notes: true
+
 

@@ -43,8 +43,8 @@ android {
         applicationId = "com.laterbox.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 18
-        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.18"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 19
+        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.19"
 
         val embeddedKey = resolveGeminiApiKey(project)
         buildConfigField("String", "EMBEDDED_GEMINI_API_KEY", "\"$embeddedKey\"")
@@ -56,6 +56,15 @@ android {
 
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a")
+            isUniversalApk = true
         }
     }
 
@@ -74,6 +83,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -108,7 +118,12 @@ android {
 
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += listOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/INDEX.LIST",
+                "/META-INF/DEPENDENCIES",
+                "/META-INF/*.kotlin_module"
+            )
         }
     }
 
@@ -174,6 +189,12 @@ dependencies {
     // Debugging Tools
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
+
+    // Android Instrumentation Testing
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 }
 
 tasks.withType<Test> {

@@ -343,12 +343,22 @@ fun LaterboxApp(
                     val isCheckingUpdate by settingsViewModel.isCheckingUpdate.collectAsState()
                     val availableUpdateInfo by settingsViewModel.updateCheckResult.collectAsState()
                     val isUpdatingYtDlp by settingsViewModel.isUpdatingYtDlp.collectAsState()
+                    val ytDlpState by settingsViewModel.ytDlpState.collectAsState()
+                    val ffmpegState by settingsViewModel.ffmpegState.collectAsState()
 
                     SettingsScreen(
                         preferences = preferences,
                         isCheckingUpdate = isCheckingUpdate,
                         availableUpdateInfo = availableUpdateInfo,
                         isUpdatingYtDlp = isUpdatingYtDlp,
+                        ytDlpState = ytDlpState,
+                        ffmpegState = ffmpegState,
+                        onGetDiagnosticReport = settingsViewModel::getDiagnosticReport,
+                        onRetryInitializeEngine = {
+                            settingsViewModel.retryInitializeEngine { msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         onUpdateYtDlpClick = {
                             settingsViewModel.updateYtDlp { msg ->
                                 android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()

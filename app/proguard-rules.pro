@@ -31,3 +31,19 @@
 -keepclassmembers class * {
     @androidx.compose.runtime.Composable *;
 }
+
+# youtubedl-android (yt-dlp, FFmpeg, QuickJS)
+-keep class com.yausername.** { *; }
+-dontwarn com.yausername.**
+
+# Apache Commons Compress & IO (ExtraFieldUtils uses Class.newInstance() reflection on ZipExtraField subclasses)
+-keep class org.apache.commons.compress.** { *; }
+-keep class org.apache.commons.io.** { *; }
+-dontwarn org.apache.commons.compress.**
+-dontwarn org.apache.commons.io.**
+
+# Jackson JSON Models & Databind (used by YoutubeDL.getInfo, VideoInfo, and YoutubeDLUpdater)
+-keep class com.fasterxml.jackson.** { *; }
+-keepnames class com.fasterxml.jackson.** { *; }
+-dontwarn com.fasterxml.jackson.**
+

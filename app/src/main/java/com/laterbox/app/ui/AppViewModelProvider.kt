@@ -65,7 +65,8 @@ object AppViewModelProvider {
                 backupManager = app.container.backupManager,
                 linkRepository = app.container.linkRepository,
                 appContext = app.applicationContext,
-                ytDlpUpdater = app.container.ytDlpUpdater
+                ytDlpUpdater = app.container.ytDlpUpdater,
+                ytDlpRuntimeManager = app.container.ytDlpRuntimeManager
             )
         }
     }

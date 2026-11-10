@@ -2,47 +2,32 @@ package com.laterbox.app.media.data.adapters.ytdlp
 
 import android.content.Context
 import android.util.Log
+import com.laterbox.app.LaterboxApplication
 import com.laterbox.app.data.preferences.UserPreferencesRepository
 import com.laterbox.app.media.domain.model.FailureCode
-import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 class YtDlpUpdater(
     private val appContext: Context,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val runtimeManager: YtDlpRuntimeManager = (appContext.applicationContext as? LaterboxApplication)?.container?.ytDlpRuntimeManager ?: YtDlpRuntimeManager(appContext)
 ) {
-
-    @Volatile
-    private var isInitialized = false
-
-    private fun ensureInitialized(): Boolean {
-        if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) return false
-        if (isInitialized) return true
-        return synchronized(this) {
-            if (isInitialized) return true
-            try {
-                YoutubeDL.getInstance().init(appContext)
-                try {
-                    FFmpeg.getInstance().init(appContext)
-                } catch (t: Throwable) {
-                    Log.w("YtDlpUpdater", "FFmpeg init warning (non-fatal): ${t.message}")
-                }
-                isInitialized = true
-                true
-            } catch (t: Throwable) {
-                Log.w("YtDlpUpdater", "YoutubeDL init failed: ${t.message}")
-                false
-            }
-        }
-    }
+    private val tag = "YtDlpUpdater"
+    private val updateMutex = Mutex()
 
     suspend fun getInstalledVersion(): String = withContext(Dispatchers.IO) {
         try {
-            ensureInitialized()
-            YoutubeDL.getInstance().version(appContext) ?: ""
+            val initResult = runtimeManager.ensureYtDlpInitialized()
+            if (initResult.isSuccess) {
+                YoutubeDL.getInstance().version(appContext) ?: ""
+            } else {
+                ""
+            }
         } catch (_: Throwable) {
             ""
         }
@@ -58,17 +43,27 @@ class YtDlpUpdater(
     }
 
     suspend fun forceUpdate(): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val initialized = ensureInitialized()
-            if (!initialized) {
-                return@withContext Result.failure(IllegalStateException("yt-dlp engine could not be initialized on this device"))
+        updateMutex.withLock {
+            try {
+                val initResult = runtimeManager.ensureYtDlpInitialized()
+                if (initResult.isFailure) {
+                    val ex = initResult.exceptionOrNull()
+                    return@withContext Result.failure(
+                        ex ?: IllegalStateException("yt-dlp engine could not be initialized on this device")
+                    )
+                }
+
+                Log.i(tag, "Checking and updating yt-dlp binary from GitHub...")
+                val status = YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
+                val version = YoutubeDL.getInstance().version(appContext) ?: "latest"
+                userPreferencesRepository.recordYtDlpUpdate(version, System.currentTimeMillis())
+                Log.i(tag, "yt-dlp update completed: status=$status, version=$version")
+                Result.success(version)
+            } catch (t: Throwable) {
+                Log.e(tag, "Failed to update yt-dlp: ${t.message}", t)
+                val mapped = if (t is Exception) t else Exception(t.message, t)
+                Result.failure(mapped)
             }
-            val status = YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
-            val version = YoutubeDL.getInstance().version(appContext) ?: "latest"
-            userPreferencesRepository.recordYtDlpUpdate(version, System.currentTimeMillis())
-            Result.success(version)
-        } catch (t: Throwable) {
-            Result.failure(if (t is Exception) t else Exception(t.message, t))
         }
     }
 

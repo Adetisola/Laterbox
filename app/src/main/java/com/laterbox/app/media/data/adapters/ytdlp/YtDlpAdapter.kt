@@ -1,10 +1,10 @@
 package com.laterbox.app.media.data.adapters.ytdlp
 
 import android.content.Context
+import com.laterbox.app.LaterboxApplication
 import com.laterbox.app.media.domain.adapter.MediaPlatformAdapter
 import com.laterbox.app.media.domain.model.FailureCode
 import com.laterbox.app.media.domain.model.InspectionResult
-import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
 import com.yausername.youtubedl_android.YoutubeDLRequest
@@ -15,35 +15,11 @@ import java.net.URI
 
 class YtDlpAdapter(
     private val appContext: Context,
+    private val runtimeManager: YtDlpRuntimeManager = (appContext.applicationContext as? LaterboxApplication)?.container?.ytDlpRuntimeManager ?: YtDlpRuntimeManager(appContext),
     private val customExecutor: ((YoutubeDLRequest) -> YoutubeDLResponse)? = null
 ) : MediaPlatformAdapter {
 
     override val id: String = "ytdlp"
-
-    @Volatile
-    private var isInitialized = false
-
-    private fun ensureInitialized(): Boolean {
-        if (android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) return false
-        if (customExecutor != null) return true
-        if (isInitialized) return true
-        return synchronized(this) {
-            if (isInitialized) return true
-            try {
-                YoutubeDL.getInstance().init(appContext)
-                try {
-                    FFmpeg.getInstance().init(appContext)
-                } catch (t: Throwable) {
-                    android.util.Log.w("YtDlpAdapter", "FFmpeg init warning (non-fatal for inspection): ${t.message}")
-                }
-                isInitialized = true
-                true
-            } catch (t: Throwable) {
-                android.util.Log.e("YtDlpAdapter", "Native YoutubeDL init failed: ${t.message}", t)
-                false
-            }
-        }
-    }
 
     override fun canHandle(url: String): Boolean {
         val host = try {
@@ -69,13 +45,17 @@ class YtDlpAdapter(
 
     override suspend fun inspect(url: String): InspectionResult = withContext(Dispatchers.IO) {
         try {
-            val initialized = ensureInitialized()
-            if (!initialized && customExecutor == null) {
-                return@withContext InspectionResult.Failed(
-                    code = FailureCode.UNKNOWN,
-                    message = "yt-dlp engine could not be initialized on this device",
-                    retryable = true
-                )
+            if (customExecutor == null) {
+                val initResult = runtimeManager.ensureYtDlpInitialized()
+                if (initResult.isFailure) {
+                    val ex = initResult.exceptionOrNull()
+                    val errorMessage = ex?.message ?: "yt-dlp engine could not be initialized on this device"
+                    return@withContext InspectionResult.Failed(
+                        code = FailureCode.UNKNOWN,
+                        message = errorMessage,
+                        retryable = true
+                    )
+                }
             }
 
             val request = YoutubeDLRequest(url).apply {
