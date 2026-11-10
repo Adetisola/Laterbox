@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import com.laterbox.app.media.domain.model.MediaAsset
 import com.laterbox.app.media.domain.model.MediaType
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +45,7 @@ class MediaStoreExporter(
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun exportApi29Plus(asset: MediaAsset, sourceFile: File, filename: String): Uri {
         val (collectionUri, relativeSubdir) = when (asset.mediaType) {
             MediaType.IMAGE -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) to "${Environment.DIRECTORY_PICTURES}/Laterbox"
