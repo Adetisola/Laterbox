@@ -46,7 +46,12 @@ data class DownloadTaskEntity(
     val errorCode: String? = null,
     val errorMessage: String? = null,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val artist: String? = null,
+    val album: String? = null,
+    val artworkUrl: String? = null,
+    val spotifyTrackId: String? = null,
+    val versionTag: String? = null
 ) {
     fun toDomain(): DownloadTask = DownloadTask(
         id = id,
@@ -69,7 +74,12 @@ data class DownloadTaskEntity(
         errorCode = errorCode?.let { try { FailureCode.valueOf(it) } catch (_: Exception) { FailureCode.UNKNOWN } },
         errorMessage = errorMessage,
         createdAt = createdAt,
-        updatedAt = updatedAt
+        updatedAt = updatedAt,
+        artist = artist,
+        album = album,
+        artworkUrl = artworkUrl,
+        spotifyTrackId = spotifyTrackId,
+        versionTag = versionTag
     )
 
     companion object {
@@ -94,7 +104,12 @@ data class DownloadTaskEntity(
             errorCode = task.errorCode?.name,
             errorMessage = task.errorMessage,
             createdAt = task.createdAt,
-            updatedAt = task.updatedAt
+            updatedAt = task.updatedAt,
+            artist = task.artist,
+            album = task.album,
+            artworkUrl = task.artworkUrl,
+            spotifyTrackId = task.spotifyTrackId,
+            versionTag = task.versionTag
         )
     }
 }

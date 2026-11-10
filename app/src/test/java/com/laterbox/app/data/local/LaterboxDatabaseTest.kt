@@ -1047,5 +1047,79 @@ class LaterboxDatabaseTest {
         assertEquals("PAUSED", taskDao.getEntityById("task-paused")?.status)
         assertEquals("COMPLETED", taskDao.getEntityById("task-completed")?.status)
     }
+
+    @Test
+    fun testMusicMetadataColumnsInDownloadedAssetAndTask() = runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://open.spotify.com/track/123",
+            normalizedUrl = "https://open.spotify.com/track/123",
+            title = "Spotify Track",
+            domain = "open.spotify.com"
+        )
+        val linkId = linkDao.insertLink(link)
+        val assetDao = db.downloadedAssetDao()
+        val taskDao = db.downloadTaskDao()
+
+        val task = com.laterbox.app.media.data.db.entity.DownloadTaskEntity(
+            id = "task-music-1",
+            savedLinkId = linkId,
+            sourceUrl = "https://youtube.com/watch?v=123",
+            sourcePlatform = "Spotify",
+            candidateId = "cand-1",
+            formatSelector = "bestaudio",
+            mediaType = "AUDIO",
+            qualityLabel = "Audio (m4a)",
+            title = "Blinding Lights",
+            status = "QUEUED",
+            createdAt = 1000L,
+            updatedAt = 1000L,
+            artist = "The Weeknd",
+            album = "After Hours",
+            artworkUrl = "https://example.com/art.jpg",
+            spotifyTrackId = "track123",
+            versionTag = null
+        )
+        taskDao.insertTask(task)
+
+        val retrievedTask = taskDao.getEntityById("task-music-1")
+        assertNotNull(retrievedTask)
+        assertEquals("The Weeknd", retrievedTask?.artist)
+        assertEquals("After Hours", retrievedTask?.album)
+        assertEquals("track123", retrievedTask?.spotifyTrackId)
+
+        val asset = com.laterbox.app.media.data.db.entity.DownloadedAssetEntity(
+            id = "asset-music-1",
+            savedLinkId = linkId,
+            sourcePlatform = "Spotify",
+            originalSourceUrl = "https://youtube.com/watch?v=123",
+            title = "Blinding Lights",
+            mimeType = "audio/mp4",
+            mediaType = "AUDIO",
+            localPath = "audio/asset-music-1.m4a",
+            fileSize = 5000000L,
+            checksum = "sha256fake",
+            createdAt = 1000L,
+            artist = "The Weeknd",
+            album = "After Hours",
+            artworkUrl = "https://example.com/art.jpg",
+            spotifyTrackId = "track123",
+            versionTag = null
+        )
+        assetDao.insertAsset(asset)
+
+        val retrievedAsset = assetDao.getEntityById("asset-music-1")
+        assertNotNull(retrievedAsset)
+        assertEquals("The Weeknd", retrievedAsset?.artist)
+        assertEquals("After Hours", retrievedAsset?.album)
+        assertEquals("track123", retrievedAsset?.spotifyTrackId)
+
+        // Verify filterAssets matches artist
+        val matchesArtist = assetDao.filterAssets("AUDIO", "Weeknd").first()
+        assertEquals(1, matchesArtist.size)
+
+        // Verify filterAssets matches album
+        val matchesAlbum = assetDao.filterAssets("AUDIO", "After Hours").first()
+        assertEquals(1, matchesAlbum.size)
+    }
 }
 

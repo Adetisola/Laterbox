@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -50,14 +51,18 @@ import androidx.compose.ui.unit.sp
 import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.media.domain.model.DownloadTask
 import com.laterbox.app.media.domain.model.InspectionResult
+import com.laterbox.app.media.domain.model.MatchConfidence
 import com.laterbox.app.media.domain.model.MediaAsset
 import com.laterbox.app.media.domain.model.MediaCandidate
 import com.laterbox.app.media.domain.model.MediaType
+import com.laterbox.app.media.domain.model.MusicMatchCandidate
 import com.laterbox.app.media.ui.downloads.formatBytes
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxSecondaryButton
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 
 @Composable
 fun MediaSection(
@@ -194,18 +199,25 @@ fun MediaSection(
         } else if (inspectionResult != null) {
             when (inspectionResult) {
                 is InspectionResult.Available -> {
-                    Text(
-                        text = "Available Formats",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = colors.textSecondary
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        inspectionResult.candidates.forEach { candidate ->
-                            CandidateCard(
-                                candidate = candidate,
-                                onDownload = { handleStartDownload(candidate) }
-                            )
+                    if (inspectionResult.musicMatches.isNotEmpty()) {
+                        MusicMatchCard(
+                            available = inspectionResult,
+                            onDownloadCandidate = handleStartDownload
+                        )
+                    } else {
+                        Text(
+                            text = "Available Formats",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            inspectionResult.candidates.forEach { candidate ->
+                                CandidateCard(
+                                    candidate = candidate,
+                                    onDownload = { handleStartDownload(candidate) }
+                                )
+                            }
                         }
                     }
                 }
@@ -513,6 +525,212 @@ private fun CandidateCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Download")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MusicMatchCard(
+    available: InspectionResult.Available,
+    onDownloadCandidate: (MediaCandidate) -> Unit
+) {
+    val colors = LaterboxTheme.colors
+    val topMatch = available.musicMatches.firstOrNull() ?: return
+    var showAlternatives by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = LaterboxShapeTokens.Card,
+        color = colors.surfacePrimary,
+        tonalElevation = 1.dp
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Artwork thumbnail
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.surfaceSecondary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!available.thumbnailUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = available.thumbnailUrl,
+                            contentDescription = available.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            painter = painterResource(LaterboxIcons.Bell),
+                            contentDescription = null,
+                            tint = colors.accentPrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = available.title ?: "Music Track",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = buildString {
+                            append(available.artist ?: "Unknown Artist")
+                            if (!available.album.isNullOrBlank()) {
+                                append(" • ${available.album}")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    MatchConfidenceBadge(confidence = topMatch.confidence, versionTag = topMatch.versionTag)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Primary One-Tap Download Button
+            Button(
+                onClick = { onDownloadCandidate(topMatch.downloadCandidate) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = LaterboxShapeTokens.PillNav,
+                colors = ButtonDefaults.buttonColors(containerColor = colors.accentPrimary)
+            ) {
+                Icon(
+                    painter = painterResource(LaterboxIcons.Download),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = when (topMatch.confidence) {
+                        MatchConfidence.STRONG -> "Download Audio"
+                        MatchConfidence.POSSIBLE -> "Download Matched Audio"
+                        MatchConfidence.VERSION_MISMATCH -> "Download Version"
+                        else -> "Download Audio Candidate"
+                    },
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // Expandable Alternative Candidates
+            if (available.musicMatches.size > 1) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showAlternatives = !showAlternatives }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (showAlternatives) "Hide Alternative Matches" else "Review Alternative Matches (${available.musicMatches.size - 1})",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.accentPrimary
+                    )
+                }
+
+                if (showAlternatives) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        available.musicMatches.drop(1).forEach { altMatch ->
+                            AlternativeMatchRow(
+                                match = altMatch,
+                                onDownload = { onDownloadCandidate(altMatch.downloadCandidate) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MatchConfidenceBadge(
+    confidence: MatchConfidence,
+    versionTag: String? = null
+) {
+    val colors = LaterboxTheme.colors
+    val (bgColor, textColor, label) = when (confidence) {
+        MatchConfidence.STRONG -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), "Strong Match")
+        MatchConfidence.POSSIBLE -> Triple(Color(0xFFFFF8E1), Color(0xFFF57F17), "Possible Match")
+        MatchConfidence.VERSION_MISMATCH -> Triple(Color(0xFFFFEBEE), Color(0xFFC62828), if (versionTag != null) "$versionTag Detected" else "Version Mismatch")
+        MatchConfidence.WEAK -> Triple(colors.surfaceSecondary, colors.textSecondary, "Weak Match")
+        MatchConfidence.UNAVAILABLE -> Triple(colors.surfaceSecondary, colors.textSecondary, "Unavailable")
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(bgColor)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = textColor
+        )
+    }
+}
+
+@Composable
+private fun AlternativeMatchRow(
+    match: MusicMatchCandidate,
+    onDownload: () -> Unit
+) {
+    val colors = LaterboxTheme.colors
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = colors.surfaceSecondary
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = match.title,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                    color = colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${match.artist} · ${match.sourceDescription}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = onDownload,
+                shape = LaterboxShapeTokens.PillNav,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text("Get", fontSize = 11.sp)
             }
         }
     }

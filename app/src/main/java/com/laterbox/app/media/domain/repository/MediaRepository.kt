@@ -23,7 +23,12 @@ interface MediaRepository {
         linkId: Long,
         candidate: MediaCandidate,
         sourcePlatform: String,
-        title: String?
+        title: String?,
+        artist: String? = null,
+        album: String? = null,
+        artworkUrl: String? = null,
+        spotifyTrackId: String? = null,
+        versionTag: String? = null
     ): String
 
     suspend fun overrideCellularRequirement(taskId: String)

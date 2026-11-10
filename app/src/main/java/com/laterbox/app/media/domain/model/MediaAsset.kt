@@ -22,5 +22,10 @@ data class MediaAsset(
     val height: Int?,
     val qualityLabel: String?,
     val checksum: String,
-    val createdAt: Long
+    val createdAt: Long,
+    val artist: String? = null,
+    val album: String? = null,
+    val artworkUrl: String? = null,
+    val spotifyTrackId: String? = null,
+    val versionTag: String? = null
 )

@@ -140,9 +140,10 @@ fun LibraryAssetCard(
                     .background(colors.surfaceSecondary),
                 contentAlignment = Alignment.Center
             ) {
-                if (asset.mediaType == MediaType.IMAGE && file.exists()) {
+                val hasArtwork = asset.mediaType == MediaType.AUDIO && !asset.artworkUrl.isNullOrBlank()
+                if ((asset.mediaType == MediaType.IMAGE && file.exists()) || hasArtwork) {
                     AsyncImage(
-                        model = file,
+                        model = if (hasArtwork) asset.artworkUrl else file,
                         contentDescription = asset.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -175,10 +176,26 @@ fun LibraryAssetCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (!asset.artist.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(1.dp))
+                    Text(
+                        text = "${asset.artist}${if (!asset.album.isNullOrBlank()) " • ${asset.album}" else ""}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.accentPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val metaLine = buildString {
+                        append("${asset.mediaType.name} · ${formatBytes(asset.fileSize)}")
+                        if (!asset.versionTag.isNullOrBlank()) {
+                            append(" · ${asset.versionTag}")
+                        }
+                    }
                     Text(
-                        text = "${asset.mediaType.name} · ${formatBytes(asset.fileSize)}",
+                        text = metaLine,
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary
                     )

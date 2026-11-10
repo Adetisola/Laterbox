@@ -21,5 +21,10 @@ data class DownloadTask(
     val errorCode: FailureCode? = null,
     val errorMessage: String? = null,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val artist: String? = null,
+    val album: String? = null,
+    val artworkUrl: String? = null,
+    val spotifyTrackId: String? = null,
+    val versionTag: String? = null
 )

@@ -74,13 +74,20 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
 
     override val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver by lazy {
         val directAdapter = com.laterbox.app.media.data.adapters.direct.DirectUrlAdapter(okhttp3.OkHttpClient())
+        val spotifyDiscovery = com.laterbox.app.media.data.adapters.spotify.MusicDiscoveryProviderImpl(
+            appContext = context.applicationContext,
+            runtimeManager = ytDlpRuntimeManager
+        )
+        val spotifyAdapter = com.laterbox.app.media.data.adapters.spotify.SpotifyMusicAdapter(
+            musicDiscoveryProvider = spotifyDiscovery
+        )
         val ytDlpAdapter = com.laterbox.app.media.data.adapters.ytdlp.YtDlpAdapter(
             appContext = context.applicationContext,
             runtimeManager = ytDlpRuntimeManager
         )
         val metadataAdapter = com.laterbox.app.media.data.adapters.metadata.MetadataOnlyAdapter(okhttp3.OkHttpClient())
         val registry = com.laterbox.app.media.domain.adapter.AdapterRegistry(
-            listOf(directAdapter, ytDlpAdapter, metadataAdapter)
+            listOf(directAdapter, spotifyAdapter, ytDlpAdapter, metadataAdapter)
         )
         com.laterbox.app.media.domain.adapter.PlatformResolver(registry)
     }

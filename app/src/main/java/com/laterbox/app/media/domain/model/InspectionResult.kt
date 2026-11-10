@@ -5,7 +5,11 @@ sealed interface InspectionResult {
         val platform: String,
         val title: String?,
         val thumbnailUrl: String?,
-        val candidates: List<MediaCandidate>
+        val candidates: List<MediaCandidate>,
+        val artist: String? = null,
+        val album: String? = null,
+        val musicMatches: List<MusicMatchCandidate> = emptyList(),
+        val spotifyTrackId: String? = null
     ) : InspectionResult
 
     data class MetadataOnly(

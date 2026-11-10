@@ -260,13 +260,21 @@ class SavedItemDetailViewModel(
 
     fun downloadCandidate(candidate: MediaCandidate) {
         val link = _currentLink.value ?: return
+        val available = _inspectionResult.value as? InspectionResult.Available
+        val platform = available?.platform ?: "Direct"
+        val title = available?.title ?: link.title
+
         viewModelScope.launch {
             try {
                 mediaRepository.enqueueDownload(
                     linkId = link.id,
                     candidate = candidate,
-                    sourcePlatform = "Direct",
-                    title = link.title
+                    sourcePlatform = platform,
+                    title = title,
+                    artist = available?.artist,
+                    album = available?.album,
+                    artworkUrl = available?.thumbnailUrl,
+                    spotifyTrackId = available?.spotifyTrackId
                 )
             } catch (t: Throwable) {
                 android.util.Log.e("SavedItemDetailViewModel", "Failed to enqueue download: ${t.message}", t)

@@ -27,7 +27,7 @@ import com.laterbox.app.media.data.db.entity.DownloadTaskEntity
         DownloadedAssetEntity::class,
         DownloadTaskEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -331,6 +331,27 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from version 5 to version 6:
+         * Adds music metadata columns (artist, album, artworkUrl, spotifyTrackId, versionTag)
+         * to downloaded_asset and download_task tables.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `downloaded_asset` ADD COLUMN `artist` TEXT")
+                db.execSQL("ALTER TABLE `downloaded_asset` ADD COLUMN `album` TEXT")
+                db.execSQL("ALTER TABLE `downloaded_asset` ADD COLUMN `artworkUrl` TEXT")
+                db.execSQL("ALTER TABLE `downloaded_asset` ADD COLUMN `spotifyTrackId` TEXT")
+                db.execSQL("ALTER TABLE `downloaded_asset` ADD COLUMN `versionTag` TEXT")
+
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `artist` TEXT")
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `album` TEXT")
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `artworkUrl` TEXT")
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `spotifyTrackId` TEXT")
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `versionTag` TEXT")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -341,7 +362,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { INSTANCE = it }
             }

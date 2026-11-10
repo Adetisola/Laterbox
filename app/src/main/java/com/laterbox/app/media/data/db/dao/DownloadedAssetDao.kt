@@ -67,7 +67,12 @@ interface DownloadedAssetDao {
     @Query("""
         SELECT * FROM downloaded_asset 
         WHERE (:mediaType IS NULL OR mediaType = :mediaType)
-        AND (:query = '' OR (title LIKE '%' || :query || '%' OR originalSourceUrl LIKE '%' || :query || '%'))
+        AND (:query = '' OR (
+            title LIKE '%' || :query || '%' 
+            OR artist LIKE '%' || :query || '%' 
+            OR album LIKE '%' || :query || '%' 
+            OR originalSourceUrl LIKE '%' || :query || '%'
+        ))
         ORDER BY createdAt DESC
     """)
     fun filterAssets(mediaType: String?, query: String): Flow<List<DownloadedAssetEntity>>

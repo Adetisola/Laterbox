@@ -169,6 +169,18 @@ class DownloadWorker(
                         taskDao.updateStatus(taskId, DownloadState.PROCESSING.name)
                         val mediaType = try { MediaType.valueOf(task.mediaType) } catch (_: Exception) { MediaType.OTHER }
 
+                        if (mediaType == MediaType.AUDIO && (!task.artist.isNullOrBlank() || !task.title.isNullOrBlank())) {
+                            AudioTaggingProcessor.tagAudioFile(
+                                appContext = appContext,
+                                audioFile = partFile,
+                                title = task.title,
+                                artist = task.artist,
+                                album = task.album,
+                                artworkUrl = task.artworkUrl,
+                                spotifyTrackId = task.spotifyTrackId
+                            )
+                        }
+
                         val checksum = com.laterbox.app.media.data.storage.ChecksumUtil.calculateSha256(partFile)
                         val existingAsset = assetDao.findByChecksum(checksum)
                         val duplicatePath = if (existingAsset != null && storageManager.resolveFile(existingAsset.localPath).exists()) {
@@ -200,7 +212,12 @@ class DownloadWorker(
                             height = null,
                             qualityLabel = task.qualityLabel,
                             checksum = finalized.checksum,
-                            createdAt = System.currentTimeMillis()
+                            createdAt = System.currentTimeMillis(),
+                            artist = task.artist,
+                            album = task.album,
+                            artworkUrl = task.artworkUrl,
+                            spotifyTrackId = task.spotifyTrackId,
+                            versionTag = task.versionTag
                         )
 
                         assetDao.insertAsset(assetEntity)

@@ -42,7 +42,12 @@ data class DownloadedAssetEntity(
     val height: Int? = null,
     val qualityLabel: String? = null,
     val checksum: String,
-    val createdAt: Long
+    val createdAt: Long,
+    val artist: String? = null,
+    val album: String? = null,
+    val artworkUrl: String? = null,
+    val spotifyTrackId: String? = null,
+    val versionTag: String? = null
 ) {
     fun toDomain(): MediaAsset = MediaAsset(
         id = id,
@@ -61,7 +66,12 @@ data class DownloadedAssetEntity(
         height = height,
         qualityLabel = qualityLabel,
         checksum = checksum,
-        createdAt = createdAt
+        createdAt = createdAt,
+        artist = artist,
+        album = album,
+        artworkUrl = artworkUrl,
+        spotifyTrackId = spotifyTrackId,
+        versionTag = versionTag
     )
 
     companion object {
@@ -82,7 +92,12 @@ data class DownloadedAssetEntity(
             height = asset.height,
             qualityLabel = asset.qualityLabel,
             checksum = asset.checksum,
-            createdAt = asset.createdAt
+            createdAt = asset.createdAt,
+            artist = asset.artist,
+            album = asset.album,
+            artworkUrl = asset.artworkUrl,
+            spotifyTrackId = asset.spotifyTrackId,
+            versionTag = asset.versionTag
         )
     }
 }

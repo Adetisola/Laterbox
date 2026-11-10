@@ -80,7 +80,12 @@ class MediaRepositoryImpl(
         linkId: Long,
         candidate: MediaCandidate,
         sourcePlatform: String,
-        title: String?
+        title: String?,
+        artist: String?,
+        album: String?,
+        artworkUrl: String?,
+        spotifyTrackId: String?,
+        versionTag: String?
     ): String = withContext(Dispatchers.IO) {
         val taskId = UUID.randomUUID().toString()
         val sourceUrl = when (val s = candidate.source) {
@@ -113,7 +118,12 @@ class MediaRepositoryImpl(
             errorCode = null,
             errorMessage = null,
             createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            artist = artist,
+            album = album,
+            artworkUrl = artworkUrl,
+            spotifyTrackId = spotifyTrackId,
+            versionTag = versionTag
         )
 
         taskDao.insertTask(taskEntity)
