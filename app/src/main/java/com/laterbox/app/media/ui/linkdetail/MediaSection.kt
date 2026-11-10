@@ -296,10 +296,11 @@ fun MediaSection(
                                 )
                             }
                         }
-                        if (inspectionResult.message.isNotBlank()) {
+                        val failureMessage = inspectionResult.message
+                        if (!failureMessage.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = inspectionResult.message,
+                                text = failureMessage,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = colors.textSecondary,
                                 maxLines = 2

@@ -427,7 +427,7 @@ fun LaterboxFilterChip(
                 ) {
                     Text(
                         text = badgeText,
-                        style = typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                        style = typography.caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
                         color = if (isSelected) colors.surfaceElevated else colors.accentPrimary
                     )
                 }
