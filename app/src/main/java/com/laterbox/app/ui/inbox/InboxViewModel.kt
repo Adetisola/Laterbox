@@ -203,7 +203,6 @@ class InboxViewModel(
         viewModelScope.launch {
             linkRepository.deleteLink(linkId)
         }
-    }
 
     fun onRestore(link: SavedLink) {
         viewModelScope.launch {
