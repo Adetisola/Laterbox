@@ -4,7 +4,8 @@ import android.Manifest
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -54,6 +55,7 @@ import com.laterbox.app.media.domain.model.MediaCandidate
 import com.laterbox.app.media.domain.model.MediaType
 import com.laterbox.app.media.ui.downloads.formatBytes
 import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxSecondaryButton
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
 
@@ -88,8 +90,21 @@ fun MediaSection(
 
     val handleStartDownload: (MediaCandidate) -> Unit = { candidate ->
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            pendingCandidateToDownload = candidate
-            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (hasPermission) {
+                onDownloadCandidate(candidate)
+            } else {
+                pendingCandidateToDownload = candidate
+                try {
+                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } catch (t: Throwable) {
+                    onDownloadCandidate(candidate)
+                }
+            }
         } else {
             onDownloadCandidate(candidate)
         }
@@ -170,20 +185,12 @@ fun MediaSection(
                 )
             }
         } else if (inspectionResult == null && assets.isEmpty() && activeTasks.isEmpty()) {
-            OutlinedButton(
+            LaterboxSecondaryButton(
+                text = "Inspect for downloadable media",
+                leadingIcon = LaterboxIcons.Download,
                 onClick = onInspectClick,
-                modifier = Modifier.fillMaxWidth(),
-                shape = LaterboxShapeTokens.Card
-            ) {
-                Icon(
-                    painter = painterResource(LaterboxIcons.Download),
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = colors.accentPrimary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Inspect for downloadable media", color = colors.accentPrimary)
-            }
+                modifier = Modifier.fillMaxWidth()
+            )
         } else if (inspectionResult != null) {
             when (inspectionResult) {
                 is InspectionResult.Available -> {
@@ -269,22 +276,33 @@ fun MediaSection(
                 }
 
                 is InspectionResult.Failed -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Inspection failed (${inspectionResult.code.name})",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        if (inspectionResult.retryable) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "Retry",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = colors.accentPrimary,
-                                modifier = Modifier.clickable(onClick = onInspectClick)
+                                text = "Inspection failed (${inspectionResult.code.name})",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            if (inspectionResult.retryable) {
+                                Text(
+                                    text = "Retry",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = colors.accentPrimary,
+                                    modifier = Modifier.clickable(onClick = onInspectClick)
+                                )
+                            }
+                        }
+                        if (inspectionResult.message.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = inspectionResult.message,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.textSecondary,
+                                maxLines = 2
                             )
                         }
                     }

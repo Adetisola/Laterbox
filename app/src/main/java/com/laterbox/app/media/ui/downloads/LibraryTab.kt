@@ -14,15 +14,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import com.laterbox.app.ui.components.EmptyStateView
+import com.laterbox.app.ui.components.LaterboxFilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,63 +57,36 @@ fun LibraryTab(
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
+    val spacing = LaterboxTheme.spacing
 
     Column(modifier = modifier.fillMaxSize()) {
-        // Media type filter chips
-        LazyRow(
+        // Media type filter chips (standardised matching InboxScreen)
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = spacing.base, vertical = spacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(spacing.xs)
         ) {
-            item {
-                FilterChip(
-                    selected = selectedMediaType == null,
-                    onClick = { onMediaTypeSelected(null) },
-                    label = { Text("All") },
-                    shape = LaterboxShapeTokens.PillNav,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colors.accentPrimary.copy(alpha = 0.15f),
-                        selectedLabelColor = colors.accentPrimary
-                    )
-                )
-            }
-            items(MediaType.entries.filter { it != MediaType.OTHER }) { type ->
-                FilterChip(
-                    selected = selectedMediaType == type,
-                    onClick = { onMediaTypeSelected(type) },
-                    label = { Text(type.name.lowercase().replaceFirstChar { it.uppercase() }) },
-                    shape = LaterboxShapeTokens.PillNav,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colors.accentPrimary.copy(alpha = 0.15f),
-                        selectedLabelColor = colors.accentPrimary
-                    )
+            LaterboxFilterChip(
+                text = "All",
+                isSelected = selectedMediaType == null,
+                onClick = { onMediaTypeSelected(null) }
+            )
+            MediaType.entries.filter { it != MediaType.OTHER }.forEach { type ->
+                LaterboxFilterChip(
+                    text = type.name.lowercase().replaceFirstChar { it.uppercase() },
+                    isSelected = selectedMediaType == type,
+                    onClick = { onMediaTypeSelected(type) }
                 )
             }
         }
 
         if (assets.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        painter = painterResource(LaterboxIcons.Folder),
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = colors.textSecondary.copy(alpha = 0.4f)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        text = "No downloaded media found",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = colors.textSecondary
-                    )
-                }
-            }
+            EmptyStateView(
+                title = "No downloaded media",
+                subtitle = "Downloaded media files from your saved links will appear here for offline access."
+            )
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),

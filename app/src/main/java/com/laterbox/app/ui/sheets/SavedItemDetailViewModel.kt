@@ -246,10 +246,10 @@ class SavedItemDetailViewModel(
             try {
                 val result = platformResolver.resolveAndInspect(link.originalUrl)
                 _inspectionResult.value = result
-            } catch (e: Exception) {
+            } catch (t: Throwable) {
                 _inspectionResult.value = InspectionResult.Failed(
                     code = com.laterbox.app.media.domain.model.FailureCode.UNKNOWN,
-                    message = e.localizedMessage ?: "Failed to inspect",
+                    message = t.localizedMessage ?: "Failed to inspect",
                     retryable = true
                 )
             } finally {
@@ -261,12 +261,16 @@ class SavedItemDetailViewModel(
     fun downloadCandidate(candidate: MediaCandidate) {
         val link = _currentLink.value ?: return
         viewModelScope.launch {
-            mediaRepository.enqueueDownload(
-                linkId = link.id,
-                candidate = candidate,
-                sourcePlatform = "Direct",
-                title = link.title
-            )
+            try {
+                mediaRepository.enqueueDownload(
+                    linkId = link.id,
+                    candidate = candidate,
+                    sourcePlatform = "Direct",
+                    title = link.title
+                )
+            } catch (t: Throwable) {
+                android.util.Log.e("SavedItemDetailViewModel", "Failed to enqueue download: ${t.message}", t)
+            }
         }
     }
 

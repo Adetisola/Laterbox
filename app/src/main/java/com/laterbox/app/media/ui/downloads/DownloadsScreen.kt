@@ -1,7 +1,16 @@
 package com.laterbox.app.media.ui.downloads
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,20 +19,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -33,9 +36,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.media.domain.model.MediaAsset
@@ -43,6 +50,8 @@ import com.laterbox.app.media.domain.model.MediaType
 import com.laterbox.app.media.ui.viewer.DocumentOpener
 import com.laterbox.app.media.ui.viewer.ImageViewer
 import com.laterbox.app.media.ui.viewer.MediaPlayerScreen
+import com.laterbox.app.ui.components.LaterboxFilterChip
+import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -56,6 +65,9 @@ fun DownloadsScreen(
 ) {
     val context = LocalContext.current
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+    val keyboardController = LocalSoftwareKeyboardController.current
     val uiState by viewModel.uiState.collectAsState()
 
     var activeViewerAsset by remember { mutableStateOf<MediaAsset?>(null) }
@@ -65,104 +77,155 @@ fun DownloadsScreen(
         it.status in listOf(DownloadState.QUEUED, DownloadState.DOWNLOADING, DownloadState.PROCESSING, DownloadState.WAITING_FOR_WIFI)
     }
 
-    Box(modifier = modifier.fillMaxSize().background(colors.backgroundPrimary)) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(colors.backgroundPrimary)
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
+            // Header Row: standardized matching Inbox, Archive, Collections
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                    .padding(horizontal = spacing.base, vertical = spacing.sm),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Downloads",
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                    color = colors.textPrimary,
-                    modifier = Modifier.weight(1f)
-                )
-
-                IconButton(onClick = { isSearchVisible = !isSearchVisible }) {
-                    Icon(
-                        painter = painterResource(LaterboxIcons.Search),
-                        contentDescription = "Search downloads",
-                        tint = colors.textPrimary
+                Column {
+                    Text(
+                        text = "Downloads",
+                        style = typography.displayLarge,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = "Offline media & downloaded files",
+                        style = typography.metaText,
+                        color = colors.textSecondary
                     )
                 }
 
-                IconButton(onClick = onSettingsClick) {
-                    Icon(
-                        painter = painterResource(LaterboxIcons.Settings),
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Search,
+                        contentDescription = "Search downloads",
+                        selected = isSearchVisible,
+                        onClick = { isSearchVisible = !isSearchVisible }
+                    )
+                    Spacer(modifier = Modifier.width(spacing.xs))
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Settings,
                         contentDescription = "Settings",
-                        tint = colors.textPrimary
+                        onClick = onSettingsClick
                     )
                 }
             }
 
-            // Optional Search Bar
-            if (isSearchVisible) {
-                OutlinedTextField(
-                    value = uiState.searchQuery,
-                    onValueChange = viewModel::onSearchQueryChange,
+            // Standardized Search Bar (matching Inbox / Archive styling)
+            AnimatedVisibility(
+                visible = isSearchVisible,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    placeholder = { Text("Search title, format, or platform...") },
-                    singleLine = true,
-                    shape = LaterboxShapeTokens.Card,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = colors.surfacePrimary,
-                        unfocusedContainerColor = colors.surfacePrimary,
-                        focusedBorderColor = colors.accentPrimary,
-                        unfocusedBorderColor = colors.borderSubtle
-                    )
-                )
-            }
+                        .padding(horizontal = spacing.base, vertical = spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(LaterboxShapeTokens.InputField)
+                            .background(colors.surfacePrimary)
+                            .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.InputField)
+                            .padding(horizontal = spacing.md),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(id = LaterboxIcons.Search),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = colors.textSecondary
+                            )
+                            Spacer(modifier = Modifier.width(spacing.sm))
 
-            // Tab Row
-            TabRow(
-                selectedTabIndex = uiState.selectedTab.ordinal,
-                containerColor = colors.backgroundPrimary,
-                contentColor = colors.textPrimary,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[uiState.selectedTab.ordinal]),
-                        color = colors.accentPrimary
-                    )
-                }
-            ) {
-                Tab(
-                    selected = uiState.selectedTab == DownloadsTab.LIBRARY,
-                    onClick = { viewModel.onTabSelected(DownloadsTab.LIBRARY) },
-                    text = { Text("Library (${uiState.assets.size})") }
-                )
-                Tab(
-                    selected = uiState.selectedTab == DownloadsTab.QUEUE,
-                    onClick = { viewModel.onTabSelected(DownloadsTab.QUEUE) },
-                    text = {
-                        if (activeQueueCount > 0) {
-                            BadgedBox(
-                                badge = {
-                                    Badge(containerColor = colors.accentPrimary) {
-                                        Text("$activeQueueCount")
-                                    }
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (uiState.searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Search title, format, platform...",
+                                        style = typography.bodySecondary,
+                                        color = colors.textSecondary.copy(alpha = 0.7f)
+                                    )
                                 }
-                            ) {
-                                Text("Queue")
+                                BasicTextField(
+                                    value = uiState.searchQuery,
+                                    onValueChange = viewModel::onSearchQueryChange,
+                                    singleLine = true,
+                                    textStyle = typography.bodyPrimary.copy(color = colors.textPrimary),
+                                    cursorBrush = SolidColor(colors.accentPrimary),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
-                        } else {
-                            Text("Queue")
+
+                            if (uiState.searchQuery.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(LaterboxShapeTokens.IconButton)
+                                        .clickable(
+                                            role = Role.Button,
+                                            onClickLabel = "Clear search",
+                                            onClick = { viewModel.onSearchQueryChange("") }
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = LaterboxIcons.Close),
+                                        contentDescription = "Clear search",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = colors.textSecondary
+                                    )
+                                }
+                            }
                         }
                     }
+                }
+            }
+
+            // Standardised Tab Navigation using FilterChips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = spacing.base, vertical = spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+            ) {
+                LaterboxFilterChip(
+                    text = "Library (${uiState.assets.size})",
+                    isSelected = uiState.selectedTab == DownloadsTab.LIBRARY,
+                    onClick = { viewModel.onTabSelected(DownloadsTab.LIBRARY) }
                 )
-                Tab(
-                    selected = uiState.selectedTab == DownloadsTab.STORAGE,
-                    onClick = { viewModel.onTabSelected(DownloadsTab.STORAGE) },
-                    text = { Text("Storage") }
+                LaterboxFilterChip(
+                    text = "Queue",
+                    isSelected = uiState.selectedTab == DownloadsTab.QUEUE,
+                    onClick = { viewModel.onTabSelected(DownloadsTab.QUEUE) },
+                    badgeText = if (activeQueueCount > 0) "$activeQueueCount" else null
+                )
+                LaterboxFilterChip(
+                    text = "Storage",
+                    isSelected = uiState.selectedTab == DownloadsTab.STORAGE,
+                    onClick = { viewModel.onTabSelected(DownloadsTab.STORAGE) }
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(spacing.xxs))
 
             // Tab Content
             when (uiState.selectedTab) {

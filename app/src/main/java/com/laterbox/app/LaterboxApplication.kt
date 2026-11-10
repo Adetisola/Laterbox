@@ -69,7 +69,19 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
 
         // Reset any links left stuck in FETCHING from an abrupt process termination and enqueue workers
         applicationScope.launch {
-            try {
+                // Safely initialize YoutubeDL and FFmpeg in background
+                try {
+                    com.yausername.youtubedl_android.YoutubeDL.getInstance().init(this@LaterboxApplication)
+                    try {
+                        com.yausername.ffmpeg.FFmpeg.getInstance().init(this@LaterboxApplication)
+                    } catch (t: Throwable) {
+                        Log.w("LaterboxApplication", "FFmpeg init warning: ${t.message}")
+                    }
+                    Log.d("LaterboxApplication", "YoutubeDL initialized")
+                } catch (t: Throwable) {
+                    Log.w("LaterboxApplication", "YoutubeDL init warning: ${t.message}")
+                }
+
                 container.database.savedLinkDao().resetStuckFetchingLinks()
                 MetadataSyncWorker.enqueue(this@LaterboxApplication)
 

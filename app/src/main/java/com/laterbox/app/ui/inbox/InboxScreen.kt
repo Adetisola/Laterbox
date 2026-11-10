@@ -637,32 +637,11 @@ private fun FilterChip(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val colors = LaterboxTheme.colors
-    val typography = LaterboxTheme.typography
-    val spacing = LaterboxTheme.spacing
-
-    val bg = if (isSelected) colors.accentPrimary else colors.surfacePrimary
-    val textColor = if (isSelected) colors.surfaceElevated else colors.textSecondary
-    val borderColor = if (isSelected) colors.accentPrimary else colors.borderSubtle
-
-    Box(
-        modifier = Modifier
-            .height(32.dp)
-            .clip(LaterboxShapeTokens.Chip)
-            .background(bg)
-            .border(spacing.hairline, borderColor, LaterboxShapeTokens.Chip)
-            .clickable(onClick = onClick)
-            .padding(horizontal = spacing.md),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            style = typography.uiMedium,
-            color = textColor,
-            fontSize = 12.sp,
-            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-        )
-    }
+    com.laterbox.app.ui.components.LaterboxFilterChip(
+        text = text,
+        isSelected = isSelected,
+        onClick = onClick
+    )
 }
 
 @Composable

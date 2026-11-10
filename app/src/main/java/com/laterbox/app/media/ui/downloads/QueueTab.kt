@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.media.domain.model.DownloadTask
+import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -50,28 +51,11 @@ fun QueueTab(
     modifier: Modifier = Modifier
 ) {
     if (tasks.isEmpty()) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    painter = painterResource(LaterboxIcons.Download),
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = LaterboxTheme.colors.textSecondary.copy(alpha = 0.5f)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "No active downloads",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = LaterboxTheme.colors.textSecondary
-                )
-            }
-        }
+        EmptyStateView(
+            title = "No active downloads",
+            subtitle = "When you start downloading media from saved links, download progress will show here.",
+            modifier = modifier.fillMaxSize()
+        )
     } else {
         LazyColumn(
             modifier = modifier.fillMaxSize(),

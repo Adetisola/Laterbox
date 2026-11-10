@@ -1,23 +1,28 @@
 package com.laterbox.app.update
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Handles downloading, cryptographic signature verification, and system package installer
- * launching for GitHub release APKs.
+ * Handles downloading, cryptographic signature verification, resilient resumption,
+ * and system package installer launching for GitHub release APKs.
  */
 object ApkInstallerHelper {
 
@@ -29,119 +34,252 @@ object ApkInstallerHelper {
         data class Error(val message: String) : DownloadProgress()
     }
 
+    sealed class ApkVerificationResult {
+        data object Valid : ApkVerificationResult()
+        data class SignatureMismatch(val message: String) : ApkVerificationResult()
+        data class InvalidPackage(val expected: String, val actual: String) : ApkVerificationResult()
+        data class Error(val message: String) : ApkVerificationResult()
+    }
+
+    /**
+     * Checks if an APK for the specified version is already downloaded and verified on disk.
+     */
+    fun getExistingDownloadedApk(context: Context, versionName: String): File? {
+        val updatesDir = File(context.cacheDir, "updates")
+        val file = File(updatesDir, "Laterbox-$versionName.apk")
+        return if (file.exists() && file.length() > 0 && verifyApk(context, file)) {
+            file
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Resiliently downloads the APK with HTTP Range header support to resume partial downloads.
+     * Retries automatically on transient network drops instead of discarding downloaded data.
+     */
     suspend fun downloadApk(
         context: Context,
         downloadUrl: String,
         versionName: String,
         onProgress: (DownloadProgress) -> Unit
     ): File? = withContext(Dispatchers.IO) {
-        try {
-            val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
-            val outputFile = File(updatesDir, "Laterbox-$versionName.apk")
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val outputFile = File(updatesDir, "Laterbox-$versionName.apk")
 
-            if (outputFile.exists()) {
-                outputFile.delete()
-            }
-
-            val url = URL(downloadUrl)
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Laterbox-App")
-            }
-
-            // Follow HTTP redirects (GitHub release asset downloads redirect to AWS S3)
-            var currentConnection = connection
-            var redirectCount = 0
-            while (currentConnection.responseCode in listOf(301, 302, 303, 307, 308) && redirectCount < 5) {
-                val newUrl = currentConnection.getHeaderField("Location")
-                currentConnection.disconnect()
-                currentConnection = (URL(newUrl).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 15_000
-                    readTimeout = 30_000
-                    setRequestProperty("User-Agent", "Laterbox-App")
-                }
-                redirectCount++
-            }
-
-            val totalBytes = currentConnection.contentLength.toLong()
-            var bytesReadTotal = 0L
-
-            currentConnection.inputStream.use { input ->
-                FileOutputStream(outputFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        bytesReadTotal += bytesRead
-                        val percent = if (totalBytes > 0) ((bytesReadTotal * 100) / totalBytes).toInt() else 0
-                        withContext(Dispatchers.Main) {
-                            onProgress(DownloadProgress.Downloading(bytesReadTotal, totalBytes, percent))
-                        }
-                    }
-                    output.flush()
-                }
-            }
-
+        // 1. If the file is already fully downloaded and verified, return immediately
+        if (outputFile.exists() && outputFile.length() > 0 && verifyApk(context, outputFile)) {
             withContext(Dispatchers.Main) {
                 onProgress(DownloadProgress.Completed(outputFile))
             }
-            outputFile
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to download APK: $downloadUrl", e)
-            withContext(Dispatchers.Main) {
-                onProgress(DownloadProgress.Error(e.message ?: "Download failed"))
-            }
-            null
+            return@withContext outputFile
         }
+
+        var existingBytes = if (outputFile.exists()) outputFile.length() else 0L
+        var attempt = 0
+        val maxAttempts = 3
+        var lastErrorMessage = "Download failed"
+
+        while (attempt < maxAttempts) {
+            attempt++
+            var activeConnection: HttpURLConnection? = null
+            try {
+                var currentUrl = downloadUrl
+                var redirectCount = 0
+
+                // Follow HTTP redirects (GitHub releases redirect to AWS S3)
+                while (redirectCount < 5) {
+                    val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20_000
+                        readTimeout = 40_000
+                        instanceFollowRedirects = false
+                        setRequestProperty("User-Agent", "Laterbox-App")
+                        if (existingBytes > 0) {
+                            setRequestProperty("Range", "bytes=$existingBytes-")
+                        }
+                    }
+
+                    val code = conn.responseCode
+                    if (code in listOf(301, 302, 303, 307, 308)) {
+                        val newLocation = conn.getHeaderField("Location")
+                            ?: throw IOException("HTTP redirect without Location header")
+                        conn.disconnect()
+                        currentUrl = newLocation
+                        redirectCount++
+                    } else {
+                        activeConnection = conn
+                        break
+                    }
+                }
+
+                val connection = activeConnection
+                    ?: throw IOException("Failed to connect after following redirects")
+
+                val responseCode = connection.responseCode
+
+                val (isAppend, totalBytes) = when (responseCode) {
+                    HttpURLConnection.HTTP_PARTIAL -> {
+                        // 206 Partial Content: Server supports resuming
+                        val remaining = connection.contentLengthLong.takeIf { it > 0 }
+                            ?: connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
+                        val total = if (remaining > 0) existingBytes + remaining else -1L
+                        Pair(true, total)
+                    }
+                    HttpURLConnection.HTTP_OK -> {
+                        // 200 OK: Full file being sent (or starting from offset 0)
+                        existingBytes = 0L
+                        Pair(false, connection.contentLengthLong)
+                    }
+                    416 -> {
+                        // Requested Range Not Satisfiable: File might already be complete
+                        if (outputFile.exists() && outputFile.length() > 0 && verifyApk(context, outputFile)) {
+                            withContext(Dispatchers.Main) {
+                                onProgress(DownloadProgress.Completed(outputFile))
+                            }
+                            return@withContext outputFile
+                        } else {
+                            // File was corrupt or range invalid: start clean
+                            outputFile.delete()
+                            existingBytes = 0L
+                            continue
+                        }
+                    }
+                    else -> {
+                        throw IOException("Unexpected HTTP response code: $responseCode")
+                    }
+                }
+
+                var bytesReadTotal = existingBytes
+                var lastReportedPercent = -1
+
+                connection.inputStream.use { input ->
+                    FileOutputStream(outputFile, isAppend).use { output ->
+                        val buffer = ByteArray(32768)
+                        var bytesRead: Int
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            bytesReadTotal += bytesRead
+                            val percent = if (totalBytes > 0) {
+                                ((bytesReadTotal * 100) / totalBytes).toInt().coerceIn(0, 100)
+                            } else {
+                                0
+                            }
+                            if (percent != lastReportedPercent) {
+                                lastReportedPercent = percent
+                                withContext(Dispatchers.Main) {
+                                    onProgress(DownloadProgress.Downloading(bytesReadTotal, totalBytes, percent))
+                                }
+                            }
+                        }
+                        output.flush()
+                    }
+                }
+
+                // Verify file integrity
+                if (outputFile.exists() && outputFile.length() > 0) {
+                    withContext(Dispatchers.Main) {
+                        onProgress(DownloadProgress.Completed(outputFile))
+                    }
+                    return@withContext outputFile
+                } else {
+                    throw IOException("Downloaded file is empty or missing")
+                }
+
+            } catch (e: Exception) {
+                Log.w(TAG, "Download attempt $attempt failed: ${e.message}")
+                lastErrorMessage = e.message ?: "Network error during download"
+                if (outputFile.exists()) {
+                    existingBytes = outputFile.length()
+                }
+                if (attempt < maxAttempts) {
+                    delay(1500L * attempt)
+                }
+            } finally {
+                try {
+                    activeConnection?.disconnect()
+                } catch (_: Exception) {}
+            }
+        }
+
+        Log.e(TAG, "Download failed after $maxAttempts attempts: $lastErrorMessage")
+        withContext(Dispatchers.Main) {
+            onProgress(DownloadProgress.Error(lastErrorMessage))
+        }
+        null
     }
 
     /**
      * Verifies that the downloaded APK matches Laterbox's package name and signing identity.
      */
-    fun verifyApk(context: Context, apkFile: File): Boolean {
+    fun verifyApkDetailed(context: Context, apkFile: File): ApkVerificationResult {
         try {
             val pm = context.packageManager
             val archiveInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
+                    ?: @Suppress("DEPRECATION") pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)
             } else {
                 @Suppress("DEPRECATION")
                 pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)
-            } ?: return false
+            } ?: return ApkVerificationResult.Error("Unable to parse APK package info")
 
             // 1. Verify package identity
             val expectedPackage = context.packageName.removeSuffix(".debug")
             val archivePackage = (archiveInfo.packageName ?: "").removeSuffix(".debug")
             if (archivePackage != expectedPackage && archiveInfo.packageName != context.packageName) {
                 Log.w(TAG, "Package name mismatch: expected $expectedPackage, found $archivePackage")
-                return false
+                return ApkVerificationResult.InvalidPackage(expectedPackage, archivePackage)
             }
 
             // 2. Verify signing certificates match installed application
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                try {
-                    val installedInfo = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-                    val installedSigning = installedInfo.signingInfo
-                    val archiveSigning = archiveInfo.signingInfo
-                    if (installedSigning != null && archiveSigning != null) {
-                        val installedSigners = installedSigning.apkContentsSigners.map { it.toByteArray().contentHashCode() }.toSet()
-                        val archiveSigners = archiveSigning.apkContentsSigners.map { it.toByteArray().contentHashCode() }.toSet()
-                        if (installedSigners.isNotEmpty() && archiveSigners.isNotEmpty() && installedSigners.intersect(archiveSigners).isEmpty()) {
-                            Log.w(TAG, "Signing certificate mismatch")
-                            return false
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Signing certificate check warning", e)
+            val archiveSigners: Set<Int> = when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && archiveInfo.signingInfo != null -> {
+                    archiveInfo.signingInfo?.apkContentsSigners?.map { it.toByteArray().contentHashCode() }?.toSet() ?: emptySet()
+                }
+                else -> {
+                    @Suppress("DEPRECATION")
+                    val sigs = archiveInfo.signatures
+                        ?: pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)?.signatures
+                    sigs?.map { it.toByteArray().contentHashCode() }?.toSet() ?: emptySet()
                 }
             }
 
-            return true
+            val installedSigners: Set<Int> = when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> {
+                    try {
+                        val installedInfo = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+                        installedInfo.signingInfo?.apkContentsSigners?.map { it.toByteArray().contentHashCode() }?.toSet()
+                            ?: emptySet()
+                    } catch (_: Exception) {
+                        emptySet()
+                    }
+                }
+                else -> {
+                    try {
+                        @Suppress("DEPRECATION")
+                        val installedInfo = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+                        installedInfo.signatures?.map { it.toByteArray().contentHashCode() }?.toSet() ?: emptySet()
+                    } catch (_: Exception) {
+                        emptySet()
+                    }
+                }
+            }
+
+            if (installedSigners.isNotEmpty() && archiveSigners.isNotEmpty() && installedSigners.intersect(archiveSigners).isEmpty()) {
+                Log.w(TAG, "Signing certificate mismatch")
+                return ApkVerificationResult.SignatureMismatch(
+                    "Signature mismatch: The update was signed with the official release key, but your currently installed app was built with a debug or local key. Android security requires uninstalling the existing app first."
+                )
+            }
+
+            return ApkVerificationResult.Valid
         } catch (e: Exception) {
             Log.e(TAG, "Verification error", e)
-            return false
+            return ApkVerificationResult.Error(e.message ?: "Unknown verification error")
         }
+    }
+
+    fun verifyApk(context: Context, apkFile: File): Boolean {
+        return verifyApkDetailed(context, apkFile) is ApkVerificationResult.Valid
     }
 
     /**
@@ -188,6 +326,63 @@ object ApkInstallerHelper {
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to launch package installer", e)
+            false
+        }
+    }
+
+    /**
+     * Copies the downloaded APK into the public Downloads directory so the user can easily access,
+     * inspect, or install it manually if system installer encounters errors.
+     */
+    fun saveApkToDownloads(context: Context, apkFile: File): Uri? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, apkFile.name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/vnd.android.package-archive")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                }
+                val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                if (uri != null) {
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        apkFile.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
+                    return uri
+                }
+            }
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (downloadsDir != null && (downloadsDir.exists() || downloadsDir.mkdirs())) {
+                val destFile = File(downloadsDir, apkFile.name)
+                apkFile.copyTo(destFile, overwrite = true)
+                return Uri.fromFile(destFile)
+            }
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save APK to Downloads", e)
+            null
+        }
+    }
+
+    /**
+     * Shares the APK via Android's system share sheet so the user can send or backup the file.
+     */
+    fun shareApk(context: Context, apkFile: File): Boolean {
+        return try {
+            val authority = "${context.packageName}.fileprovider"
+            val uri = FileProvider.getUriForFile(context, authority, apkFile)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/vnd.android.package-archive"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Save or Share Laterbox APK").apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to share APK", e)
             false
         }
     }

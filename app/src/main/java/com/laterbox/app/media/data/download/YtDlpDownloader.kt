@@ -21,18 +21,23 @@ class YtDlpDownloader(
     @Volatile
     private var isInitialized = false
 
-    private fun ensureInitialized() {
-        if (!isInitialized && customExecutor == null) {
-            synchronized(this) {
-                if (!isInitialized) {
-                    try {
-                        YoutubeDL.getInstance().init(appContext)
-                        FFmpeg.getInstance().init(appContext)
-                    } catch (e: Exception) {
-                        android.util.Log.w("YtDlpDownloader", "Native YoutubeDL/FFmpeg init exception: ${e.message}")
-                    }
-                    isInitialized = true
+    private fun ensureInitialized(): Boolean {
+        if (customExecutor != null) return true
+        if (isInitialized) return true
+        return synchronized(this) {
+            if (isInitialized) return true
+            try {
+                YoutubeDL.getInstance().init(appContext)
+                try {
+                    FFmpeg.getInstance().init(appContext)
+                } catch (t: Throwable) {
+                    android.util.Log.w("YtDlpDownloader", "FFmpeg init warning: ${t.message}")
                 }
+                isInitialized = true
+                true
+            } catch (t: Throwable) {
+                android.util.Log.e("YtDlpDownloader", "Native YoutubeDL init failed: ${t.message}", t)
+                false
             }
         }
     }
@@ -44,7 +49,13 @@ class YtDlpDownloader(
         taskId: String,
         onProgress: suspend (bytesDownloaded: Long, totalBytes: Long?, percent: Int) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
-        ensureInitialized()
+        val initialized = ensureInitialized()
+        if (!initialized && customExecutor == null) {
+            return@withContext DownloadResult.Failure(
+                code = FailureCode.UNKNOWN,
+                message = "yt-dlp engine could not be initialized on this device"
+            )
+        }
 
         destinationFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
 
@@ -91,10 +102,10 @@ class YtDlpDownloader(
             val errText = ye.message ?: "yt-dlp execution error"
             val code = YtDlpOutputParser.parseFailureCode(errText)
             DownloadResult.Failure(code = code, message = errText)
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             DownloadResult.Failure(
                 code = FailureCode.UNKNOWN,
-                message = e.localizedMessage ?: "Unknown download failure"
+                message = t.localizedMessage ?: "Unknown download failure"
             )
         }
     }

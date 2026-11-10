@@ -32,10 +32,10 @@ class PlatformResolver(
                 message = "Media inspection timed out after 30 seconds",
                 retryable = true
             )
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             InspectionResult.Failed(
                 code = FailureCode.UNKNOWN,
-                message = e.localizedMessage ?: "Inspection failed",
+                message = t.localizedMessage ?: "Inspection failed",
                 retryable = true
             )
         }

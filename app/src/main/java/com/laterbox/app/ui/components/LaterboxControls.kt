@@ -31,7 +31,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.laterbox.app.ui.theme.LaterboxTheme
 
 /**
@@ -373,3 +375,64 @@ fun LaterboxSheetSurface(
         content = content
     )
 }
+
+/**
+ * Standardised filter chip matching the Inbox reference design.
+ * 12dp corner radius (LaterboxShapeTokens.Chip), 32dp height, hairline border.
+ */
+@Composable
+fun LaterboxFilterChip(
+    text: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    badgeText: String? = null
+) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
+    val bg = if (isSelected) colors.accentPrimary else colors.surfacePrimary
+    val textColor = if (isSelected) colors.surfaceElevated else colors.textSecondary
+    val borderColor = if (isSelected) colors.accentPrimary else colors.borderSubtle
+
+    Box(
+        modifier = modifier
+            .height(32.dp)
+            .clip(LaterboxShapeTokens.Chip)
+            .background(bg)
+            .border(spacing.hairline, borderColor, LaterboxShapeTokens.Chip)
+            .clickable(onClick = onClick)
+            .padding(horizontal = spacing.md),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = text,
+                style = typography.uiMedium,
+                color = textColor,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+            )
+            if (!badgeText.isNullOrBlank()) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelected) colors.surfaceElevated.copy(alpha = 0.25f) else colors.accentContainer)
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = badgeText,
+                        style = typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                        color = if (isSelected) colors.surfaceElevated else colors.accentPrimary
+                    )
+                }
+            }
+        }
+    }
+}
+
