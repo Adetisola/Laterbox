@@ -184,25 +184,22 @@ class InboxViewModel(
         _activeDateRangeFilter.value = if (_activeDateRangeFilter.value == filter) DateRangeFilter.ALL else filter
     }
 
-    fun onToggleRead(linkId: Long, currentIsRead: Boolean) {
+    fun onToggleRead(linkId: Long, currentIsRead: Boolean): kotlinx.coroutines.Job =
         viewModelScope.launch {
             linkRepository.setRead(linkId, !currentIsRead)
         }
-    }
 
-    fun onArchive(linkId: Long) {
+    fun onArchive(linkId: Long): kotlinx.coroutines.Job =
         viewModelScope.launch {
             linkRepository.setArchived(linkId, true)
         }
-    }
 
-    fun unarchive(linkId: Long) {
+    fun unarchive(linkId: Long): kotlinx.coroutines.Job =
         viewModelScope.launch {
             linkRepository.setArchived(linkId, false)
         }
-    }
 
-    fun onDelete(linkId: Long) {
+    fun onDelete(linkId: Long): kotlinx.coroutines.Job =
         viewModelScope.launch {
             linkRepository.deleteLink(linkId)
         }

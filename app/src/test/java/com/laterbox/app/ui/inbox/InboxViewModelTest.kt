@@ -122,7 +122,8 @@ class InboxViewModelTest {
             }
             assertEquals(1, state.links.size)
 
-            viewModel.onArchive(linkId)
+            val archiveJob = viewModel.onArchive(linkId)
+            archiveJob.join()
             state = awaitItem()
             while (state.links.isNotEmpty()) {
                 state = awaitItem()

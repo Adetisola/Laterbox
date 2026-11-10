@@ -18,6 +18,10 @@ class MainDispatcherRule(
     }
 
     override fun finished(description: Description) {
-        Dispatchers.resetMain()
+        try {
+            Dispatchers.resetMain()
+        } catch (_: IllegalStateException) {
+            // Guard against concurrent reset during teardown if background coroutines are still settling
+        }
     }
 }
