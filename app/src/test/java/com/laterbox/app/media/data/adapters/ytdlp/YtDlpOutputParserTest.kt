@@ -241,4 +241,31 @@ class YtDlpOutputParserTest {
         assertTrue(result is InspectionResult.Failed)
         assertEquals(FailureCode.EXTRACTOR_BROKEN, (result as InspectionResult.Failed).code)
     }
+
+    @Test
+    fun parseError_mapsYouTubeChallenge_toYouTubeChallengeError() {
+        val err = "ERROR: [youtube] Sign in to confirm you're not a bot. Use --cookies-from-browser or pass credentials."
+        val result = YtDlpOutputParser.parseError(err)
+
+        assertTrue(result is InspectionResult.Failed)
+        assertEquals(FailureCode.YOUTUBE_CHALLENGE_ERROR, (result as InspectionResult.Failed).code)
+    }
+
+    @Test
+    fun parseError_mapsSocketTimeout_toConnectionTimeout() {
+        val err = "ERROR: [youtube] unable to download video data: The read operation timed out (socket timeout)"
+        val result = YtDlpOutputParser.parseError(err)
+
+        assertTrue(result is InspectionResult.Failed)
+        assertEquals(FailureCode.CONNECTION_TIMEOUT, (result as InspectionResult.Failed).code)
+    }
+
+    @Test
+    fun parseError_mapsPythonTraceback_toPythonRuntimeError() {
+        val err = "Traceback (most recent call last):\n  File \"yt_dlp/__main__.py\", line 19\nModuleNotFoundError: No module named 'certifi'"
+        val result = YtDlpOutputParser.parseError(err)
+
+        assertTrue(result is InspectionResult.Failed)
+        assertEquals(FailureCode.PYTHON_RUNTIME_ERROR, (result as InspectionResult.Failed).code)
+    }
 }

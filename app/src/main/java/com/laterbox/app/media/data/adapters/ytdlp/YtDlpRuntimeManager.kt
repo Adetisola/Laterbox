@@ -17,26 +17,33 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.PrintWriter
+import androidx.annotation.Keep
 import java.io.StringWriter
 
 /**
  * High-level initialization state for the yt-dlp core engine (Python runtime + yt-dlp script).
  */
-sealed class YtDlpInitState {
-    data object NotInitialized : YtDlpInitState()
-    data object Initializing : YtDlpInitState()
-    data class Initialized(val version: String?) : YtDlpInitState()
-    data class Failed(val error: YtDlpInitException) : YtDlpInitState()
+@Keep
+sealed class YtDlpInitState(val name: String) {
+    @Keep data object NotInitialized : YtDlpInitState("NOT_INITIALIZED")
+    @Keep data object Initializing : YtDlpInitState("INITIALIZING")
+    @Keep data class Initialized(val version: String?, val pythonVersion: String = "3.12") : YtDlpInitState("INITIALIZED")
+    @Keep data class Failed(val error: YtDlpInitException) : YtDlpInitState("FAILED")
+
+    override fun toString(): String = name
 }
 
 /**
  * High-level initialization state for the FFmpeg binary and shared libraries.
  */
-sealed class FfmpegInitState {
-    data object NotInitialized : FfmpegInitState()
-    data object Initializing : FfmpegInitState()
-    data object Initialized : FfmpegInitState()
-    data class Failed(val error: YtDlpInitException) : FfmpegInitState()
+@Keep
+sealed class FfmpegInitState(val name: String) {
+    @Keep data object NotInitialized : FfmpegInitState("NOT_INITIALIZED")
+    @Keep data object Initializing : FfmpegInitState("INITIALIZING")
+    @Keep data object Initialized : FfmpegInitState("INITIALIZED")
+    @Keep data class Failed(val error: YtDlpInitException) : FfmpegInitState("FAILED")
+
+    override fun toString(): String = name
 }
 
 /**
@@ -71,6 +78,7 @@ data class FileAuditEntry(val name: String, val sizeBytes: Long, val isDirectory
 /**
  * Comprehensive diagnostic report for hardware, ABI, process, native libraries, and initialization state.
  */
+@Keep
 data class YtDlpDiagnosticReport(
     val androidRelease: String,
     val sdkInt: Int,
@@ -87,6 +95,7 @@ data class YtDlpDiagnosticReport(
     val runtimeExtractedFiles: List<FileAuditEntry>,
     val ytDlpStateSummary: String,
     val ytDlpVersion: String?,
+    val pythonVersion: String = "3.12",
     val ffmpegStateSummary: String,
     val lastExceptionCategory: YtDlpInitFailureCategory?,
     val lastExceptionMessage: String?,
@@ -120,7 +129,7 @@ data class YtDlpDiagnosticReport(
                 sb.appendLine("  ... and ${runtimeExtractedFiles.size - 15} more files")
             }
         }
-        sb.appendLine("yt-dlp Engine State: $ytDlpStateSummary (Version: ${ytDlpVersion ?: "unknown"})")
+        sb.appendLine("yt-dlp Engine State: $ytDlpStateSummary (Version: ${ytDlpVersion ?: "unknown"}, Python: $pythonVersion)")
         sb.appendLine("FFmpeg Engine State: $ffmpegStateSummary")
         if (lastExceptionCategory != null) {
             sb.appendLine("\n--- Last Initialization Error ---")
@@ -483,9 +492,10 @@ class YtDlpRuntimeManager(
             nativeLibrariesPresent = nativeLibs,
             runtimeDirectoryExists = noBackup?.exists() == true,
             runtimeExtractedFiles = runtimeFiles,
-            ytDlpStateSummary = _ytDlpState.value.javaClass.simpleName,
+            ytDlpStateSummary = _ytDlpState.value.name,
             ytDlpVersion = ytDlpVersion,
-            ffmpegStateSummary = _ffmpegState.value.javaClass.simpleName,
+            pythonVersion = "3.12",
+            ffmpegStateSummary = _ffmpegState.value.name,
             lastExceptionCategory = lastRecordedException?.category,
             lastExceptionMessage = lastRecordedException?.message,
             lastExceptionStackTrace = stackTrace

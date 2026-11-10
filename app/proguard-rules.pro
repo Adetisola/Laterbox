@@ -47,3 +47,16 @@
 -keepnames class com.fasterxml.jackson.** { *; }
 -dontwarn com.fasterxml.jackson.**
 
+# Media Engine Diagnostics & States (Prevents minifying states to single letters 'l' and 'b')
+-keep class com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState** { *; }
+-keep class com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState** { *; }
+-keep class com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitFailureCategory { *; }
+-keep class com.laterbox.app.media.data.adapters.ytdlp.YtDlpDiagnosticReport { *; }
+-keep class com.laterbox.app.media.domain.model.** { *; }
+-keep class com.laterbox.app.media.data.db.entity.** { *; }
+-keep class com.laterbox.app.media.data.db.dao.** { *; }
+
+# Application Update System
+-keep class com.laterbox.app.update.** { *; }
+
+

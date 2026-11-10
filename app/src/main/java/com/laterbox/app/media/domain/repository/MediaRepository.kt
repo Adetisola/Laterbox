@@ -35,6 +35,8 @@ interface MediaRepository {
     suspend fun pauseDownload(taskId: String)
     suspend fun resumeDownload(taskId: String)
     suspend fun cancelDownload(taskId: String)
+    suspend fun dismissTask(taskId: String)
+    suspend fun clearTerminalTasks()
     suspend fun retryDownload(taskId: String)
     suspend fun deleteAsset(assetId: String)
     suspend fun exportAsset(assetId: String): Result<String>

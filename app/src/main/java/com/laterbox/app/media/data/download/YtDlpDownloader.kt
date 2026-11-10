@@ -36,23 +36,38 @@ class YtDlpDownloader(
                     message = err?.message ?: "yt-dlp engine could not be initialized on this device"
                 )
             }
+        }
 
-            // Attempt FFmpeg initialization for audio/video stream merging
+        val isFfmpegAvailable = if (customExecutor == null) {
             val ffmpegInitResult = runtimeManager.ensureFfmpegInitialized()
             if (ffmpegInitResult.isFailure) {
                 android.util.Log.w("YtDlpDownloader", "FFmpeg not available: ${ffmpegInitResult.exceptionOrNull()?.message}")
             }
-        }
+            ffmpegInitResult.isSuccess
+        } else true
 
         destinationFile.parentFile?.let { if (!it.exists()) it.mkdirs() }
 
+        val isAudioOnly = formatSelector.contains("bestaudio", ignoreCase = true) ||
+            (!formatSelector.contains("video", ignoreCase = true) && formatSelector.contains("audio", ignoreCase = true))
+
+        val effectiveFormatSelector = if (!isFfmpegAvailable && formatSelector.contains("+")) {
+            "$formatSelector/best[vcodec!=none][acodec!=none]/best"
+        } else {
+            formatSelector
+        }
+
         val request = YoutubeDLRequest(url).apply {
-            addOption("-f", formatSelector)
+            addOption("-f", effectiveFormatSelector)
             addOption("-o", destinationFile.absolutePath)
-            addOption("--merge-output-format", "mp4")
+            if (!isAudioOnly && isFfmpegAvailable) {
+                addOption("--merge-output-format", "mp4")
+            }
+            addOption("--print", "after_move:filepath")
             addOption("--continue")
-            addOption("--socket-timeout", "15")
+            addOption("--socket-timeout", "20")
             addOption("--no-playlist")
+            addOption("--no-warnings")
         }
 
         try {
@@ -62,7 +77,8 @@ class YtDlpDownloader(
                 if (percent != lastReportedPercent) {
                     lastReportedPercent = percent
                     kotlinx.coroutines.runBlocking {
-                        onProgress(destinationFile.length(), null, percent)
+                        val currentLen = if (destinationFile.exists()) destinationFile.length() else 0L
+                        onProgress(currentLen, null, percent)
                     }
                 }
             }
@@ -73,12 +89,17 @@ class YtDlpDownloader(
                 YoutubeDL.getInstance().execute(request, taskId, progressCallback)
             }
 
-            if (destinationFile.exists() && destinationFile.length() > 0L) {
+            val located = locateOutputFile(destinationFile, taskId, response.out)
+            if (located != null && located.exists() && located.length() > 0L) {
+                if (located.absolutePath != destinationFile.absolutePath) {
+                    if (destinationFile.exists()) destinationFile.delete()
+                    located.renameTo(destinationFile)
+                }
                 val fileSize = destinationFile.length()
                 onProgress(fileSize, fileSize, 100)
                 DownloadResult.Success(fileSize, fileSize)
             } else {
-                val err = response.err ?: "yt-dlp exited without creating output file"
+                val err = response.err?.takeIf { it.isNotBlank() } ?: "yt-dlp exited without creating output file"
                 val code = YtDlpOutputParser.parseFailureCode(err)
                 DownloadResult.Failure(code = code, message = err)
             }
@@ -95,6 +116,30 @@ class YtDlpDownloader(
                 message = t.localizedMessage ?: "Unknown download failure"
             )
         }
+    }
+
+    private fun locateOutputFile(destinationFile: File, taskId: String, stdout: String?): File? {
+        if (destinationFile.exists() && destinationFile.length() > 0L) {
+            return destinationFile
+        }
+
+        // 1. Check stdout lines from --print after_move:filepath
+        stdout?.lines()?.map { it.trim() }?.filter { it.isNotBlank() }?.reversed()?.forEach { line ->
+            val candidate = File(line)
+            if (candidate.exists() && candidate.isFile && candidate.length() > 0L) {
+                return candidate
+            }
+        }
+
+        // 2. Scan destination parent directory for files matching taskId
+        val parent = destinationFile.parentFile ?: return null
+        val candidates = parent.listFiles { file ->
+            file.isFile && file.length() > 0L &&
+                (file.name.startsWith(destinationFile.name) || file.name.startsWith(taskId)) &&
+                !file.name.endsWith(".temp") && !file.name.endsWith(".ytdl")
+        }?.sortedByDescending { it.length() }
+
+        return candidates?.firstOrNull()
     }
 
     fun cancel(taskId: String) {

@@ -2,6 +2,10 @@ package com.laterbox.app.media.domain.model
 
 enum class FailureCode(val userMessage: String) {
     NETWORK_ERROR("Network connection lost. Please check your internet connection."),
+    CONNECTION_TIMEOUT("Connection timed out while reaching the media server."),
+    EXTRACTION_TIMEOUT("Extraction timed out. The platform response was too slow."),
+    PYTHON_RUNTIME_ERROR("Python media runtime encountered an internal execution error."),
+    YOUTUBE_CHALLENGE_ERROR("YouTube requested a bot verification check (challenge). Try again later."),
     INSUFFICIENT_STORAGE("Not enough storage space available on device."),
     PRIVATE_CONTENT("This media is private or protected."),
     LOGIN_REQUIRED("Login required to access this media."),
@@ -14,5 +18,5 @@ enum class FailureCode(val userMessage: String) {
     UNKNOWN("An unexpected error occurred during download.");
 
     val isRetryable: Boolean
-        get() = this == NETWORK_ERROR || this == RATE_LIMITED || this == HTTP_ERROR
+        get() = this == NETWORK_ERROR || this == CONNECTION_TIMEOUT || this == EXTRACTION_TIMEOUT || this == RATE_LIMITED || this == HTTP_ERROR
 }

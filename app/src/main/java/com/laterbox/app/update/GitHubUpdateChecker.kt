@@ -1,11 +1,35 @@
 package com.laterbox.app.update
 
 import android.os.Build
+import androidx.annotation.Keep
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.IOException
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
+import java.net.UnknownHostException
+
+/**
+ * Distinct possible outcomes when checking for application updates.
+ */
+@Keep
+sealed class UpdateCheckResult {
+    @Keep data class UpdateAvailable(val updateInfo: AppUpdateInfo) : UpdateCheckResult()
+    @Keep data class UpToDate(val currentVersion: String) : UpdateCheckResult()
+    @Keep data class NetworkError(val message: String, val cause: Throwable? = null) : UpdateCheckResult()
+    @Keep data class ApiError(val statusCode: Int, val message: String) : UpdateCheckResult()
+    @Keep data class InvalidRelease(val message: String) : UpdateCheckResult()
+    @Keep data class NoCompatibleApk(val releaseVersion: String, val deviceAbis: List<String>) : UpdateCheckResult()
+
+    val isUpdateAvailable: Boolean
+        get() = this is UpdateAvailable
+
+    val updateInfoOrNull: AppUpdateInfo?
+        get() = (this as? UpdateAvailable)?.updateInfo
+}
 
 /**
  * Checks for published updates by querying GitHub's public releases API.
@@ -53,11 +77,11 @@ object GitHubUpdateChecker {
         }
 
         return when {
-            // 64-bit device: Prefer ARM64 split -> Universal -> Fallback
+            // 64-bit device: Prefer ARM64 split -> Universal -> Fallback to any non-conflicting
             is64BitSupported && arm64Apk != null ->
                 SelectedApkAsset(arm64Apk, "ARM64 (arm64-v8a)")
 
-            // 32-bit only device (e.g., Galaxy A02s): Prefer ARM32 split -> Universal
+            // 32-bit only device (e.g., Galaxy A02s): Prefer ARM32 split -> Universal -> any non-arm64
             !is64BitSupported && isArm32Supported && arm32Apk != null ->
                 SelectedApkAsset(arm32Apk, "ARM32 (armeabi-v7a)")
 
@@ -65,17 +89,18 @@ object GitHubUpdateChecker {
             universalApk != null ->
                 SelectedApkAsset(universalApk, "Universal")
 
-            // If 64-bit device and no specific match found, pick first available
+            // If 64-bit device and no specific split name matched, accept first available apk
             is64BitSupported ->
                 SelectedApkAsset(apkAssets.first(), "Universal")
 
-            // If 32-bit device, pick any non-arm64 APK to avoid incompatible binary
+            // If 32-bit device: only accept non-arm64 APKs; NEVER return an arm64-only APK to a 32-bit device
             else -> {
                 val non64Apk = apkAssets.firstOrNull { !it.name.contains("arm64", ignoreCase = true) }
                 if (non64Apk != null) {
                     SelectedApkAsset(non64Apk, "Universal")
                 } else {
-                    SelectedApkAsset(apkAssets.first(), "Universal")
+                    // No 32-bit or universal APK available in this release
+                    null
                 }
             }
         }
@@ -85,10 +110,11 @@ object GitHubUpdateChecker {
         currentVersionName: String,
         releasesUrl: String = LATEST_RELEASE_URL,
         deviceSupportedAbis: Array<String> = Build.SUPPORTED_ABIS ?: emptyArray()
-    ): Result<AppUpdateInfo?> = withContext(Dispatchers.IO) {
+    ): UpdateCheckResult = withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
         try {
             val url = URL(releasesUrl)
-            val connection = (url.openConnection() as HttpURLConnection).apply {
+            connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 10_000
                 readTimeout = 10_000
@@ -97,22 +123,40 @@ object GitHubUpdateChecker {
             }
 
             val responseCode = connection.responseCode
+            if (responseCode == 404) {
+                return@withContext UpdateCheckResult.ApiError(404, "No published releases found on GitHub repository.")
+            }
+            if (responseCode == 403) {
+                return@withContext UpdateCheckResult.ApiError(403, "GitHub API rate limit exceeded. Please try again later.")
+            }
             if (responseCode !in 200..299) {
-                return@withContext Result.failure(
-                    IllegalStateException("GitHub API returned HTTP $responseCode")
-                )
+                return@withContext UpdateCheckResult.ApiError(responseCode, "GitHub server returned HTTP $responseCode")
             }
 
             val responseText = connection.inputStream.bufferedReader().use { it.readText() }
-            val root = JSONObject(responseText)
+            val root = try {
+                JSONObject(responseText)
+            } catch (e: Exception) {
+                return@withContext UpdateCheckResult.InvalidRelease("Could not parse release JSON from GitHub: ${e.message}")
+            }
 
             val isDraft = root.optBoolean("draft", false)
             val isPrerelease = root.optBoolean("prerelease", false)
             if (isDraft || isPrerelease) {
-                return@withContext Result.success(null)
+                return@withContext UpdateCheckResult.UpToDate(currentVersionName)
             }
 
-            val tagName = root.optString("tag_name", "")
+            val tagName = root.optString("tag_name", "").trim()
+            if (tagName.isBlank()) {
+                return@withContext UpdateCheckResult.InvalidRelease("GitHub release is missing tag_name.")
+            }
+
+            val cleanVersion = AppUpdateInfo.cleanVersion(tagName)
+            val isNewer = AppUpdateInfo.isNewerVersion(cleanVersion, currentVersionName)
+            if (!isNewer) {
+                return@withContext UpdateCheckResult.UpToDate(currentVersionName)
+            }
+
             val releaseTitle = root.optString("name", tagName)
             val releaseNotes = root.optString("body", "")
             val releasePageUrl = root.optString("html_url", "https://github.com/Adetisola/Laterbox/releases")
@@ -131,29 +175,36 @@ object GitHubUpdateChecker {
             }
 
             val selected = selectBestApkAsset(parsedAssets, deviceSupportedAbis)
-            val apkDownloadUrl = selected?.asset?.downloadUrl?.ifBlank { releasePageUrl } ?: releasePageUrl
-            val apkSize = selected?.asset?.size ?: 0L
-            val assetName = selected?.asset?.name ?: ""
-            val targetAbiLabel = selected?.targetAbiLabel ?: "Universal"
+            if (selected == null) {
+                return@withContext UpdateCheckResult.NoCompatibleApk(cleanVersion, deviceSupportedAbis.toList())
+            }
 
-            val cleanVersion = AppUpdateInfo.cleanVersion(tagName)
-            val isNewer = AppUpdateInfo.isNewerVersion(cleanVersion, currentVersionName)
-
+            val apkDownloadUrl = selected.asset.downloadUrl.ifBlank { releasePageUrl }
             val info = AppUpdateInfo(
                 versionName = cleanVersion,
                 releaseTitle = releaseTitle,
                 releaseNotes = releaseNotes,
                 downloadUrl = apkDownloadUrl,
                 releasePageUrl = releasePageUrl,
-                apkSize = apkSize,
-                isNewer = isNewer,
-                targetAbiLabel = targetAbiLabel,
-                assetName = assetName
+                apkSize = selected.asset.size,
+                isNewer = true,
+                targetAbiLabel = selected.targetAbiLabel,
+                assetName = selected.asset.name
             )
 
-            Result.success(info)
+            UpdateCheckResult.UpdateAvailable(info)
+        } catch (e: UnknownHostException) {
+            UpdateCheckResult.NetworkError("Could not resolve host. Please check your internet connection.", e)
+        } catch (e: SocketTimeoutException) {
+            UpdateCheckResult.NetworkError("Update check timed out while connecting to GitHub.", e)
+        } catch (e: ConnectException) {
+            UpdateCheckResult.NetworkError("Failed to connect to update server.", e)
+        } catch (e: IOException) {
+            UpdateCheckResult.NetworkError(e.message ?: "Network error during update check.", e)
         } catch (e: Exception) {
-            Result.failure(e)
+            UpdateCheckResult.InvalidRelease("Unexpected error: ${e.message}")
+        } finally {
+            connection?.disconnect()
         }
     }
 }

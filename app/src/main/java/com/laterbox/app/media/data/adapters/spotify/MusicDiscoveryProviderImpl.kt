@@ -63,14 +63,35 @@ class MusicDiscoveryProviderImpl(
             val sanitizedTitle = spotify.title.replace("\"", "").replace("'", "")
             val query = "ytsearch5:$sanitizedArtist $sanitizedTitle".trim()
 
+            val searchId = "music_search_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(6)}"
             val request = YoutubeDLRequest(query).apply {
                 addOption("--dump-single-json")
                 addOption("--flat-playlist")
                 addOption("--no-playlist")
                 addOption("--socket-timeout", "15")
+                addOption("--no-warnings")
             }
 
-            val response = customExecutor?.invoke(request) ?: YoutubeDL.getInstance().execute(request)
+            val response = try {
+                kotlinx.coroutines.withTimeout(25_000L) {
+                    customExecutor?.invoke(request) ?: YoutubeDL.getInstance().execute(request, searchId)
+                }
+            } catch (te: kotlinx.coroutines.TimeoutCancellationException) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        YoutubeDL.getInstance().destroyProcessById(searchId)
+                    } catch (_: Exception) {}
+                }
+                Log.w("MusicDiscoveryProvider", "Music candidate discovery timed out")
+                return@withContext candidates
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    try {
+                        YoutubeDL.getInstance().destroyProcessById(searchId)
+                    } catch (_: Exception) {}
+                }
+                throw ce
+            }
             val jsonStr = response.out
             if (!jsonStr.isNullOrBlank()) {
                 val root = JSONObject(jsonStr)

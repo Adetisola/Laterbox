@@ -169,6 +169,12 @@ class DownloadsViewModel(
         }
     }
 
+    fun onDismissTask(taskId: String) {
+        viewModelScope.launch {
+            mediaRepository.dismissTask(taskId)
+        }
+    }
+
     fun onRetryTask(taskId: String) {
         viewModelScope.launch {
             mediaRepository.retryDownload(taskId)

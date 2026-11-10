@@ -26,8 +26,14 @@ interface DownloadTaskDao {
     @Query("SELECT * FROM download_task WHERE savedLinkId = :savedLinkId ORDER BY createdAt DESC")
     fun getTasksForLink(savedLinkId: Long): Flow<List<DownloadTaskEntity>>
 
-    @Query("SELECT * FROM download_task WHERE status != 'COMPLETED' ORDER BY createdAt DESC")
+    @Query("SELECT * FROM download_task WHERE status IN ('QUEUED', 'DOWNLOADING', 'PROCESSING', 'WAITING_FOR_WIFI', 'PAUSED', 'FAILED') ORDER BY createdAt DESC")
     fun getQueueTasks(): Flow<List<DownloadTaskEntity>>
+
+    @Query("DELETE FROM download_task WHERE id = :id")
+    suspend fun dismissTaskById(id: String)
+
+    @Query("DELETE FROM download_task WHERE status IN ('COMPLETED', 'FAILED', 'CANCELLED')")
+    suspend fun clearTerminalTasks()
 
     @Query("UPDATE download_task SET status = :status, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, updatedAt: Long = System.currentTimeMillis())

@@ -263,7 +263,8 @@ fun DownloadsScreen(
                         onPauseTask = viewModel::onPauseTask,
                         onResumeTask = viewModel::onResumeTask,
                         onCancelTask = viewModel::onCancelTask,
-                        onRetryTask = viewModel::onRetryTask
+                        onRetryTask = viewModel::onRetryTask,
+                        onDismissTask = viewModel::onDismissTask
                     )
                 }
 

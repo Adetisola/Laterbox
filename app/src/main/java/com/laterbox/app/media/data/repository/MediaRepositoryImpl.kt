@@ -154,6 +154,16 @@ class MediaRepositoryImpl(
         storageManager.deletePartFile(taskId)
     }
 
+    override suspend fun dismissTask(taskId: String): Unit = withContext(Dispatchers.IO) {
+        WorkManager.getInstance(context).cancelUniqueWork(DownloadWorker.uniqueWorkName(taskId))
+        taskDao.dismissTaskById(taskId)
+        storageManager.deletePartFile(taskId)
+    }
+
+    override suspend fun clearTerminalTasks(): Unit = withContext(Dispatchers.IO) {
+        taskDao.clearTerminalTasks()
+    }
+
     override suspend fun retryDownload(taskId: String): Unit = withContext(Dispatchers.IO) {
         val task = taskDao.getEntityById(taskId) ?: return@withContext
         taskDao.updateError(taskId, DownloadState.QUEUED.name, null, null, 0)

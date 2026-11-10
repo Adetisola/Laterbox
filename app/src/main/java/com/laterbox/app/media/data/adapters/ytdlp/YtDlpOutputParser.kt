@@ -101,7 +101,7 @@ object YtDlpOutputParser {
                         height = maxHeight,
                         source = AcquisitionSource.YtDlp(
                             url = originalUrl,
-                            formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                            formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
                             expectedExt = "mp4"
                         )
                     )
@@ -120,6 +120,7 @@ object YtDlpOutputParser {
                         else -> null
                     }
 
+                    val saverHeight = saverVideo?.height ?: 480
                     candidates.add(
                         MediaCandidate(
                             candidateId = "ytdlp_saver_video_$id",
@@ -128,10 +129,10 @@ object YtDlpOutputParser {
                             estimatedBytes = saverBytes,
                             durationMs = durationMs,
                             width = saverVideo?.width ?: 854,
-                            height = saverVideo?.height ?: 480,
+                            height = saverHeight,
                             source = AcquisitionSource.YtDlp(
                                 url = originalUrl,
-                                formatSelector = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]",
+                                formatSelector = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none]/best[height<=480]/best",
                                 expectedExt = "mp4"
                             )
                         )
@@ -157,7 +158,7 @@ object YtDlpOutputParser {
                         height = null,
                         source = AcquisitionSource.YtDlp(
                             url = originalUrl,
-                            formatSelector = "bestaudio[ext=m4a]/bestaudio",
+                            formatSelector = "bestaudio[ext=m4a]/bestaudio/best",
                             expectedExt = "m4a"
                         )
                     )
@@ -248,12 +249,29 @@ object YtDlpOutputParser {
     fun parseFailureCode(errorText: String): FailureCode {
         val lower = errorText.lowercase()
         return when {
+            lower.contains("confirm you're not a robot") || lower.contains("confirm you’re not a robot") ||
+                lower.contains("sign in to confirm you're not a bot") || lower.contains("bot verification") ||
+                lower.contains("captcha") || lower.contains("challenge") ->
+                FailureCode.YOUTUBE_CHALLENGE_ERROR
+
+            lower.contains("connection timed out") || lower.contains("socket timed out") ||
+                lower.contains("socket timeout") || lower.contains("sockettimeout") ||
+                lower.contains("connection refused") || lower.contains("connect timed out") ->
+                FailureCode.CONNECTION_TIMEOUT
+
+            lower.contains("extraction timed out") || lower.contains("operation timed out") ||
+                lower.contains("read timed out") || lower.contains("timed out") ->
+                FailureCode.EXTRACTION_TIMEOUT
+
+            lower.contains("traceback (most recent call last)") || lower.contains("modulenotfounderror") ||
+                lower.contains("importerror") || lower.contains("syntaxerror") || lower.contains("python runtime") ->
+                FailureCode.PYTHON_RUNTIME_ERROR
+
             lower.contains("private") || lower.contains("members-only") ->
                 FailureCode.PRIVATE_CONTENT
 
             lower.contains("sign in") || lower.contains("login required") ||
-                lower.contains("authentication required") || lower.contains("confirm you're not a robot") ||
-                lower.contains("confirm you’re not a robot") || lower.contains("account required") ->
+                lower.contains("authentication required") || lower.contains("account required") ->
                 FailureCode.LOGIN_REQUIRED
 
             lower.contains("georestricted") || lower.contains("not available in your country") ||
@@ -268,12 +286,10 @@ object YtDlpOutputParser {
             lower.contains("unsupported url") || lower.contains("no video formats found") ->
                 FailureCode.UNSUPPORTED_URL
 
-            lower.contains("extractorerror") || lower.contains("unable to extract") ||
-                lower.contains("unsupported url") ->
+            lower.contains("extractorerror") || lower.contains("unable to extract") ->
                 FailureCode.EXTRACTOR_BROKEN
 
             lower.contains("unable to download webpage") || lower.contains("temporary failure in name resolution") ||
-                lower.contains("connection refused") || lower.contains("timed out") ||
                 lower.contains("network is unreachable") || lower.contains("no internet") ->
                 FailureCode.NETWORK_ERROR
 

@@ -13,6 +13,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URI
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
+import java.util.UUID
+
 class YtDlpAdapter(
     private val appContext: Context,
     private val runtimeManager: YtDlpRuntimeManager = (appContext.applicationContext as? LaterboxApplication)?.container?.ytDlpRuntimeManager ?: YtDlpRuntimeManager(appContext),
@@ -29,7 +35,7 @@ class YtDlpAdapter(
         }
 
         if (host.isBlank()) return false
-        // Spotify is handled by MetadataOnlyAdapter per spec
+        // Spotify is handled by MetadataOnlyAdapter / SpotifyMusicAdapter per spec
         if (host.contains("spotify.com") || host.contains("spotify.link")) {
             return false
         }
@@ -44,6 +50,7 @@ class YtDlpAdapter(
     }
 
     override suspend fun inspect(url: String): InspectionResult = withContext(Dispatchers.IO) {
+        val inspectionId = "inspect_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         try {
             if (customExecutor == null) {
                 val initResult = runtimeManager.ensureYtDlpInitialized()
@@ -62,9 +69,35 @@ class YtDlpAdapter(
                 addOption("--dump-single-json")
                 addOption("--no-playlist")
                 addOption("--socket-timeout", "15")
+                addOption("--no-warnings")
             }
 
-            val response = customExecutor?.invoke(request) ?: YoutubeDL.getInstance().execute(request)
+            val response = try {
+                withTimeout(25_000L) {
+                    customExecutor?.invoke(request) ?: YoutubeDL.getInstance().execute(request, inspectionId)
+                }
+            } catch (te: TimeoutCancellationException) {
+                withContext(NonCancellable) {
+                    try {
+                        YoutubeDL.getInstance().destroyProcessById(inspectionId)
+                    } catch (_: Exception) {
+                    }
+                }
+                return@withContext InspectionResult.Failed(
+                    code = FailureCode.EXTRACTION_TIMEOUT,
+                    message = "Media inspection timed out after 25 seconds.",
+                    retryable = true
+                )
+            } catch (ce: CancellationException) {
+                withContext(NonCancellable) {
+                    try {
+                        YoutubeDL.getInstance().destroyProcessById(inspectionId)
+                    } catch (_: Exception) {
+                    }
+                }
+                throw ce
+            }
+
             val jsonOutput = response.out
             if (jsonOutput.isNullOrBlank()) {
                 val err = response.err ?: "No metadata returned from yt-dlp"
@@ -74,6 +107,8 @@ class YtDlpAdapter(
             YtDlpOutputParser.parse(url, jsonOutput)
         } catch (e: YoutubeDLException) {
             YtDlpOutputParser.parseError(e.message ?: "yt-dlp execution error")
+        } catch (ce: CancellationException) {
+            throw ce
         } catch (t: Throwable) {
             InspectionResult.Failed(
                 code = FailureCode.UNKNOWN,

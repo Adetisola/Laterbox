@@ -101,4 +101,21 @@ class GitHubUpdateAbiSelectionTest {
         val selected = GitHubUpdateChecker.selectBestApkAsset(nonApkAssets, arrayOf("arm64-v8a"))
         assertNull(selected)
     }
+
+    @Test
+    fun `32-bit device rejects ARM64-only release and returns null`() {
+        val arm64OnlyAssets = listOf(
+            GitHubUpdateChecker.ReleaseAsset(
+                name = "Laterbox-ARM64.apk",
+                downloadUrl = "https://example.com/Laterbox-ARM64.apk",
+                size = 59_000_000L
+            )
+        )
+
+        val selected = GitHubUpdateChecker.selectBestApkAsset(
+            arm64OnlyAssets,
+            arrayOf("armeabi-v7a", "armeabi")
+        )
+        assertNull(selected)
+    }
 }

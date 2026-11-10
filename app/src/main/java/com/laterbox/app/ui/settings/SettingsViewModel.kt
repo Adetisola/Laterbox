@@ -284,18 +284,29 @@ class SettingsViewModel(
         viewModelScope.launch {
             _isCheckingUpdate.value = true
             try {
-                val res = com.laterbox.app.update.GitHubUpdateChecker.checkForUpdate(currentVersion)
-                val info = res.getOrNull()
                 userPreferencesRepository.recordUpdateCheck()
-                if (info != null && info.isNewer) {
-                    _updateCheckResult.value = info
-                } else if (info != null && !info.isNewer) {
-                    onResult("Laterbox is up to date (v$currentVersion)")
-                } else {
-                    onResult("No update available")
+                when (val result = com.laterbox.app.update.GitHubUpdateChecker.checkForUpdate(currentVersion)) {
+                    is com.laterbox.app.update.UpdateCheckResult.UpdateAvailable -> {
+                        _updateCheckResult.value = result.updateInfo
+                    }
+                    is com.laterbox.app.update.UpdateCheckResult.UpToDate -> {
+                        onResult("Laterbox is up to date (v$currentVersion)")
+                    }
+                    is com.laterbox.app.update.UpdateCheckResult.NetworkError -> {
+                        onResult("Network error: ${result.message}")
+                    }
+                    is com.laterbox.app.update.UpdateCheckResult.ApiError -> {
+                        onResult("Update check failed (${result.statusCode}): ${result.message}")
+                    }
+                    is com.laterbox.app.update.UpdateCheckResult.InvalidRelease -> {
+                        onResult("Could not parse release info: ${result.message}")
+                    }
+                    is com.laterbox.app.update.UpdateCheckResult.NoCompatibleApk -> {
+                        onResult("Version ${result.releaseVersion} is available, but no APK matching your device (${result.deviceAbis.joinToString()}) was found.")
+                    }
                 }
             } catch (e: Exception) {
-                onResult("Could not check for updates. Check your connection.")
+                onResult("Could not check for updates: ${e.message}")
             } finally {
                 _isCheckingUpdate.value = false
             }

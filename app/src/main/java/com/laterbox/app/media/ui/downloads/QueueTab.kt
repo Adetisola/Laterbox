@@ -48,6 +48,7 @@ fun QueueTab(
     onResumeTask: (String) -> Unit,
     onCancelTask: (String) -> Unit,
     onRetryTask: (String) -> Unit,
+    onDismissTask: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (tasks.isEmpty()) {
@@ -69,7 +70,8 @@ fun QueueTab(
                     onPauseTask = { onPauseTask(task.id) },
                     onResumeTask = { onResumeTask(task.id) },
                     onCancelTask = { onCancelTask(task.id) },
-                    onRetryTask = { onRetryTask(task.id) }
+                    onRetryTask = { onRetryTask(task.id) },
+                    onDismissTask = { onDismissTask(task.id) }
                 )
             }
         }
@@ -84,9 +86,11 @@ fun QueueTaskCard(
     onResumeTask: () -> Unit,
     onCancelTask: () -> Unit,
     onRetryTask: () -> Unit,
+    onDismissTask: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
+    val isTerminal = task.status == DownloadState.FAILED || task.status == DownloadState.CANCELLED
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -122,12 +126,14 @@ fun QueueTaskCard(
                 }
 
                 IconButton(
-                    onClick = onCancelTask,
+                    onClick = {
+                        if (isTerminal) onDismissTask() else onCancelTask()
+                    },
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
                         painter = painterResource(LaterboxIcons.Close),
-                        contentDescription = "Cancel",
+                        contentDescription = if (isTerminal) "Dismiss" else "Cancel",
                         tint = colors.textSecondary,
                         modifier = Modifier.size(18.dp)
                     )

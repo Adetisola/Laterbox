@@ -131,8 +131,8 @@ fun LaterboxApp(
             if (now - prefs.lastUpdateCheckTime >= sixHoursMs) {
                 prefsRepo.recordUpdateCheck(now)
                 val result = GitHubUpdateChecker.checkForUpdate(com.laterbox.app.BuildConfig.VERSION_NAME)
-                val info = result.getOrNull()
-                if (info != null && info.isNewer) {
+                if (result is com.laterbox.app.update.UpdateCheckResult.UpdateAvailable) {
+                    val info = result.updateInfo
                     val isDismissedRecently = prefs.dismissedUpdateVersion == info.versionName &&
                         (now - prefs.dismissedUpdateTimestamp < oneDayMs)
                     if (!isDismissedRecently) {

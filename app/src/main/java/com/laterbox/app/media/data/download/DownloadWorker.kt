@@ -63,8 +63,8 @@ class DownloadWorker(
             val isBlocked = when (prefs.mediaDownloadNetworkPolicy) {
                 MediaDownloadNetworkPolicy.WIFI_ONLY -> true
                 MediaDownloadNetworkPolicy.WIFI_OVER_20MB -> {
-                    // Null estimatedBytes is treated as over threshold per spec
-                    task.totalBytes == null || task.totalBytes > 20L * 1024 * 1024
+                    // Only hold if size is explicitly known to exceed 20 MB; do not block streams with unknown size
+                    task.totalBytes != null && task.totalBytes > 20L * 1024 * 1024
                 }
                 MediaDownloadNetworkPolicy.ANY_NETWORK -> false
             }
@@ -254,9 +254,12 @@ class DownloadWorker(
             if (task.formatSelector != null) {
                 YtDlpDownloader(appContext).cancel(taskId)
             }
-            if (isStopped) {
-                // Timeout or worker cancelled by OS: pause so it resumes cleanly
-                taskDao.updateStatus(taskId, DownloadState.PAUSED.name)
+            val currentTask = taskDao.getEntityById(taskId)
+            if (currentTask?.status != DownloadState.CANCELLED.name) {
+                if (isStopped) {
+                    // Timeout or worker cancelled by OS: pause so it resumes cleanly
+                    taskDao.updateStatus(taskId, DownloadState.PAUSED.name)
+                }
             }
             throw ce
         } catch (e: Exception) {

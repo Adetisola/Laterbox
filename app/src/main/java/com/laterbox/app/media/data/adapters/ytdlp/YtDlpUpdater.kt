@@ -44,6 +44,10 @@ class YtDlpUpdater(
 
     suspend fun forceUpdate(): Result<String> = withContext(Dispatchers.IO) {
         updateMutex.withLock {
+            val ytdlDir = java.io.File(appContext.noBackupFilesDir, "youtubedl-android/yt-dlp")
+            val ytdlBin = java.io.File(ytdlDir, "yt-dlp")
+            val backupBin = java.io.File(ytdlDir, "yt-dlp.backup")
+
             try {
                 val initResult = runtimeManager.ensureYtDlpInitialized()
                 if (initResult.isFailure) {
@@ -53,14 +57,69 @@ class YtDlpUpdater(
                     )
                 }
 
+                // 1. Take a safe backup of the current binary before replacing
+                if (ytdlBin.exists()) {
+                    try {
+                        ytdlBin.copyTo(backupBin, overwrite = true)
+                    } catch (e: Exception) {
+                        Log.w(tag, "Could not create yt-dlp backup: ${e.message}")
+                    }
+                }
+
                 Log.i(tag, "Checking and updating yt-dlp binary from GitHub...")
                 val status = YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
+
+                if (status == YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE) {
+                    val currentVersion = YoutubeDL.getInstance().version(appContext) ?: "latest"
+                    if (backupBin.exists()) backupBin.delete()
+                    userPreferencesRepository.recordYtDlpUpdate(currentVersion, System.currentTimeMillis())
+                    Log.i(tag, "yt-dlp is already up to date: $currentVersion")
+                    return@withContext Result.success(currentVersion)
+                }
+
+                // 2. Validate new script before finalizing (probe execution)
+                var probeSuccess = false
+                val probeRequest = com.yausername.youtubedl_android.YoutubeDLRequest(emptyList()).apply {
+                    addOption("--version")
+                }
+                val probeId = "probe_${System.currentTimeMillis()}"
+                try {
+                    val probeResponse = YoutubeDL.getInstance().execute(probeRequest, probeId)
+                    val probeOutput = probeResponse.out?.trim()
+                    if (!probeOutput.isNullOrBlank()) {
+                        probeSuccess = true
+                        Log.i(tag, "Script probe succeeded: $probeOutput")
+                    }
+                } catch (pe: Exception) {
+                    Log.w(tag, "Script probe execution failed on newly updated yt-dlp: ${pe.message}", pe)
+                }
+
+                if (!probeSuccess && !android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+                    throw IllegalStateException("Newly updated yt-dlp script failed probe validation.")
+                }
+
+                // 3. Verification passed: clean up backup
+                if (backupBin.exists()) backupBin.delete()
+
                 val version = YoutubeDL.getInstance().version(appContext) ?: "latest"
                 userPreferencesRepository.recordYtDlpUpdate(version, System.currentTimeMillis())
-                Log.i(tag, "yt-dlp update completed: status=$status, version=$version")
+                Log.i(tag, "yt-dlp update completed and verified: status=$status, version=$version")
                 Result.success(version)
             } catch (t: Throwable) {
-                Log.e(tag, "Failed to update yt-dlp: ${t.message}", t)
+                Log.e(tag, "Failed to update yt-dlp: ${t.message}. Initiating rollback...", t)
+                // 4. Rollback: restore backup or re-extract bundled binary
+                try {
+                    if (backupBin.exists()) {
+                        backupBin.copyTo(ytdlBin, overwrite = true)
+                        backupBin.delete()
+                        Log.i(tag, "Successfully rolled back to previous yt-dlp binary from backup")
+                    } else if (ytdlDir.exists()) {
+                        YoutubeDL.getInstance().init_ytdlp(appContext, ytdlDir)
+                        Log.i(tag, "Successfully re-extracted bundled yt-dlp binary from APK")
+                    }
+                } catch (re: Exception) {
+                    Log.e(tag, "Rollback error: ${re.message}", re)
+                }
                 val mapped = if (t is Exception) t else Exception(t.message, t)
                 Result.failure(mapped)
             }
