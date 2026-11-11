@@ -3,6 +3,8 @@ package com.laterbox.app.media.data.adapters.ytdlp
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.yausername.youtubedl_android.YoutubeDL
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -165,5 +167,130 @@ class YtDlpOptimizerTest {
 
         val ejs = File(result.activePath, YtDlpOptimizer.EJS_RELATIVE_PATH)
         assertTrue(ejs.readText().contains("_ENABLE_PREPROCESSED_PLAYER_CACHE = True"))
+    }
+
+    private fun createShebangZip(file: File, shebang: String = "#!/usr/bin/env python3\n") {
+        file.parentFile?.mkdirs()
+        file.writeBytes(shebang.toByteArray(Charsets.UTF_8))
+        val tempZip = File(testWorkDir, "temp_${System.currentTimeMillis()}.zip")
+        createSampleZip(tempZip)
+        file.appendBytes(tempZip.readBytes())
+        tempZip.delete()
+    }
+
+    @Test
+    fun detectArchiveFormat_identifiesConventionalAndShebangZip() {
+        val conventionalZip = File(testWorkDir, "conventional.zip")
+        createSampleZip(conventionalZip)
+        val format1 = YtDlpOptimizer.detectArchiveFormat(conventionalZip)
+        assertEquals(YtDlpOptimizer.ArchiveFormat.ConventionalZip, format1)
+
+        val shebangZip = File(testWorkDir, "shebang_ytdlp")
+        createShebangZip(shebangZip)
+        val format2 = YtDlpOptimizer.detectArchiveFormat(shebangZip)
+        assertTrue(format2 is YtDlpOptimizer.ArchiveFormat.ShebangZip)
+        assertEquals(23L, (format2 as YtDlpOptimizer.ArchiveFormat.ShebangZip).zipOffset)
+
+        val invalidFile = File(testWorkDir, "invalid.txt").apply { writeText("just text") }
+        val format3 = YtDlpOptimizer.detectArchiveFormat(invalidFile)
+        assertEquals(YtDlpOptimizer.ArchiveFormat.Invalid, format3)
+    }
+
+    @Test
+    fun unzip_withShebangZip_extractsAllEntriesCorrectly() {
+        val shebangZip = File(testWorkDir, "shebang_bundle")
+        createShebangZip(shebangZip)
+
+        val targetDir = File(testWorkDir, "shebang_unpacked")
+        YtDlpOptimizer.unzip(shebangZip, targetDir)
+
+        assertTrue(File(targetDir, "__main__.py").exists())
+        assertTrue(File(targetDir, "yt_dlp/__init__.py").exists())
+        assertTrue(File(targetDir, "yt_dlp/YoutubeDL.py").exists())
+        assertTrue(File(targetDir, YtDlpOptimizer.EJS_RELATIVE_PATH).exists())
+    }
+
+    @Test
+    fun ensureOptimized_withShebangZip_extractsArchiveAndPatches() = runTest {
+        val noBackup = context.noBackupFilesDir ?: File(context.filesDir, "no_backup").apply { mkdirs() }
+        val archiveFile = File(noBackup, "youtubedl-android/yt-dlp/yt-dlp")
+        createShebangZip(archiveFile)
+
+        val result = YtDlpOptimizer.ensureOptimized(context, forceReextract = true)
+
+        assertTrue(result.isOptimized)
+        assertFalse(result.fallbackToArchive)
+        assertTrue(result.isPlayerCachePatched)
+        assertNotNull(result.activePath)
+        assertTrue(result.activePath?.exists() == true)
+
+        val ejs = File(result.activePath, YtDlpOptimizer.EJS_RELATIVE_PATH)
+        assertTrue(ejs.readText().contains("_ENABLE_PREPROCESSED_PLAYER_CACHE = True"))
+    }
+
+    @Test
+    fun ensureOptimized_withInvalidArchive_doesNotExtract() = runTest {
+        val noBackup = context.noBackupFilesDir ?: File(context.filesDir, "no_backup").apply { mkdirs() }
+        val archiveFile = File(noBackup, "youtubedl-android/yt-dlp/yt-dlp")
+        archiveFile.parentFile?.mkdirs()
+        archiveFile.writeText("corrupt non-zip content")
+
+        val result = YtDlpOptimizer.ensureOptimized(context, forceReextract = true)
+
+        assertFalse(result.isOptimized)
+        assertTrue(result.fallbackToArchive)
+        assertFalse(result.isPlayerCachePatched)
+    }
+
+    @Test
+    fun ensureOptimized_reusingExistingDirectory_reappliesEjsPatch() = runTest {
+        val noBackup = context.noBackupFilesDir ?: File(context.filesDir, "no_backup").apply { mkdirs() }
+        val archiveFile = File(noBackup, "youtubedl-android/yt-dlp/yt-dlp")
+        createSampleZip(archiveFile)
+
+        val result1 = YtDlpOptimizer.ensureOptimized(context, forceReextract = true)
+        assertTrue(result1.isOptimized)
+
+        // Simulate ejs.py losing patch
+        val ejs = File(result1.activePath, YtDlpOptimizer.EJS_RELATIVE_PATH)
+        ejs.writeText("class EJS:\n    _ENABLE_PREPROCESSED_PLAYER_CACHE = False\n")
+
+        // Reuse directory without force reextract
+        val result2 = YtDlpOptimizer.ensureOptimized(context, forceReextract = false)
+        assertTrue(result2.isOptimized)
+        assertTrue(result2.isPlayerCachePatched)
+        assertTrue(ejs.readText().contains("_ENABLE_PREPROCESSED_PLAYER_CACHE = True"))
+    }
+
+    @Test
+    fun getMinimumPythonRequirement_parsesFromDirectoryAndArchive() {
+        val dir = File(testWorkDir, "py_req_dir").apply { mkdirs() }
+        val compatDir = File(dir, "yt_dlp/compat").apply { mkdirs() }
+        File(compatDir, "__init__.py").writeText("if sys.version_info < (3, 12):\n    raise RuntimeError()")
+
+        val (major, minor) = YtDlpOptimizer.getMinimumPythonRequirement(dir)
+        assertEquals(3, major)
+        assertEquals(12, minor)
+    }
+
+    @Test
+    fun ensureOptimized_concurrentInvocations_protectedByMutex() = runTest {
+        val noBackup = context.noBackupFilesDir ?: File(context.filesDir, "no_backup").apply { mkdirs() }
+        val archiveFile = File(noBackup, "youtubedl-android/yt-dlp/yt-dlp")
+        createSampleZip(archiveFile)
+
+        val results = listOf(
+            async { YtDlpOptimizer.ensureOptimized(context) },
+            async { YtDlpOptimizer.ensureOptimized(context) },
+            async { YtDlpOptimizer.ensureOptimized(context) },
+            async { YtDlpOptimizer.ensureOptimized(context) },
+            async { YtDlpOptimizer.ensureOptimized(context) }
+        ).awaitAll()
+
+        assertEquals(5, results.size)
+        results.forEach { res ->
+            assertTrue(res.isOptimized)
+            assertTrue(res.isPlayerCachePatched)
+        }
     }
 }

@@ -30,9 +30,11 @@ class PlatformResolver(
             }
             result ?: InspectionResult.Failed(
                 code = FailureCode.NETWORK_ERROR,
-                message = "Media inspection timed out after 30 seconds",
+                message = "Media inspection timed out after ${timeoutMs / 1000} seconds",
                 retryable = true
             )
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            throw ce
         } catch (t: Throwable) {
             InspectionResult.Failed(
                 code = FailureCode.UNKNOWN,

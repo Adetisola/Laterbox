@@ -14,10 +14,15 @@ import kotlinx.coroutines.withContext
 import java.net.URI
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 class YtDlpAdapter(
     private val appContext: Context,
@@ -77,28 +82,14 @@ class YtDlpAdapter(
             }
 
             val response = try {
-                withTimeout(25_000L) {
-                    customExecutor?.invoke(request) ?: YoutubeDL.getInstance().execute(request, inspectionId)
-                }
+                executeCancellable(request, inspectionId, timeoutMs = 25_000L)
             } catch (te: TimeoutCancellationException) {
-                withContext(NonCancellable) {
-                    try {
-                        YoutubeDL.getInstance().destroyProcessById(inspectionId)
-                    } catch (_: Exception) {
-                    }
-                }
                 return@withContext InspectionResult.Failed(
                     code = FailureCode.EXTRACTION_TIMEOUT,
                     message = "Media inspection timed out after 25 seconds.",
                     retryable = true
                 )
             } catch (ce: CancellationException) {
-                withContext(NonCancellable) {
-                    try {
-                        YoutubeDL.getInstance().destroyProcessById(inspectionId)
-                    } catch (_: Exception) {
-                    }
-                }
                 throw ce
             }
 
@@ -120,5 +111,60 @@ class YtDlpAdapter(
                 retryable = true
             )
         }
+    }
+
+    private suspend fun executeCancellable(
+        request: YoutubeDLRequest,
+        processId: String,
+        timeoutMs: Long
+    ): YoutubeDLResponse = coroutineScope {
+        if (customExecutor != null) {
+            return@coroutineScope withTimeout(timeoutMs) {
+                customExecutor.invoke(request)
+            }
+        }
+
+        val isCancelled = AtomicBoolean(false)
+        val deferred = async(Dispatchers.IO) {
+            if (isCancelled.get() || cancelledProcessIds.contains(processId)) {
+                throw CancellationException("Process $processId was cancelled prior to execution")
+            }
+            try {
+                YoutubeDL.getInstance().execute(request, processId)
+            } catch (ce: YoutubeDL.CanceledException) {
+                throw CancellationException("yt-dlp process was cancelled", ce)
+            }
+        }
+
+        val cleanup = coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause is CancellationException) {
+                isCancelled.set(true)
+                cancelledProcessIds.add(processId)
+                try {
+                    YoutubeDL.getInstance().destroyProcessById(processId)
+                } catch (_: Throwable) {
+                }
+            }
+        }
+
+        try {
+            withTimeout(timeoutMs) {
+                deferred.await()
+            }
+        } catch (t: Throwable) {
+            try {
+                YoutubeDL.getInstance().destroyProcessById(processId)
+            } catch (_: Throwable) {
+            }
+            deferred.cancel()
+            throw t
+        } finally {
+            cleanup?.dispose()
+            cancelledProcessIds.remove(processId)
+        }
+    }
+
+    companion object {
+        private val cancelledProcessIds = ConcurrentHashMap.newKeySet<String>()
     }
 }

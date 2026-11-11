@@ -249,5 +249,82 @@ class MediaInspectionManagerTest {
         val entity = inspectionDao.getEntityForLink(linkId)
         assertTrue(entity == null || entity.url == "https://example.com/new_url")
     }
+
+    @Test
+    fun markInspectionPending_updatesStatusAndIsInspectingFlowIsTrue() = testScope.runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/pending_test",
+            normalizedUrl = "https://example.com/pending_test",
+            title = "Pending Video",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        val registry = AdapterRegistry(emptyList())
+        val platformResolver = PlatformResolver(registry)
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = platformResolver,
+            scope = this
+        )
+
+        manager.markInspectionPending(linkId, "https://example.com/pending_test")
+
+        val entity = inspectionDao.getEntityForLink(linkId)
+        assertNotNull(entity)
+        assertEquals("PENDING", entity?.status)
+
+        val isInspecting = manager.isInspectingFlow(linkId).first()
+        assertTrue(isInspecting)
+    }
+
+    @Test
+    fun executeInspection_forceRefreshBypassesCompletedCache() = testScope.runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/refresh_test",
+            normalizedUrl = "https://example.com/refresh_test",
+            title = "Refresh Video",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        var inspectCalls = 0
+        val fakeAdapter = object : MediaPlatformAdapter {
+            override val id = "Fake"
+            override fun canHandle(url: String) = true
+            override suspend fun inspect(url: String): InspectionResult {
+                inspectCalls++
+                return InspectionResult.Available(
+                    platform = "Fake",
+                    title = "Title $inspectCalls",
+                    thumbnailUrl = null,
+                    candidates = emptyList()
+                )
+            }
+        }
+
+        val registry = AdapterRegistry(listOf(fakeAdapter))
+        val platformResolver = PlatformResolver(registry)
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = platformResolver,
+            scope = this
+        )
+
+        // 1. Initial execution
+        manager.executeInspection(linkId, "https://example.com/refresh_test", forceRefresh = false)
+        assertEquals(1, inspectCalls)
+
+        // 2. Normal execution hits cache (calls remain 1)
+        manager.executeInspection(linkId, "https://example.com/refresh_test", forceRefresh = false)
+        assertEquals(1, inspectCalls)
+
+        // 3. Force refresh bypasses cache (calls increment to 2)
+        val refreshResult = manager.executeInspection(linkId, "https://example.com/refresh_test", forceRefresh = true)
+        assertEquals(2, inspectCalls)
+        assertTrue(refreshResult.isSuccess)
+    }
 }
 

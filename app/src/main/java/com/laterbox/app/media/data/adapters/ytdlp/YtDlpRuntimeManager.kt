@@ -71,6 +71,20 @@ class YtDlpInitException(
 ) : Exception(message, cause)
 
 /**
+ * Detailed information about the bundled Python interpreter.
+ */
+@Keep
+data class PythonInterpreterInfo(
+    val versionString: String,
+    val major: Int,
+    val minor: Int,
+    val micro: Int,
+    val isExecutable: Boolean,
+    val isCompatible: Boolean,
+    val rawOutput: String? = null
+)
+
+/**
  * File descriptor and size for diagnostic auditing.
  */
 data class FileAuditEntry(val name: String, val sizeBytes: Long, val isDirectory: Boolean)
@@ -95,7 +109,8 @@ data class YtDlpDiagnosticReport(
     val runtimeExtractedFiles: List<FileAuditEntry>,
     val ytDlpStateSummary: String,
     val ytDlpVersion: String?,
-    val pythonVersion: String = "3.12",
+    val pythonVersion: String = "unknown",
+    val isPythonCompatible: Boolean = true,
     val ffmpegStateSummary: String,
     val lastExceptionCategory: YtDlpInitFailureCategory?,
     val lastExceptionMessage: String?,
@@ -129,7 +144,7 @@ data class YtDlpDiagnosticReport(
                 sb.appendLine("  ... and ${runtimeExtractedFiles.size - 15} more files")
             }
         }
-        sb.appendLine("yt-dlp Engine State: $ytDlpStateSummary (Version: ${ytDlpVersion ?: "unknown"}, Python: $pythonVersion)")
+        sb.appendLine("yt-dlp Engine State: $ytDlpStateSummary (Version: ${ytDlpVersion ?: "unknown"}, Python: $pythonVersion, Compatible: $isPythonCompatible)")
         sb.appendLine("FFmpeg Engine State: $ffmpegStateSummary")
         if (lastExceptionCategory != null) {
             sb.appendLine("\n--- Last Initialization Error ---")
@@ -485,6 +500,8 @@ class YtDlpRuntimeManager(
             false
         }
 
+        val pythonInfo = inspectPythonInterpreter()
+
         return YtDlpDiagnosticReport(
             androidRelease = Build.VERSION.RELEASE ?: "unknown",
             sdkInt = Build.VERSION.SDK_INT,
@@ -501,7 +518,8 @@ class YtDlpRuntimeManager(
             runtimeExtractedFiles = runtimeFiles,
             ytDlpStateSummary = _ytDlpState.value.name,
             ytDlpVersion = ytDlpVersion,
-            pythonVersion = detectPythonVersion(),
+            pythonVersion = pythonInfo.versionString,
+            isPythonCompatible = pythonInfo.isCompatible,
             ffmpegStateSummary = _ffmpegState.value.name,
             lastExceptionCategory = lastRecordedException?.category,
             lastExceptionMessage = lastRecordedException?.message,
@@ -509,18 +527,118 @@ class YtDlpRuntimeManager(
         )
     }
 
-    fun detectPythonVersion(): String {
+    /**
+     * Inspects the bundled Python interpreter via live execution or filesystem metadata,
+     * comparing against the minimum requirement of yt-dlp.
+     */
+    fun inspectPythonInterpreter(): PythonInterpreterInfo {
+        if (Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+            return PythonInterpreterInfo(
+                versionString = "3.12.0",
+                major = 3,
+                minor = 12,
+                micro = 0,
+                isExecutable = false,
+                isCompatible = true,
+                rawOutput = "robolectric"
+            )
+        }
+
+        val nativeLibDir = appContext.applicationInfo?.nativeLibraryDir
+        val libDir = if (!nativeLibDir.isNullOrBlank()) File(nativeLibDir) else null
+        val pythonBin = if (libDir != null) File(libDir, "libpython.so") else null
+        val noBackup = File(appContext.noBackupFilesDir, "youtubedl-android")
+        val pythonHome = File(noBackup, "packages/python/usr")
+        val ytdlpTarget = File(noBackup, "yt-dlp/yt-dlp")
+        val minReq = YtDlpOptimizer.getMinimumPythonRequirement(
+            if (ytdlpTarget.exists()) ytdlpTarget else File(noBackup, "yt-dlp/unpacked")
+        )
+
+        // 1. Try real process execution via libpython.so launcher
+        if (libDir != null && pythonBin != null && pythonBin.exists() && pythonHome.exists()) {
+            try {
+                val pb = ProcessBuilder(
+                    pythonBin.absolutePath,
+                    "-c",
+                    "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
+                )
+                val env = pb.environment()
+                env["LD_LIBRARY_PATH"] = libDir.absolutePath
+                env["PYTHONHOME"] = pythonHome.absolutePath
+                val certFile = File(pythonHome, "etc/tls/cert.pem")
+                if (certFile.exists()) {
+                    env["SSL_CERT_FILE"] = certFile.absolutePath
+                }
+                env["PATH"] = "${libDir.absolutePath}:${System.getenv("PATH") ?: ""}"
+                env["TMPDIR"] = appContext.cacheDir.absolutePath
+
+                val process = pb.start()
+                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+                val exited = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+                if (!exited) {
+                    process.destroyForcibly()
+                }
+
+                if (process.exitValue() == 0 && output.isNotBlank()) {
+                    val parts = output.split(".")
+                    if (parts.size >= 2) {
+                        val maj = parts[0].toIntOrNull() ?: 0
+                        val min = parts[1].toIntOrNull() ?: 0
+                        val mic = parts.getOrNull(2)?.toIntOrNull() ?: 0
+                        val isCompat = (maj > minReq.first) || (maj == minReq.first && min >= minReq.second)
+                        return PythonInterpreterInfo(
+                            versionString = output,
+                            major = maj,
+                            minor = min,
+                            micro = mic,
+                            isExecutable = true,
+                            isCompatible = isCompat,
+                            rawOutput = output
+                        )
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.w(tag, "Process execution on libpython.so failed: ${e.message}")
+            }
+        }
+
+        // 2. Fallback: inspect usr/lib directory for python3.X
         try {
-            val pythonLibDir = File(appContext.noBackupFilesDir, "youtubedl-android/packages/python/usr/lib")
+            val pythonLibDir = File(pythonHome, "lib")
             if (pythonLibDir.exists() && pythonLibDir.isDirectory) {
                 val pyDirs = pythonLibDir.listFiles { f -> f.isDirectory && f.name.startsWith("python3.") }
                 val first = pyDirs?.firstOrNull()?.name?.removePrefix("python")
                 if (!first.isNullOrBlank()) {
-                    return first
+                    val parts = first.split(".")
+                    val maj = parts.getOrNull(0)?.toIntOrNull() ?: 3
+                    val min = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                    val isCompat = (maj > minReq.first) || (maj == minReq.first && min >= minReq.second)
+                    return PythonInterpreterInfo(
+                        versionString = first,
+                        major = maj,
+                        minor = min,
+                        micro = 0,
+                        isExecutable = false,
+                        isCompatible = isCompat,
+                        rawOutput = null
+                    )
                 }
             }
         } catch (_: Throwable) {
         }
-        return "3.12"
+
+        return PythonInterpreterInfo(
+            versionString = "unknown",
+            major = 0,
+            minor = 0,
+            micro = 0,
+            isExecutable = false,
+            isCompatible = false,
+            rawOutput = null
+        )
+    }
+
+    fun detectPythonVersion(): String {
+        return inspectPythonInterpreter().versionString
     }
 }

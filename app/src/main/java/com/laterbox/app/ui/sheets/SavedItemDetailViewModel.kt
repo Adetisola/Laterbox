@@ -243,6 +243,7 @@ class SavedItemDetailViewModel(
 
     // Media library actions
     fun inspectLink(forceRefresh: Boolean = false) {
+        if (!forceRefresh && uiState.value.isInspecting) return
         val link = _currentLink.value ?: return
         mediaRepository.startInspection(
             linkId = link.id,
@@ -250,6 +251,10 @@ class SavedItemDetailViewModel(
             previewImageUrl = link.previewImageUrl,
             forceRefresh = forceRefresh
         )
+    }
+
+    fun retryInspection() {
+        inspectLink(forceRefresh = true)
     }
 
     fun downloadCandidate(candidate: MediaCandidate) {

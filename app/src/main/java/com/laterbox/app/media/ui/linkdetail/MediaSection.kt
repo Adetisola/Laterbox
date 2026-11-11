@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -21,7 +22,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -73,6 +76,7 @@ fun MediaSection(
     inspectionResult: InspectionResult?,
     isInspecting: Boolean,
     onInspectClick: () -> Unit,
+    onRetryClick: () -> Unit = onInspectClick,
     onDownloadCandidate: (MediaCandidate) -> Unit,
     onOpenAsset: (MediaAsset) -> Unit,
     onExportAsset: (MediaAsset) -> Unit,
@@ -245,12 +249,36 @@ fun MediaSection(
                                 style = MaterialTheme.typography.labelMedium,
                                 color = colors.textSecondary
                             )
-                            Text(
-                                text = "Re-inspect",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                color = colors.accentPrimary,
-                                modifier = Modifier.clickable(onClick = onInspectClick)
-                            )
+                            Surface(
+                                shape = LaterboxShapeTokens.Chip,
+                                color = colors.surfaceSecondary,
+                                border = BorderStroke(1.dp, colors.borderSubtle),
+                                modifier = Modifier
+                                    .sizeIn(minWidth = 48.dp, minHeight = 32.dp)
+                                    .clickable(
+                                        role = Role.Button,
+                                        onClickLabel = "Refresh media formats",
+                                        onClick = onRetryClick
+                                    )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = LaterboxIcons.Refresh),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(13.dp),
+                                        tint = colors.accentPrimary
+                                    )
+                                    Text(
+                                        text = "Refresh",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = colors.accentPrimary
+                                    )
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.height(6.dp))
 
@@ -343,42 +371,81 @@ fun MediaSection(
                 }
 
                 is InspectionResult.Unsupported -> {
-                    Text(
-                        text = "No downloadable media detected for this link.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.textSecondary
-                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = LaterboxShapeTokens.Card,
+                        color = colors.surfaceSecondary
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    painter = painterResource(LaterboxIcons.Download),
+                                    contentDescription = null,
+                                    tint = colors.textSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "No downloadable media detected",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                    color = colors.textPrimary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "No media formats were discovered on this webpage.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.textSecondary
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LaterboxSecondaryButton(
+                                text = "Retry inspection",
+                                leadingIcon = LaterboxIcons.Refresh,
+                                onClick = onRetryClick,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
                 }
 
                 is InspectionResult.Failed -> {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Inspection failed (${inspectionResult.code.name})",
-                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                                color = MaterialTheme.colorScheme.error
-                            )
-                            if (inspectionResult.retryable) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = LaterboxShapeTokens.Card,
+                        color = colors.surfaceSecondary
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    painter = painterResource(LaterboxIcons.Refresh),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Retry",
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = colors.accentPrimary,
-                                    modifier = Modifier.clickable(onClick = onInspectClick)
+                                    text = "Inspection failed (${inspectionResult.code.name})",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                    color = MaterialTheme.colorScheme.error
                                 )
                             }
-                        }
-                        val failureMessage = inspectionResult.message
-                        if (!failureMessage.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = failureMessage,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colors.textSecondary,
-                                maxLines = 2
+                            val failureMessage = inspectionResult.message
+                            if (!failureMessage.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = failureMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = colors.textSecondary,
+                                    maxLines = 4,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LaterboxSecondaryButton(
+                                text = "Retry inspection",
+                                leadingIcon = LaterboxIcons.Refresh,
+                                onClick = onRetryClick,
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }

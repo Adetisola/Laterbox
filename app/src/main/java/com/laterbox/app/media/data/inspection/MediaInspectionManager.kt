@@ -35,6 +35,7 @@ class MediaInspectionManager(
 
     private val tag = "MediaInspectionManager"
     private val inspectionMutexes = ConcurrentHashMap<Long, Mutex>()
+    private val activeGenerations = ConcurrentHashMap<Long, Long>()
 
     fun getInspectionResultForLink(savedLinkId: Long): Flow<InspectionResult?> {
         return inspectionDao.getInspectionForLink(savedLinkId).map { entity ->
@@ -88,12 +89,23 @@ class MediaInspectionManager(
             }
 
             val inspectionProcessId = "inspect_$savedLinkId"
+            val generation = System.currentTimeMillis()
+            activeGenerations[savedLinkId] = generation
+
+            // When force-refreshing, terminate any prior in-flight process for this link
+            if (forceRefresh) {
+                try {
+                    YoutubeDL.getInstance().destroyProcessById(inspectionProcessId)
+                } catch (_: Throwable) {
+                }
+            }
+
             val inFlightEntity = MediaInspectionEntity(
                 id = inspectionProcessId,
                 savedLinkId = savedLinkId,
                 url = url,
                 status = "INSPECTING",
-                resultJson = existing?.resultJson,
+                resultJson = if (forceRefresh) null else existing?.resultJson,
                 errorCode = null,
                 errorMessage = null,
                 createdAt = existing?.createdAt ?: now,
@@ -104,6 +116,12 @@ class MediaInspectionManager(
             try {
                 var result = platformResolver.resolveAndInspect(url, inspectionProcessId)
                 result = YtDlpOutputParser.attachPreviewImageFallback(result, previewImageUrl)
+
+                // Check generation: discard if another inspection superseded this one
+                if (activeGenerations[savedLinkId] != generation) {
+                    Log.i(tag, "Discarding stale inspection result for link $savedLinkId (current gen=${activeGenerations[savedLinkId]}, this gen=$generation)")
+                    return@withContext Result.success(result)
+                }
 
                 val json = InspectionResultJsonAdapter.toJson(result)
                 val (status, errCode, errMsg) = when (result) {
@@ -124,11 +142,29 @@ class MediaInspectionManager(
                 )
                 inspectionDao.insert(completedEntity)
                 Result.success(result)
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                withContext(NonCancellable) {
+                    try {
+                        YoutubeDL.getInstance().destroyProcessById(inspectionProcessId)
+                    } catch (_: Throwable) {
+                    }
+                    val currentEntity = inspectionDao.getEntityForLink(savedLinkId)
+                    if (currentEntity != null && currentEntity.status == "INSPECTING") {
+                        inspectionDao.insert(
+                            currentEntity.copy(status = "CANCELLED", updatedAt = System.currentTimeMillis())
+                        )
+                    }
+                }
+                throw ce
             } catch (t: Throwable) {
                 withContext(NonCancellable) {
                     try {
                         YoutubeDL.getInstance().destroyProcessById(inspectionProcessId)
                     } catch (_: Throwable) {
+                    }
+
+                    if (activeGenerations[savedLinkId] != generation) {
+                        return@withContext
                     }
 
                     val failedResult = InspectionResult.Failed(
@@ -159,6 +195,26 @@ class MediaInspectionManager(
                 Result.failure(t)
             }
         }
+    }
+
+    /**
+     * Marks an inspection as pending between scheduled retries.
+     */
+    suspend fun markInspectionPending(savedLinkId: Long, url: String) = withContext(Dispatchers.IO) {
+        val existing = inspectionDao.getEntityForLink(savedLinkId)
+        val now = System.currentTimeMillis()
+        val entity = MediaInspectionEntity(
+            id = "inspect_$savedLinkId",
+            savedLinkId = savedLinkId,
+            url = url,
+            status = "PENDING",
+            resultJson = existing?.resultJson,
+            errorCode = null,
+            errorMessage = null,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now
+        )
+        inspectionDao.insert(entity)
     }
 
     /**

@@ -99,4 +99,18 @@ class YtDlpAdapterTest {
         assertTrue(result is InspectionResult.Failed)
         assertEquals(FailureCode.PRIVATE_CONTENT, (result as InspectionResult.Failed).code)
     }
+
+    @Test
+    fun inspect_withCustomExecutorThrowingCancellation_rethrowsCancellationException() = runBlocking {
+        val adapter = YtDlpAdapter(context, customExecutor = {
+            throw kotlinx.coroutines.CancellationException("Test cancellation")
+        })
+
+        try {
+            adapter.inspect("https://youtube.com/watch?v=cancel_id")
+            org.junit.Assert.fail("Expected CancellationException")
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            assertEquals("Test cancellation", ce.message)
+        }
+    }
 }

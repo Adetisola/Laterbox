@@ -77,13 +77,23 @@ class YtDlpUpdater(
                     return@withContext Result.success(currentVersion)
                 }
 
-                // 2. Unpack, patch player cache, and validate new script with real interpreter check
+                // 2. Validate minimum Python requirement before accepting update
+                val minPythonReq = YtDlpOptimizer.getMinimumPythonRequirement(ytdlBin)
+                val pythonInfo = runtimeManager.inspectPythonInterpreter()
+                if (pythonInfo.major > 0 && (pythonInfo.major < minPythonReq.first || (pythonInfo.major == minPythonReq.first && pythonInfo.minor < minPythonReq.second))) {
+                    throw IllegalStateException("Newly updated yt-dlp requires Python >= ${minPythonReq.first}.${minPythonReq.second}, but bundled Python interpreter is ${pythonInfo.versionString}. Update rejected.")
+                }
+
+                // 3. Unpack, patch player cache, and validate new script
                 if (!android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
                     val optResult = YtDlpOptimizer.ensureOptimized(appContext, forceReextract = true)
                     Log.i(tag, "Post-update optimization status: isOptimized=${optResult.isOptimized}, patched=${optResult.isPlayerCachePatched}")
+                    if (!optResult.isOptimized) {
+                        throw IllegalStateException("Post-update optimization failed: ${optResult.error ?: "unpacked validation failed"}")
+                    }
                 }
 
-                val detectedPython = runtimeManager.detectPythonVersion()
+                val detectedPython = pythonInfo.versionString
                 Log.i(tag, "Validating updated yt-dlp against bundled Python interpreter ($detectedPython)...")
 
                 var probeSuccess = false

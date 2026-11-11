@@ -95,12 +95,14 @@ class MediaInspectionWorker(
                 if (res.isSuccess) {
                     val result = res.getOrNull()
                     if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 2) {
+                        inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
                         Result.success()
                     }
                 } else {
                     if (runAttemptCount < 2) {
+                        inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
                         Result.failure()
@@ -109,7 +111,12 @@ class MediaInspectionWorker(
             }
         } catch (_: Throwable) {
             cleanupProcess(inspectionProcessId)
-            if (runAttemptCount < 2) Result.retry() else Result.failure()
+            if (runAttemptCount < 2) {
+                inspectionManager.markInspectionPending(savedLinkId, url)
+                Result.retry()
+            } else {
+                Result.failure()
+            }
         }
     }
 

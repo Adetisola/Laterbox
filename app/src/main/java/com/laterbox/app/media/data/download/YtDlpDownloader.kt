@@ -12,6 +12,7 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.YoutubeDLResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -91,10 +92,20 @@ class YtDlpDownloader(
                 }
             }
 
-            val response = if (customExecutor != null) {
-                customExecutor.invoke(request, taskId, progressCallback)
-            } else {
-                YoutubeDL.getInstance().execute(request, taskId, progressCallback)
+            val cancellationHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+                if (cause is CancellationException) {
+                    cancel(taskId)
+                }
+            }
+
+            val response = try {
+                if (customExecutor != null) {
+                    customExecutor.invoke(request, taskId, progressCallback)
+                } else {
+                    YoutubeDL.getInstance().execute(request, taskId, progressCallback)
+                }
+            } finally {
+                cancellationHandle?.dispose()
             }
 
             val located = locateOutputFile(destinationFile, taskId, response.out)
@@ -114,6 +125,9 @@ class YtDlpDownloader(
         } catch (ce: CancellationException) {
             cancel(taskId)
             throw ce
+        } catch (ye: YoutubeDL.CanceledException) {
+            cancel(taskId)
+            throw CancellationException("Download process cancelled", ye)
         } catch (ye: YoutubeDLException) {
             val errText = ye.message ?: "yt-dlp execution error"
             val code = YtDlpOutputParser.parseFailureCode(errText)
