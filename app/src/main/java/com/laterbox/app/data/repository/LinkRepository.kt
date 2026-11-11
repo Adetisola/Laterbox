@@ -19,6 +19,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -158,6 +159,23 @@ class LinkRepository(
                 appContext?.let { MetadataSyncWorker.enqueue(it) }
                 scope.launch {
                     fetchMetadataNow(linkId, isManualRetry = false)
+                }
+            }
+
+            // Automatically schedule background media inspection across all save paths
+            val app = appContext?.applicationContext as? com.laterbox.app.LaterboxApplication
+            val inspectionMgr = app?.container?.mediaInspectionManager
+            val userPrefsRepo = app?.container?.userPreferencesRepository
+            scope.launch {
+                val shouldInspect = userPrefsRepo?.userPreferencesFlow?.first()?.autoInspectMediaOnSave ?: true
+                if (shouldInspect) {
+                    val existingEntity = savedLinkDao.getEntityById(linkId)
+                    inspectionMgr?.scheduleInspection(
+                        savedLinkId = linkId,
+                        url = trimmedUrl,
+                        previewImageUrl = existingEntity?.previewImageUrl,
+                        forceRefresh = false
+                    )
                 }
             }
         }

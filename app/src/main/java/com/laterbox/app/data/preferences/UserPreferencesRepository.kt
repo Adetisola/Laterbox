@@ -102,7 +102,7 @@ data class UserPreferences(
     val dismissedUpdateVersion: String = "",
     val dismissedUpdateTimestamp: Long = 0L,
     val mediaDownloadNetworkPolicy: MediaDownloadNetworkPolicy = MediaDownloadNetworkPolicy.WIFI_OVER_20MB,
-    val autoInspectMediaOnSave: Boolean = false,
+    val autoInspectMediaOnSave: Boolean = true,
     val ytDlpVersion: String = "",
     val lastYtDlpUpdateCheck: Long = 0L,
     val customExportDirectoryUri: String? = null,
@@ -320,7 +320,7 @@ class UserPreferencesRepository(private val context: Context) {
         } catch (_: Exception) {
             MediaDownloadNetworkPolicy.WIFI_OVER_20MB
         }
-        val autoInspectMediaOnSave = preferences[PreferencesKeys.AUTO_INSPECT_MEDIA_ON_SAVE] ?: false
+        val autoInspectMediaOnSave = preferences[PreferencesKeys.AUTO_INSPECT_MEDIA_ON_SAVE] ?: true
         val ytDlpVersion = preferences[PreferencesKeys.YTDLP_VERSION] ?: ""
         val lastYtDlpUpdateCheck = preferences[PreferencesKeys.LAST_YTDLP_UPDATE_CHECK] ?: 0L
 

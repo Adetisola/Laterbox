@@ -1,6 +1,7 @@
 package com.laterbox.app.media.data.adapters.ytdlp
 
 import com.laterbox.app.media.domain.model.AcquisitionSource
+import com.laterbox.app.media.domain.model.CandidateStatus
 import com.laterbox.app.media.domain.model.FailureCode
 import com.laterbox.app.media.domain.model.InspectionResult
 import com.laterbox.app.media.domain.model.MediaCandidate
@@ -19,66 +20,95 @@ object YtDlpOutputParser {
             }
             val title = root.optString("title").takeIf { it.isNotBlank() }
             val thumbnailUrl = root.optString("thumbnail").takeIf { it.isNotBlank() }
+            val extractorVersion = root.optJSONObject("_version")?.optString("version")
+                ?: root.optString("_version").takeIf { it.isNotBlank() }
 
             val candidates = mutableListOf<MediaCandidate>()
+            val partialFailures = mutableListOf<String>()
             val entriesArray = root.optJSONArray("entries")
 
             if (entriesArray != null && entriesArray.length() > 0) {
                 // Multi-item / carousel / playlist post
                 val totalEntries = entriesArray.length()
-                val entryObjects = (0 until totalEntries).mapNotNull { entriesArray.optJSONObject(it) }
-
-                var imageIndex = 0
                 var videoIndex = 0
+                var imageIndex = 0
 
-                for ((idx, entryJson) in entryObjects.withIndex()) {
-                    val entryId = entryJson.optString("id").ifBlank { "item_$idx" }
-                    val entryFormats = parseFormats(entryJson.optJSONArray("formats") ?: JSONArray())
-                    val videoFormats = entryFormats.filter { it.vcodec != null }
+                for (idx in 0 until totalEntries) {
+                    val entryJson = entriesArray.optJSONObject(idx)
+                    if (entryJson == null) {
+                        partialFailures.add("Entry ${idx + 1}: Malformed or empty entry payload")
+                        continue
+                    }
 
-                    if (videoFormats.isNotEmpty()) {
-                        videoIndex++
-                        val labelSuffix = if (totalEntries > 1) " (Video $videoIndex)" else ""
-                        addVideoCandidates(
-                            candidates = candidates,
-                            formats = entryFormats,
-                            originalUrl = originalUrl,
-                            id = entryId,
-                            durationMs = parseDurationMs(entryJson),
-                            labelSuffix = labelSuffix
-                        )
-                    } else {
-                        // Image candidate extraction (multi-image posts, Instagram carousels, Reddit gallery, Twitter photos)
-                        val imageUrl = extractBestImageUrl(entryJson, entryFormats)
-                        if (imageUrl != null) {
-                            imageIndex++
-                            val (w, h) = extractDimensions(entryJson, entryFormats)
-                            val label = if (totalEntries > 1) "Image $imageIndex of $totalEntries" else "Image (Original)"
-                            candidates.add(
-                                MediaCandidate(
-                                    candidateId = "ytdlp_image_${entryId}_$idx",
-                                    mediaType = MediaType.IMAGE,
-                                    formatLabel = label,
-                                    estimatedBytes = null,
-                                    durationMs = null,
-                                    width = w,
-                                    height = h,
-                                    source = AcquisitionSource.DirectHttp(url = imageUrl)
-                                )
+                    try {
+                        val entryId = entryJson.optString("id").ifBlank { "item_$idx" }
+                        val entryFormats = parseFormats(entryJson.optJSONArray("formats") ?: JSONArray())
+                        val videoFormats = entryFormats.filter { it.vcodec != null }
+
+                        if (videoFormats.isNotEmpty()) {
+                            videoIndex++
+                            val labelSuffix = if (totalEntries > 1) " (Video $videoIndex)" else ""
+                            addVideoCandidates(
+                                candidates = candidates,
+                                formats = entryFormats,
+                                originalUrl = originalUrl,
+                                id = entryId,
+                                durationMs = parseDurationMs(entryJson),
+                                platform = platform,
+                                labelSuffix = labelSuffix
                             )
                         }
+
+                        // Extract image / thumbnail candidates for this entry
+                        val entryImagesBefore = candidates.size
+                        addExplicitImageCandidates(candidates, entryFormats, entryId, platform)
+                        addThumbnailCandidates(
+                            candidates = candidates,
+                            json = entryJson,
+                            id = entryId,
+                            platform = platform,
+                            isMultiEntry = true,
+                            entryIndex = idx + 1,
+                            totalEntries = totalEntries
+                        )
+
+                        // If neither video nor thumbnail candidate was found, try fallback image url
+                        if (videoFormats.isEmpty() && candidates.size == entryImagesBefore) {
+                            val imageUrl = extractBestImageUrl(entryJson, entryFormats)
+                            if (imageUrl != null) {
+                                imageIndex++
+                                val (w, h) = extractDimensions(entryJson, entryFormats)
+                                val label = if (totalEntries > 1) "Image $imageIndex of $totalEntries" else "Image (Original)"
+                                candidates.add(
+                                    MediaCandidate(
+                                        candidateId = "ytdlp_image_${entryId}_$idx",
+                                        mediaType = MediaType.IMAGE,
+                                        formatLabel = label,
+                                        estimatedBytes = null,
+                                        durationMs = null,
+                                        width = w,
+                                        height = h,
+                                        source = AcquisitionSource.DirectHttp(url = imageUrl),
+                                        extractor = platform
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        partialFailures.add("Entry ${idx + 1}: ${e.message ?: "Parsing failed"}")
                     }
                 }
 
                 // If no audio candidate was added yet and formats exist, add audio from first entry
                 if (candidates.none { it.mediaType == MediaType.AUDIO }) {
-                    val firstEntry = entryObjects.firstOrNull()
-                    if (firstEntry != null) {
-                        val firstFormats = parseFormats(firstEntry.optJSONArray("formats") ?: JSONArray())
-                        val audioFormats = firstFormats.filter { it.acodec != null }
+                    for (i in 0 until totalEntries) {
+                        val entry = entriesArray.optJSONObject(i) ?: continue
+                        val entryFormats = parseFormats(entry.optJSONArray("formats") ?: JSONArray())
+                        val audioFormats = entryFormats.filter { it.acodec != null && (it.vcodec == null || it.vcodec == "none") }
                         if (audioFormats.isNotEmpty()) {
-                            val firstId = firstEntry.optString("id").ifBlank { "media" }
-                            addAudioCandidate(candidates, audioFormats, originalUrl, firstId, parseDurationMs(firstEntry))
+                            val entryId = entry.optString("id").ifBlank { "media" }
+                            addAudioCandidates(candidates, audioFormats, originalUrl, entryId, parseDurationMs(entry), platform)
+                            break
                         }
                     }
                 }
@@ -90,56 +120,47 @@ object YtDlpOutputParser {
                 val audioFormats = formats.filter { it.acodec != null }
                 val durationMs = parseDurationMs(root)
 
+                // 1. Video candidates across all discovered resolutions
                 if (videoFormats.isNotEmpty()) {
-                    addVideoCandidates(candidates, formats, originalUrl, id, durationMs)
-                }
-
-                if (audioFormats.isNotEmpty()) {
-                    addAudioCandidate(candidates, audioFormats, originalUrl, id, durationMs)
-                }
-
-                // Differentiate video thumbnails from original images:
-                // Only treat thumbnails / image formats as an IMAGE candidate if:
-                // 1) There are explicit standalone image formats with image extensions, OR
-                // 2) There are no video formats and no audio formats (e.g. photo posts on Instagram/X/Reddit)
-                val explicitImageFormats = formats.filter { it.vcodec == null && it.acodec == null && isImageExt(it.ext) }
-                if (explicitImageFormats.isNotEmpty()) {
-                    val bestImg = explicitImageFormats.maxWithOrNull(
-                        compareBy<ParsedFormat> { (it.width ?: 0) * (it.height ?: 0) }
-                            .thenBy { it.filesize ?: 0L }
+                    addVideoCandidates(
+                        candidates = candidates,
+                        formats = formats,
+                        originalUrl = originalUrl,
+                        id = id,
+                        durationMs = durationMs,
+                        platform = platform
                     )
-                    val imgUrl = bestImg?.url ?: root.optString("url").takeIf { it.isNotBlank() }
-                    if (imgUrl != null && bestImg != null) {
-                        candidates.add(
-                            MediaCandidate(
-                                candidateId = "ytdlp_image_$id",
-                                mediaType = MediaType.IMAGE,
-                                formatLabel = "Image (Original)",
-                                estimatedBytes = bestImg.filesize,
-                                durationMs = null,
-                                width = bestImg.width,
-                                height = bestImg.height,
-                                source = AcquisitionSource.DirectHttp(url = imgUrl)
-                            )
-                        )
-                    }
-                } else if (videoFormats.isEmpty() && audioFormats.isEmpty()) {
-                    val bestThumb = extractBestThumbnail(root)
-                    if (bestThumb != null) {
-                        candidates.add(
-                            MediaCandidate(
-                                candidateId = "ytdlp_image_$id",
-                                mediaType = MediaType.IMAGE,
-                                formatLabel = "Image (Original)",
-                                estimatedBytes = null,
-                                durationMs = null,
-                                width = bestThumb.width,
-                                height = bestThumb.height,
-                                source = AcquisitionSource.DirectHttp(url = bestThumb.url)
-                            )
-                        )
-                    }
                 }
+
+                // 2. Audio candidates
+                val audioOnlyFormats = audioFormats.filter { it.vcodec == null || it.vcodec == "none" }
+                val targetAudioFormats = if (audioOnlyFormats.isNotEmpty()) {
+                    audioOnlyFormats
+                } else {
+                    audioFormats.filter { it.acodec != null && it.acodec != "none" }
+                }
+                if (targetAudioFormats.isNotEmpty()) {
+                    addAudioCandidates(
+                        candidates = candidates,
+                        audioFormats = targetAudioFormats,
+                        originalUrl = originalUrl,
+                        id = id,
+                        durationMs = durationMs,
+                        platform = platform
+                    )
+                }
+
+                // 3. Explicit standalone image formats (e.g. photos/graphics exposed in format list)
+                addExplicitImageCandidates(candidates, formats, id, platform)
+
+                // 4. Discovered thumbnails (video thumbnails, poster images, photo thumbnails)
+                addThumbnailCandidates(
+                    candidates = candidates,
+                    json = root,
+                    id = id,
+                    platform = platform,
+                    isMultiEntry = false
+                )
             }
 
             if (candidates.isEmpty()) {
@@ -149,7 +170,9 @@ object YtDlpOutputParser {
                     platform = platform,
                     title = title,
                     thumbnailUrl = thumbnailUrl,
-                    candidates = candidates
+                    candidates = candidates,
+                    partialFailures = partialFailures,
+                    extractorVersion = extractorVersion
                 )
             }
         } catch (e: Exception) {
@@ -161,19 +184,14 @@ object YtDlpOutputParser {
         }
     }
 
-    /**
-     * Attaches an OpenGraph fallback preview image candidate if original extraction failed or found no formats.
-     */
     fun attachPreviewImageFallback(
         result: InspectionResult,
-        previewImageUrl: String?,
-        platform: String = "Web"
+        previewImageUrl: String?
     ): InspectionResult {
-        if (previewImageUrl.isNullOrBlank() || !previewImageUrl.startsWith("http")) {
-            return result
-        }
+        if (previewImageUrl.isNullOrBlank()) return result
+
         val ogCandidate = MediaCandidate(
-            candidateId = "og_preview_${System.currentTimeMillis()}",
+            candidateId = "og_preview_fallback",
             mediaType = MediaType.IMAGE,
             formatLabel = "Preview image (Open Graph fallback)",
             estimatedBytes = null,
@@ -184,10 +202,15 @@ object YtDlpOutputParser {
             isOgFallback = true
         )
 
+        val platform = when (result) {
+            is InspectionResult.Available -> result.platform
+            else -> "Web"
+        }
+
         return when (result) {
             is InspectionResult.Available -> {
-                if (result.candidates.isEmpty()) {
-                    result.copy(candidates = listOf(ogCandidate))
+                if (result.candidates.none { it.mediaType == MediaType.IMAGE }) {
+                    result.copy(candidates = result.candidates + ogCandidate)
                 } else {
                     result
                 }
@@ -214,119 +237,362 @@ object YtDlpOutputParser {
         }
     }
 
+    /**
+     * Discovers all useful video resolutions dynamically from the extractor's real findings.
+     * Groups by distinct resolution, selects compatible containers (preferring MP4),
+     * constructs reliable format selectors (merging audio streams if needed),
+     * and flags missing audio tracks when video has no sound.
+     */
     private fun addVideoCandidates(
         candidates: MutableList<MediaCandidate>,
         formats: List<ParsedFormat>,
         originalUrl: String,
         id: String,
         durationMs: Long?,
+        platform: String,
         labelSuffix: String = ""
     ) {
-        val videoFormats = formats.filter { it.vcodec != null }
-        val audioFormats = formats.filter { it.acodec != null }
+        val videoFormats = formats.filter { it.vcodec != null && it.vcodec != "none" }
         if (videoFormats.isEmpty()) return
 
-        val bestVideo = videoFormats.maxWithOrNull(
-            compareBy<ParsedFormat> { it.height ?: 0 }
-                .thenBy { it.tbr ?: 0.0 }
-                .thenBy { it.filesize ?: 0L }
-        )
-
+        val audioFormats = formats.filter { it.acodec != null && it.acodec != "none" }
         val bestAudio = audioFormats.maxWithOrNull(
             compareBy<ParsedFormat> { it.tbr ?: 0.0 }
-                .thenBy { it.filesize ?: 0L }
+                .thenBy { it.filesize ?: it.filesizeApprox ?: 0L }
         )
 
-        val maxHeight = bestVideo?.height
-        val maxWidth = bestVideo?.width
-        val qualityLabel = if (maxHeight != null) "${maxHeight}p mp4" else "Best Video (mp4)"
-
-        val estimatedVideoBytes = when {
-            bestVideo?.filesize != null && bestAudio?.filesize != null -> {
-                if (bestVideo.acodec != null) bestVideo.filesize else bestVideo.filesize + bestAudio.filesize
-            }
-            bestVideo?.filesize != null -> bestVideo.filesize
-            else -> null
+        // Group video formats by distinct resolution
+        // Use effective height (for vertical/portrait video, minOf(w, h) or height)
+        val groupedByResolution = videoFormats.groupBy { fmt ->
+            val h = fmt.height ?: 0
+            val w = fmt.width ?: 0
+            Pair(h, w)
         }
 
-        candidates.add(
-            MediaCandidate(
-                candidateId = "ytdlp_best_video_$id",
-                mediaType = MediaType.VIDEO,
-                formatLabel = "$qualityLabel (Best)$labelSuffix",
-                estimatedBytes = estimatedVideoBytes,
-                durationMs = durationMs,
-                width = maxWidth,
-                height = maxHeight,
-                source = AcquisitionSource.YtDlp(
-                    url = originalUrl,
-                    formatSelector = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best",
-                    expectedExt = "mp4"
-                )
+        // For each resolution bucket, select the best format
+        val resolutionCandidates = mutableListOf<ParsedFormat>()
+        for ((_, bucket) in groupedByResolution) {
+            val bestInBucket = bucket.maxWithOrNull(
+                compareBy<ParsedFormat> { if (it.ext.equals("mp4", ignoreCase = true)) 1 else 0 }
+                    .thenBy { if (it.acodec != null && it.acodec != "none") 1 else 0 }
+                    .thenBy { it.tbr ?: it.vbr ?: 0.0 }
+                    .thenBy { it.filesize ?: it.filesizeApprox ?: 0L }
             )
+            if (bestInBucket != null) {
+                resolutionCandidates.add(bestInBucket)
+            }
+        }
+
+        // Sort resolutions descending (highest resolution first)
+        val sortedFormats = resolutionCandidates.sortedWith(
+            compareByDescending<ParsedFormat> { (it.height ?: 0) * (it.width ?: 0) }
+                .thenByDescending { it.height ?: 0 }
+                .thenByDescending { it.tbr ?: it.vbr ?: 0.0 }
         )
 
-        // 2. Standard / Data-Saver Video (only if best video > 480p)
-        if (maxHeight != null && maxHeight > 480) {
-            val saverVideo = videoFormats.filter { (it.height ?: 0) in 1..480 }
-                .maxByOrNull { it.height ?: 0 }
+        for ((index, fmt) in sortedFormats.withIndex()) {
+            val isBest = index == 0
+            val hasDirectAudio = fmt.acodec != null && fmt.acodec != "none"
+            val requiresMerge = !hasDirectAudio && audioFormats.isNotEmpty()
+            val audioTrackMissing = !hasDirectAudio && audioFormats.isEmpty()
 
-            val saverBytes = when {
-                saverVideo?.filesize != null && bestAudio?.filesize != null -> {
-                    if (saverVideo.acodec != null) saverVideo.filesize else saverVideo.filesize + bestAudio.filesize
-                }
-                saverVideo?.filesize != null -> saverVideo.filesize
+            val formatSelector = if (requiresMerge) {
+                "${fmt.formatId}+bestaudio[ext=m4a]/bestaudio/best"
+            } else {
+                fmt.formatId
+            }
+
+            val estimatedBytes = when {
+                fmt.filesize != null && requiresMerge && bestAudio?.filesize != null -> fmt.filesize + bestAudio.filesize
+                fmt.filesize != null -> fmt.filesize
+                fmt.filesizeApprox != null && requiresMerge && (bestAudio?.filesizeApprox != null || bestAudio?.filesize != null) ->
+                    fmt.filesizeApprox + (bestAudio.filesize ?: bestAudio.filesizeApprox ?: 0L)
+                fmt.filesizeApprox != null -> fmt.filesizeApprox
                 else -> null
             }
 
-            val saverHeight = saverVideo?.height ?: 480
+            val resLabel = if (fmt.height != null && fmt.height > 0) {
+                "${fmt.height}p"
+            } else if (fmt.width != null && fmt.width > 0) {
+                "${fmt.width}w"
+            } else {
+                "Video"
+            }
+
+            val extLabel = fmt.ext.uppercase()
+            val bestTag = if (isBest) " (Best)" else ""
+            val silentTag = if (audioTrackMissing) " (No Audio)" else ""
+            val formatLabel = "$resLabel $extLabel$bestTag$silentTag$labelSuffix"
+
             candidates.add(
                 MediaCandidate(
-                    candidateId = "ytdlp_saver_video_$id",
+                    candidateId = "ytdlp_video_${id}_${fmt.formatId}",
                     mediaType = MediaType.VIDEO,
-                    formatLabel = "480p mp4 (Data Saver)$labelSuffix",
-                    estimatedBytes = saverBytes,
+                    formatLabel = formatLabel,
+                    estimatedBytes = estimatedBytes,
                     durationMs = durationMs,
-                    width = saverVideo?.width ?: 854,
-                    height = saverHeight,
+                    width = fmt.width,
+                    height = fmt.height,
                     source = AcquisitionSource.YtDlp(
                         url = originalUrl,
-                        formatSelector = "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none]/best[height<=480]/best",
-                        expectedExt = "mp4"
-                    )
+                        formatSelector = formatSelector,
+                        expectedExt = if (requiresMerge) "mp4" else fmt.ext
+                    ),
+                    formatId = fmt.formatId,
+                    ext = if (requiresMerge) "mp4" else fmt.ext,
+                    vcodec = fmt.vcodec,
+                    acodec = fmt.acodec ?: bestAudio?.acodec,
+                    fps = fmt.fps,
+                    bitrate = fmt.tbr ?: fmt.vbr,
+                    hasVideo = true,
+                    hasAudio = hasDirectAudio || requiresMerge,
+                    isBest = isBest,
+                    isThumbnail = false,
+                    qualityLabel = "$resLabel $extLabel",
+                    requiresMerge = requiresMerge,
+                    audioTrackMissing = audioTrackMissing,
+                    status = CandidateStatus.AVAILABLE,
+                    statusReason = if (audioTrackMissing) "Video stream contains no audio track" else null,
+                    extractor = platform
                 )
             )
         }
     }
 
-    private fun addAudioCandidate(
+    /**
+     * Extracts distinct audio formats (e.g. M4A, WEBM, MP3) with reliable selectors and sizes.
+     */
+    private fun addAudioCandidates(
         candidates: MutableList<MediaCandidate>,
         audioFormats: List<ParsedFormat>,
         originalUrl: String,
         id: String,
-        durationMs: Long?
+        durationMs: Long?,
+        platform: String
     ) {
-        val bestAudio = audioFormats.maxWithOrNull(
-            compareBy<ParsedFormat> { it.tbr ?: 0.0 }
-                .thenBy { it.filesize ?: 0L }
-        )
+        val audioOnly = audioFormats.filter { it.acodec != null && it.acodec != "none" }
+        if (audioOnly.isEmpty()) return
 
-        candidates.add(
-            MediaCandidate(
-                candidateId = "ytdlp_audio_$id",
-                mediaType = MediaType.AUDIO,
-                formatLabel = "Audio (m4a)",
-                estimatedBytes = bestAudio?.filesize,
-                durationMs = durationMs,
-                width = null,
-                height = null,
-                source = AcquisitionSource.YtDlp(
-                    url = originalUrl,
-                    formatSelector = "bestaudio[ext=m4a]/bestaudio/best",
-                    expectedExt = "m4a"
+        // Group by extension (e.g. m4a, webm, mp3)
+        val groupedByExt = audioOnly.groupBy { it.ext.lowercase() }
+
+        for ((ext, formatsWithExt) in groupedByExt) {
+            val bestInExt = formatsWithExt.maxWithOrNull(
+                compareBy<ParsedFormat> { it.tbr ?: it.abr ?: 0.0 }
+                    .thenBy { it.filesize ?: it.filesizeApprox ?: 0L }
+            ) ?: continue
+
+            val selector = if (ext == "m4a") {
+                "${bestInExt.formatId}/bestaudio[ext=m4a]/bestaudio/best"
+            } else {
+                "${bestInExt.formatId}/bestaudio/best"
+            }
+
+            candidates.add(
+                MediaCandidate(
+                    candidateId = "ytdlp_audio_${id}_${bestInExt.formatId}",
+                    mediaType = MediaType.AUDIO,
+                    formatLabel = "Audio (${ext.uppercase()})",
+                    estimatedBytes = bestInExt.filesize ?: bestInExt.filesizeApprox,
+                    durationMs = durationMs,
+                    width = null,
+                    height = null,
+                    source = AcquisitionSource.YtDlp(
+                        url = originalUrl,
+                        formatSelector = selector,
+                        expectedExt = ext
+                    ),
+                    formatId = bestInExt.formatId,
+                    ext = ext,
+                    vcodec = null,
+                    acodec = bestInExt.acodec,
+                    bitrate = bestInExt.tbr ?: bestInExt.abr,
+                    hasVideo = false,
+                    hasAudio = true,
+                    isBest = false,
+                    isThumbnail = false,
+                    qualityLabel = "Audio $ext",
+                    requiresMerge = false,
+                    audioTrackMissing = false,
+                    status = CandidateStatus.AVAILABLE,
+                    extractor = platform
                 )
             )
+        }
+    }
+
+    /**
+     * Extracts explicit image formats (e.g. photo posts on Instagram, Reddit, X).
+     */
+    private fun addExplicitImageCandidates(
+        candidates: MutableList<MediaCandidate>,
+        formats: List<ParsedFormat>,
+        id: String,
+        platform: String
+    ) {
+        val explicitImageFormats = formats.filter {
+            (it.vcodec == null || it.vcodec == "none") &&
+                (it.acodec == null || it.acodec == "none") &&
+                isImageExt(it.ext) &&
+                !it.url.isNullOrBlank()
+        }
+
+        for ((idx, imgFmt) in explicitImageFormats.withIndex()) {
+            val w = imgFmt.width
+            val h = imgFmt.height
+            val label = if (w != null && h != null) "Image — $w × $h" else "Image (Original)"
+            candidates.add(
+                MediaCandidate(
+                    candidateId = "ytdlp_explicit_img_${id}_${imgFmt.formatId}_$idx",
+                    mediaType = MediaType.IMAGE,
+                    formatLabel = label,
+                    estimatedBytes = imgFmt.filesize ?: imgFmt.filesizeApprox,
+                    durationMs = null,
+                    width = w,
+                    height = h,
+                    source = AcquisitionSource.DirectHttp(url = imgFmt.url!!),
+                    formatId = imgFmt.formatId,
+                    ext = imgFmt.ext,
+                    hasVideo = false,
+                    hasAudio = false,
+                    isBest = false,
+                    isThumbnail = false,
+                    qualityLabel = if (w != null && h != null) "$w × $h" else "Original",
+                    status = CandidateStatus.AVAILABLE,
+                    extractor = platform
+                )
+            )
+        }
+    }
+
+    /**
+     * Extracts every distinct, meaningful thumbnail variant discovered by yt-dlp.
+     * Supports YouTube (long-form, Shorts, youtu.be), Instagram, TikTok, Reddit, etc.
+     * Filters out storyboard sprite-sheets.
+     * Independent of video/audio candidates.
+     */
+    private fun addThumbnailCandidates(
+        candidates: MutableList<MediaCandidate>,
+        json: JSONObject,
+        id: String,
+        platform: String,
+        isMultiEntry: Boolean = false,
+        entryIndex: Int = 1,
+        totalEntries: Int = 1
+    ) {
+        val rawThumbnails = mutableListOf<ThumbnailInfo>()
+
+        // 1. Inspect 'thumbnails' array
+        val thumbnailsArray = json.optJSONArray("thumbnails")
+        if (thumbnailsArray != null) {
+            for (i in 0 until thumbnailsArray.length()) {
+                val tObj = thumbnailsArray.optJSONObject(i) ?: continue
+                val tUrl = tObj.optString("url").takeIf { it.isNotBlank() } ?: continue
+
+                // Filter out storyboard sprite sheets
+                val tId = tObj.optString("id")
+                val preference = tObj.optInt("preference", 0)
+                if (isStoryboardThumbnail(tId, tUrl, preference)) {
+                    continue
+                }
+
+                val w = tObj.optInt("width").takeIf { it > 0 }
+                val h = tObj.optInt("height").takeIf { it > 0 }
+                rawThumbnails.add(ThumbnailInfo(url = tUrl, width = w, height = h))
+            }
+        }
+
+        // 2. Inspect single 'thumbnail' string property
+        val rootThumb = json.optString("thumbnail").takeIf { it.isNotBlank() }
+        if (rootThumb != null && !isStoryboardThumbnail("", rootThumb, 0)) {
+            val w = json.optInt("width").takeIf { it > 0 }
+            val h = json.optInt("height").takeIf { it > 0 }
+            rawThumbnails.add(ThumbnailInfo(url = rootThumb, width = w, height = h))
+        }
+
+        if (rawThumbnails.isEmpty()) return
+
+        // 3. Deduplicate thumbnail candidates by URL and distinct resolution
+        val seenUrls = mutableSetOf<String>()
+        val seenDimensions = mutableSetOf<Pair<Int?, Int?>>()
+        val distinctThumbnails = mutableListOf<ThumbnailInfo>()
+
+        // Sort descending by resolution (width * height)
+        val sorted = rawThumbnails.sortedWith(
+            compareByDescending<ThumbnailInfo> { (it.width ?: 0) * (it.height ?: 0) }
+                .thenByDescending { it.width ?: 0 }
         )
+
+        for (thumb in sorted) {
+            val normalizedUrl = thumb.url.substringBefore("?")
+            val dimPair = Pair(thumb.width, thumb.height)
+
+            // Keep if URL is new AND (dimensions are null OR dimensions haven't been seen)
+            if (thumb.url !in seenUrls && (dimPair.first == null || dimPair !in seenDimensions)) {
+                seenUrls.add(thumb.url)
+                if (dimPair.first != null) {
+                    seenDimensions.add(dimPair)
+                }
+                distinctThumbnails.add(thumb)
+            }
+        }
+
+        // 4. Create independent MediaCandidate for each distinct thumbnail variant
+        for ((idx, thumb) in distinctThumbnails.withIndex()) {
+            val isBest = idx == 0
+            val bestSuffix = if (isBest) " (Best)" else ""
+            val entrySuffix = if (isMultiEntry && totalEntries > 1) " (Slide $entryIndex)" else ""
+
+            val label = if (thumb.width != null && thumb.height != null) {
+                "Thumbnail — ${thumb.width} × ${thumb.height}$bestSuffix$entrySuffix"
+            } else {
+                "Thumbnail — Original$bestSuffix$entrySuffix"
+            }
+
+            val ext = thumb.url.substringAfterLast(".").substringBefore("?")
+                .takeIf { isImageExt(it) } ?: "jpg"
+
+            candidates.add(
+                MediaCandidate(
+                    candidateId = "ytdlp_thumb_${id}_${thumb.width ?: 0}x${thumb.height ?: 0}_$idx",
+                    mediaType = MediaType.IMAGE,
+                    formatLabel = label,
+                    estimatedBytes = null,
+                    durationMs = null,
+                    width = thumb.width,
+                    height = thumb.height,
+                    source = AcquisitionSource.DirectHttp(url = thumb.url),
+                    isOgFallback = false,
+                    formatId = null,
+                    ext = ext,
+                    hasVideo = false,
+                    hasAudio = false,
+                    isBest = isBest,
+                    isThumbnail = true,
+                    qualityLabel = if (thumb.width != null && thumb.height != null) "${thumb.width} × ${thumb.height}" else "Original",
+                    requiresMerge = false,
+                    audioTrackMissing = false,
+                    status = CandidateStatus.AVAILABLE,
+                    extractor = platform
+                )
+            )
+        }
+    }
+
+    /**
+     * Checks if a thumbnail entry represents a storyboard or sprite sheet rather than a real full image.
+     */
+    private fun isStoryboardThumbnail(id: String, url: String, preference: Int): Boolean {
+        if (preference < -10) return true
+        val lowerId = id.lowercase()
+        if (lowerId.contains("storyboard") || lowerId.startsWith("sb") || lowerId.contains("dash-preview")) {
+            return true
+        }
+        val lowerUrl = url.lowercase()
+        if (lowerUrl.contains("/sb/") || lowerUrl.contains("storyboard_") || lowerUrl.contains("sigh=")) {
+            return true
+        }
+        return false
     }
 
     private fun parseFormats(formatsArray: JSONArray): List<ParsedFormat> {
@@ -341,8 +607,12 @@ object YtDlpOutputParser {
             val width = fObj.optInt("width").takeIf { it > 0 }
             val height = fObj.optInt("height").takeIf { it > 0 }
             val filesize = fObj.optLong("filesize").takeIf { it > 0 }
-                ?: fObj.optLong("filesize_approx").takeIf { it > 0 }
+            val filesizeApprox = fObj.optLong("filesize_approx").takeIf { it > 0 }
+            val fps = fObj.optDouble("fps").takeIf { !it.isNaN() && it > 0 }
             val tbr = fObj.optDouble("tbr").takeIf { !it.isNaN() && it > 0 }
+            val vbr = fObj.optDouble("vbr").takeIf { !it.isNaN() && it > 0 }
+            val abr = fObj.optDouble("abr").takeIf { !it.isNaN() && it > 0 }
+            val formatNote = fObj.optString("format_note").takeIf { it.isNotBlank() }
 
             list.add(
                 ParsedFormat(
@@ -353,8 +623,13 @@ object YtDlpOutputParser {
                     acodec = acodec,
                     width = width,
                     height = height,
+                    fps = fps,
                     filesize = filesize,
-                    tbr = tbr
+                    filesizeApprox = filesizeApprox,
+                    tbr = tbr,
+                    vbr = vbr,
+                    abr = abr,
+                    formatNote = formatNote
                 )
             )
         }
@@ -372,18 +647,15 @@ object YtDlpOutputParser {
     }
 
     private fun extractBestImageUrl(json: JSONObject, formats: List<ParsedFormat>): String? {
-        // 1. Look for explicit image format with a direct URL
         val imageFormats = formats.filter { isImageExt(it.ext) && !it.url.isNullOrBlank() }
         if (imageFormats.isNotEmpty()) {
             val best = imageFormats.maxByOrNull { (it.width ?: 0) * (it.height ?: 0) }
             if (best?.url != null) return best.url
         }
 
-        // 2. Look for highest-resolution thumbnail
         val bestThumb = extractBestThumbnail(json)
         if (bestThumb != null) return bestThumb.url
 
-        // 3. Fallback to direct url property if present and looks like image
         val directUrl = json.optString("url").takeIf { it.isNotBlank() }
         if (directUrl != null && (isImageExt(directUrl.substringAfterLast(".", "")) || directUrl.contains("image"))) {
             return directUrl
@@ -419,6 +691,10 @@ object YtDlpOutputParser {
         for (i in 0 until thumbnailsArray.length()) {
             val tObj = thumbnailsArray.optJSONObject(i) ?: continue
             val tUrl = tObj.optString("url").takeIf { it.isNotBlank() } ?: continue
+            val tId = tObj.optString("id")
+            val pref = tObj.optInt("preference", 0)
+            if (isStoryboardThumbnail(tId, tUrl, pref)) continue
+
             val w = tObj.optInt("width", 0)
             val h = tObj.optInt("height", 0)
             val dim = if (w > 0 && h > 0) w * h else 1
@@ -521,8 +797,13 @@ object YtDlpOutputParser {
         val acodec: String?,
         val width: Int?,
         val height: Int?,
-        val filesize: Long?,
-        val tbr: Double?
+        val fps: Double? = null,
+        val filesize: Long? = null,
+        val filesizeApprox: Long? = null,
+        val tbr: Double? = null,
+        val vbr: Double? = null,
+        val abr: Double? = null,
+        val formatNote: String? = null
     )
 
     private data class ThumbnailInfo(

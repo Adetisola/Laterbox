@@ -68,6 +68,15 @@ interface SavedLinkDao {
     """)
     suspend fun getLinksNeedingEnrichment(staleThreshold: Long = System.currentTimeMillis() - 30_000L): List<SavedLinkEntity>
 
+    @Query("""
+        SELECT * FROM saved_links 
+        WHERE is_archived = 0 
+          AND id NOT IN (SELECT savedLinkId FROM media_inspection WHERE status = 'COMPLETED')
+        ORDER BY created_at DESC
+        LIMIT :limit
+    """)
+    suspend fun getLinksNeedingInspection(limit: Int = 20): List<SavedLinkEntity>
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertLink(link: SavedLinkEntity): Long
 

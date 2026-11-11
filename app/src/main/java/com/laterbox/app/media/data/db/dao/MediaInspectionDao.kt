@@ -26,6 +26,9 @@ interface MediaInspectionDao {
     @Query("SELECT * FROM media_inspection WHERE id = :id LIMIT 1")
     suspend fun getEntityById(id: String): MediaInspectionEntity?
 
+    @Query("SELECT * FROM media_inspection WHERE status IN ('PENDING', 'PREPARING', 'INSPECTING', 'PROCESSING') AND updatedAt < :staleThreshold")
+    suspend fun getStaleInspections(staleThreshold: Long): List<MediaInspectionEntity>
+
     @Query("DELETE FROM media_inspection WHERE savedLinkId = :savedLinkId")
     suspend fun deleteForLink(savedLinkId: Long)
 

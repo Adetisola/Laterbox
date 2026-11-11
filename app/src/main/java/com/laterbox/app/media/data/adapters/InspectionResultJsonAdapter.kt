@@ -1,6 +1,7 @@
 package com.laterbox.app.media.data.adapters
 
 import com.laterbox.app.media.domain.model.AcquisitionSource
+import com.laterbox.app.media.domain.model.CandidateStatus
 import com.laterbox.app.media.domain.model.FailureCode
 import com.laterbox.app.media.domain.model.InspectionResult
 import com.laterbox.app.media.domain.model.MatchConfidence
@@ -11,6 +12,121 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object InspectionResultJsonAdapter {
+
+    fun candidateToJson(c: MediaCandidate): JSONObject {
+        val cObj = JSONObject()
+        cObj.put("candidateId", c.candidateId)
+        cObj.put("mediaType", c.mediaType.name)
+        cObj.put("formatLabel", c.formatLabel)
+        cObj.put("estimatedBytes", c.estimatedBytes ?: JSONObject.NULL)
+        cObj.put("durationMs", c.durationMs ?: JSONObject.NULL)
+        cObj.put("width", c.width ?: JSONObject.NULL)
+        cObj.put("height", c.height ?: JSONObject.NULL)
+        cObj.put("isOgFallback", c.isOgFallback)
+        cObj.put("formatId", c.formatId ?: JSONObject.NULL)
+        cObj.put("ext", c.ext ?: JSONObject.NULL)
+        cObj.put("vcodec", c.vcodec ?: JSONObject.NULL)
+        cObj.put("acodec", c.acodec ?: JSONObject.NULL)
+        cObj.put("fps", c.fps ?: JSONObject.NULL)
+        cObj.put("bitrate", c.bitrate ?: JSONObject.NULL)
+        cObj.put("hasVideo", c.hasVideo)
+        cObj.put("hasAudio", c.hasAudio)
+        cObj.put("isBest", c.isBest)
+        cObj.put("isThumbnail", c.isThumbnail)
+        cObj.put("qualityLabel", c.qualityLabel ?: JSONObject.NULL)
+        cObj.put("requiresMerge", c.requiresMerge)
+        cObj.put("audioTrackMissing", c.audioTrackMissing)
+        cObj.put("status", c.status.name)
+        cObj.put("statusReason", c.statusReason ?: JSONObject.NULL)
+        cObj.put("extractor", c.extractor ?: JSONObject.NULL)
+
+        val srcObj = JSONObject()
+        when (val s = c.source) {
+            is AcquisitionSource.DirectHttp -> {
+                srcObj.put("type", "DirectHttp")
+                srcObj.put("url", s.url)
+            }
+            is AcquisitionSource.YtDlp -> {
+                srcObj.put("type", "YtDlp")
+                srcObj.put("url", s.url)
+                srcObj.put("formatSelector", s.formatSelector)
+                srcObj.put("expectedExt", s.expectedExt)
+            }
+        }
+        cObj.put("source", srcObj)
+        return cObj
+    }
+
+    fun candidateFromJson(cObj: JSONObject): MediaCandidate? {
+        val cId = cObj.optString("candidateId").takeIf { it.isNotBlank() } ?: return null
+        val mType = try { MediaType.valueOf(cObj.optString("mediaType")) } catch (_: Exception) { MediaType.OTHER }
+        val label = cObj.optString("formatLabel", "")
+        val bytes = if (cObj.isNull("estimatedBytes")) null else cObj.optLong("estimatedBytes")
+        val dur = if (cObj.isNull("durationMs")) null else cObj.optLong("durationMs")
+        val w = if (cObj.isNull("width")) null else cObj.optInt("width")
+        val h = if (cObj.isNull("height")) null else cObj.optInt("height")
+        val isOg = cObj.optBoolean("isOgFallback", false)
+
+        val formatId = if (cObj.isNull("formatId")) null else cObj.optString("formatId").takeIf { it.isNotBlank() }
+        val ext = if (cObj.isNull("ext")) null else cObj.optString("ext").takeIf { it.isNotBlank() }
+        val vcodec = if (cObj.isNull("vcodec")) null else cObj.optString("vcodec").takeIf { it.isNotBlank() }
+        val acodec = if (cObj.isNull("acodec")) null else cObj.optString("acodec").takeIf { it.isNotBlank() }
+        val fps = if (cObj.isNull("fps")) null else cObj.optDouble("fps")
+        val bitrate = if (cObj.isNull("bitrate")) null else cObj.optDouble("bitrate")
+        val hasVideo = cObj.optBoolean("hasVideo", mType == MediaType.VIDEO)
+        val hasAudio = cObj.optBoolean("hasAudio", mType == MediaType.AUDIO || (mType == MediaType.VIDEO && acodec != null))
+        val isBest = cObj.optBoolean("isBest", false)
+        val isThumbnail = cObj.optBoolean("isThumbnail", false)
+        val qualityLabel = if (cObj.isNull("qualityLabel")) null else cObj.optString("qualityLabel").takeIf { it.isNotBlank() }
+        val requiresMerge = cObj.optBoolean("requiresMerge", false)
+        val audioTrackMissing = cObj.optBoolean("audioTrackMissing", false)
+        val status = try {
+            CandidateStatus.valueOf(cObj.optString("status", CandidateStatus.AVAILABLE.name))
+        } catch (_: Exception) {
+            CandidateStatus.AVAILABLE
+        }
+        val statusReason = if (cObj.isNull("statusReason")) null else cObj.optString("statusReason").takeIf { it.isNotBlank() }
+        val extractor = if (cObj.isNull("extractor")) null else cObj.optString("extractor").takeIf { it.isNotBlank() }
+
+        val sObj = cObj.optJSONObject("source") ?: return null
+        val src = if (sObj.optString("type") == "DirectHttp") {
+            AcquisitionSource.DirectHttp(url = sObj.optString("url"))
+        } else {
+            AcquisitionSource.YtDlp(
+                url = sObj.optString("url"),
+                formatSelector = sObj.optString("formatSelector"),
+                expectedExt = sObj.optString("expectedExt", "mp4")
+            )
+        }
+
+        return MediaCandidate(
+            candidateId = cId,
+            mediaType = mType,
+            formatLabel = label,
+            estimatedBytes = bytes,
+            durationMs = dur,
+            width = w,
+            height = h,
+            source = src,
+            isOgFallback = isOg,
+            formatId = formatId,
+            ext = ext,
+            vcodec = vcodec,
+            acodec = acodec,
+            fps = fps,
+            bitrate = bitrate,
+            hasVideo = hasVideo,
+            hasAudio = hasAudio,
+            isBest = isBest,
+            isThumbnail = isThumbnail,
+            qualityLabel = qualityLabel,
+            requiresMerge = requiresMerge,
+            audioTrackMissing = audioTrackMissing,
+            status = status,
+            statusReason = statusReason,
+            extractor = extractor
+        )
+    }
 
     fun toJson(result: InspectionResult): String {
         val root = JSONObject()
@@ -23,34 +139,17 @@ object InspectionResultJsonAdapter {
                 root.put("artist", result.artist ?: JSONObject.NULL)
                 root.put("album", result.album ?: JSONObject.NULL)
                 root.put("spotifyTrackId", result.spotifyTrackId ?: JSONObject.NULL)
+                root.put("extractorVersion", result.extractorVersion ?: JSONObject.NULL)
+
+                val failuresArr = JSONArray()
+                for (failure in result.partialFailures) {
+                    failuresArr.put(failure)
+                }
+                root.put("partialFailures", failuresArr)
 
                 val candidatesArr = JSONArray()
                 for (c in result.candidates) {
-                    val cObj = JSONObject()
-                    cObj.put("candidateId", c.candidateId)
-                    cObj.put("mediaType", c.mediaType.name)
-                    cObj.put("formatLabel", c.formatLabel)
-                    cObj.put("estimatedBytes", c.estimatedBytes ?: JSONObject.NULL)
-                    cObj.put("durationMs", c.durationMs ?: JSONObject.NULL)
-                    cObj.put("width", c.width ?: JSONObject.NULL)
-                    cObj.put("height", c.height ?: JSONObject.NULL)
-                    cObj.put("isOgFallback", c.isOgFallback)
-
-                    val srcObj = JSONObject()
-                    when (val s = c.source) {
-                        is AcquisitionSource.DirectHttp -> {
-                            srcObj.put("type", "DirectHttp")
-                            srcObj.put("url", s.url)
-                        }
-                        is AcquisitionSource.YtDlp -> {
-                            srcObj.put("type", "YtDlp")
-                            srcObj.put("url", s.url)
-                            srcObj.put("formatSelector", s.formatSelector)
-                            srcObj.put("expectedExt", s.expectedExt)
-                        }
-                    }
-                    cObj.put("source", srcObj)
-                    candidatesArr.put(cObj)
+                    candidatesArr.put(candidateToJson(c))
                 }
                 root.put("candidates", candidatesArr)
 
@@ -65,34 +164,7 @@ object InspectionResultJsonAdapter {
                     mObj.put("confidence", m.confidence.name)
                     mObj.put("versionTag", m.versionTag ?: JSONObject.NULL)
                     mObj.put("sourceDescription", m.sourceDescription)
-
-                    val dc = m.downloadCandidate
-                    val dcObj = JSONObject().apply {
-                        put("candidateId", dc.candidateId)
-                        put("mediaType", dc.mediaType.name)
-                        put("formatLabel", dc.formatLabel)
-                        put("estimatedBytes", dc.estimatedBytes ?: JSONObject.NULL)
-                        put("durationMs", dc.durationMs ?: JSONObject.NULL)
-                        put("width", dc.width ?: JSONObject.NULL)
-                        put("height", dc.height ?: JSONObject.NULL)
-                        put("isOgFallback", dc.isOgFallback)
-                        val sObj = JSONObject().apply {
-                            when (val src = dc.source) {
-                                is AcquisitionSource.DirectHttp -> {
-                                    put("type", "DirectHttp")
-                                    put("url", src.url)
-                                }
-                                is AcquisitionSource.YtDlp -> {
-                                    put("type", "YtDlp")
-                                    put("url", src.url)
-                                    put("formatSelector", src.formatSelector)
-                                    put("expectedExt", src.expectedExt)
-                                }
-                            }
-                        }
-                        put("source", sObj)
-                    }
-                    mObj.put("downloadCandidate", dcObj)
+                    mObj.put("downloadCandidate", candidateToJson(m.downloadCandidate))
                     matchesArr.put(mObj)
                 }
                 root.put("musicMatches", matchesArr)
@@ -136,44 +208,25 @@ object InspectionResultJsonAdapter {
                     val artist = if (root.isNull("artist")) null else root.optString("artist").takeIf { it.isNotBlank() }
                     val album = if (root.isNull("album")) null else root.optString("album").takeIf { it.isNotBlank() }
                     val spotifyId = if (root.isNull("spotifyTrackId")) null else root.optString("spotifyTrackId").takeIf { it.isNotBlank() }
+                    val extractorVersion = if (root.isNull("extractorVersion")) null else root.optString("extractorVersion").takeIf { it.isNotBlank() }
+
+                    val partialFailures = mutableListOf<String>()
+                    val fArr = root.optJSONArray("partialFailures")
+                    if (fArr != null) {
+                        for (i in 0 until fArr.length()) {
+                            val fStr = fArr.optString(i)
+                            if (fStr.isNotBlank()) {
+                                partialFailures.add(fStr)
+                            }
+                        }
+                    }
 
                     val candidates = mutableListOf<MediaCandidate>()
                     val cArr = root.optJSONArray("candidates") ?: JSONArray()
                     for (i in 0 until cArr.length()) {
                         val cObj = cArr.optJSONObject(i) ?: continue
-                        val cId = cObj.optString("candidateId")
-                        val mType = try { MediaType.valueOf(cObj.optString("mediaType")) } catch (_: Exception) { MediaType.OTHER }
-                        val label = cObj.optString("formatLabel")
-                        val bytes = if (cObj.isNull("estimatedBytes")) null else cObj.optLong("estimatedBytes")
-                        val dur = if (cObj.isNull("durationMs")) null else cObj.optLong("durationMs")
-                        val w = if (cObj.isNull("width")) null else cObj.optInt("width")
-                        val h = if (cObj.isNull("height")) null else cObj.optInt("height")
-                        val isOg = cObj.optBoolean("isOgFallback", false)
-
-                        val sObj = cObj.optJSONObject("source") ?: continue
-                        val src = if (sObj.optString("type") == "DirectHttp") {
-                            AcquisitionSource.DirectHttp(url = sObj.optString("url"))
-                        } else {
-                            AcquisitionSource.YtDlp(
-                                url = sObj.optString("url"),
-                                formatSelector = sObj.optString("formatSelector"),
-                                expectedExt = sObj.optString("expectedExt", "mp4")
-                            )
-                        }
-
-                        candidates.add(
-                            MediaCandidate(
-                                candidateId = cId,
-                                mediaType = mType,
-                                formatLabel = label,
-                                estimatedBytes = bytes,
-                                durationMs = dur,
-                                width = w,
-                                height = h,
-                                source = src,
-                                isOgFallback = isOg
-                            )
-                        )
+                        val candidate = candidateFromJson(cObj) ?: continue
+                        candidates.add(candidate)
                     }
 
                     val matches = mutableListOf<MusicMatchCandidate>()
@@ -190,35 +243,7 @@ object InspectionResultJsonAdapter {
                         val sDesc = mObj.optString("sourceDescription", "Authorized Audio Source")
 
                         val dcObj = mObj.optJSONObject("downloadCandidate") ?: continue
-                        val dcId = dcObj.optString("candidateId")
-                        val dcType = try { MediaType.valueOf(dcObj.optString("mediaType")) } catch (_: Exception) { MediaType.AUDIO }
-                        val dcLabel = dcObj.optString("formatLabel")
-                        val dcBytes = if (dcObj.isNull("estimatedBytes")) null else dcObj.optLong("estimatedBytes")
-                        val dcDuration = if (dcObj.isNull("durationMs")) null else dcObj.optLong("durationMs")
-                        val dcW = if (dcObj.isNull("width")) null else dcObj.optInt("width")
-                        val dcH = if (dcObj.isNull("height")) null else dcObj.optInt("height")
-                        val dcIsOg = dcObj.optBoolean("isOgFallback", false)
-                        val dcSourceObj = dcObj.optJSONObject("source") ?: continue
-                        val dcSource = if (dcSourceObj.optString("type") == "DirectHttp") {
-                            AcquisitionSource.DirectHttp(url = dcSourceObj.optString("url"))
-                        } else {
-                            AcquisitionSource.YtDlp(
-                                url = dcSourceObj.optString("url"),
-                                formatSelector = dcSourceObj.optString("formatSelector"),
-                                expectedExt = dcSourceObj.optString("expectedExt", "m4a")
-                            )
-                        }
-                        val dc = MediaCandidate(
-                            candidateId = dcId,
-                            mediaType = dcType,
-                            formatLabel = dcLabel,
-                            estimatedBytes = dcBytes,
-                            durationMs = dcDuration,
-                            width = dcW,
-                            height = dcH,
-                            source = dcSource,
-                            isOgFallback = dcIsOg
-                        )
+                        val dc = candidateFromJson(dcObj) ?: continue
 
                         matches.add(
                             MusicMatchCandidate(
@@ -243,7 +268,9 @@ object InspectionResultJsonAdapter {
                         artist = artist,
                         album = album,
                         musicMatches = matches,
-                        spotifyTrackId = spotifyId
+                        spotifyTrackId = spotifyId,
+                        partialFailures = partialFailures,
+                        extractorVersion = extractorVersion
                     )
                 }
 

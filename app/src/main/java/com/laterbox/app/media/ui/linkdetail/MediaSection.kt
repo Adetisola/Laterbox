@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.laterbox.app.media.domain.model.CandidateStatus
 import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.media.domain.model.DownloadTask
 import com.laterbox.app.media.domain.model.InspectionResult
@@ -198,7 +199,7 @@ fun MediaSection(
                 onClick = onInspectClick,
                 modifier = Modifier.fillMaxWidth()
             )
-        } else if (inspectionResult != null) {
+        } else {
             when (inspectionResult) {
                 is InspectionResult.Available -> {
                     if (inspectionResult.musicMatches.isNotEmpty()) {
@@ -207,6 +208,33 @@ fun MediaSection(
                             onDownloadCandidate = handleStartDownload
                         )
                     } else {
+                        if (inspectionResult.partialFailures.isNotEmpty()) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = LaterboxShapeTokens.Card,
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        painter = painterResource(LaterboxIcons.Refresh),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Some media could not be extracted (${inspectionResult.partialFailures.size} issue(s))",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -589,6 +617,7 @@ private fun CandidateCard(
     onDownload: () -> Unit
 ) {
     val colors = LaterboxTheme.colors
+    val isDownloadable = candidate.status == CandidateStatus.AVAILABLE
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -601,11 +630,29 @@ private fun CandidateCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = candidate.formatLabel,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = colors.textPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = candidate.formatLabel,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (candidate.isThumbnail) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            shape = LaterboxShapeTokens.PillNav,
+                            color = colors.surfaceSecondary
+                        ) {
+                            Text(
+                                text = "Thumbnail",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.textSecondary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+
                 if (candidate.isOgFallback) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
@@ -614,28 +661,60 @@ private fun CandidateCard(
                         color = colors.textSecondary
                     )
                 }
+
+                if (candidate.audioTrackMissing) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Source video contains no audio track",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.textSecondary
+                    )
+                }
+
+                if (!isDownloadable && !candidate.statusReason.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = candidate.statusReason,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(2.dp))
                 val sizeText = candidate.estimatedBytes?.let { formatBytes(it) } ?: "Size unknown"
-                val dimText = if (candidate.width != null && candidate.height != null) " · ${candidate.width}x${candidate.height}" else ""
+                val dimText = if (candidate.width != null && candidate.height != null) " · ${candidate.width}×${candidate.height}" else ""
+                val fpsText = if (candidate.fps != null && candidate.fps > 0) " · ${candidate.fps.toInt()}fps" else ""
                 Text(
-                    text = "${candidate.mediaType.name} · $sizeText$dimText",
+                    text = "${candidate.mediaType.name} · $sizeText$dimText$fpsText",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textSecondary
                 )
             }
 
-            Button(
-                onClick = onDownload,
-                shape = LaterboxShapeTokens.PillNav,
-                colors = ButtonDefaults.buttonColors(containerColor = colors.accentPrimary)
-            ) {
-                Icon(
-                    painter = painterResource(LaterboxIcons.Download),
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Download")
+            Spacer(modifier = Modifier.width(8.dp))
+
+            if (isDownloadable) {
+                Button(
+                    onClick = onDownload,
+                    shape = LaterboxShapeTokens.PillNav,
+                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentPrimary)
+                ) {
+                    Icon(
+                        painter = painterResource(LaterboxIcons.Download),
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Download")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = {},
+                    enabled = false,
+                    shape = LaterboxShapeTokens.PillNav
+                ) {
+                    Text(candidate.status.name.lowercase().replaceFirstChar { it.uppercase() })
+                }
             }
         }
     }

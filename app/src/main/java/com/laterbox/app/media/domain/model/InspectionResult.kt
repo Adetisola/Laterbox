@@ -9,7 +9,9 @@ sealed interface InspectionResult {
         val artist: String? = null,
         val album: String? = null,
         val musicMatches: List<MusicMatchCandidate> = emptyList(),
-        val spotifyTrackId: String? = null
+        val spotifyTrackId: String? = null,
+        val partialFailures: List<String> = emptyList(),
+        val extractorVersion: String? = null
     ) : InspectionResult
 
     data class MetadataOnly(

@@ -170,4 +170,84 @@ class MediaInspectionManagerTest {
         assertTrue(available.candidates[0].isOgFallback)
         assertEquals(MediaType.IMAGE, available.candidates[0].mediaType)
     }
+
+    @Test
+    fun cancelInspection_marksInFlightAsCancelled() = testScope.runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/running",
+            normalizedUrl = "https://example.com/running",
+            title = "Running Video",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        // Insert in-flight inspection entity
+        val inFlightEntity = com.laterbox.app.media.data.db.entity.MediaInspectionEntity(
+            id = "inspect_$linkId",
+            savedLinkId = linkId,
+            url = "https://example.com/running",
+            status = "INSPECTING",
+            resultJson = null,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        inspectionDao.insert(inFlightEntity)
+
+        val registry = AdapterRegistry(emptyList())
+        val platformResolver = PlatformResolver(registry)
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = platformResolver,
+            scope = this
+        )
+
+        // Act
+        manager.cancelInspection(linkId)
+
+        // Assert
+        val updated = inspectionDao.getEntityForLink(linkId)
+        assertNotNull(updated)
+        assertEquals("CANCELLED", updated?.status)
+    }
+
+    @Test
+    fun scheduleInspection_invalidatesWhenUrlChanges() = testScope.runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/old_url",
+            normalizedUrl = "https://example.com/old_url",
+            title = "Old Video",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        val oldEntity = com.laterbox.app.media.data.db.entity.MediaInspectionEntity(
+            id = "inspect_$linkId",
+            savedLinkId = linkId,
+            url = "https://example.com/old_url",
+            status = "COMPLETED",
+            resultJson = "{}",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        inspectionDao.insert(oldEntity)
+
+        val registry = AdapterRegistry(emptyList())
+        val platformResolver = PlatformResolver(registry)
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = platformResolver,
+            scope = this
+        )
+
+        // Act: schedule inspection with a different URL
+        val job = manager.scheduleInspection(linkId, "https://example.com/new_url", forceRefresh = false)
+        job.join()
+
+        // Old entity should be invalidated (deleted from DB)
+        val entity = inspectionDao.getEntityForLink(linkId)
+        assertTrue(entity == null || entity.url == "https://example.com/new_url")
+    }
 }
+

@@ -49,8 +49,10 @@ class YtDlpAdapter(
         return scheme == "http" || scheme == "https"
     }
 
-    override suspend fun inspect(url: String): InspectionResult = withContext(Dispatchers.IO) {
-        val inspectionId = "inspect_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
+    override suspend fun inspect(url: String): InspectionResult = inspect(url, null)
+
+    override suspend fun inspect(url: String, processId: String?): InspectionResult = withContext(Dispatchers.IO) {
+        val inspectionId = processId ?: "inspect_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         try {
             if (customExecutor == null) {
                 val initResult = runtimeManager.ensureYtDlpInitialized()
@@ -70,7 +72,7 @@ class YtDlpAdapter(
                 addOption("--no-playlist")
                 addOption("--socket-timeout", "15")
                 addOption("--no-warnings")
-                addOption("--extractor-args", "youtube:player_client=android,web,web_creator")
+                addOption("--extractor-args", "youtube:player_client=default")
             }
 
             val response = try {

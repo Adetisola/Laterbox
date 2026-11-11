@@ -70,7 +70,7 @@ class MusicDiscoveryProviderImpl(
                 addOption("--no-playlist")
                 addOption("--socket-timeout", "15")
                 addOption("--no-warnings")
-                addOption("--extractor-args", "youtube:player_client=android,web,web_creator")
+                addOption("--extractor-args", "youtube:player_client=default")
             }
 
             val response = try {

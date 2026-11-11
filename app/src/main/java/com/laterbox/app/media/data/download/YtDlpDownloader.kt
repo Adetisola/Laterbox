@@ -69,7 +69,7 @@ class YtDlpDownloader(
             addOption("--socket-timeout", "20")
             addOption("--no-playlist")
             addOption("--no-warnings")
-            addOption("--extractor-args", "youtube:player_client=android,web,web_creator")
+            addOption("--extractor-args", "youtube:player_client=default")
         }
 
         try {

@@ -43,8 +43,8 @@ android {
         applicationId = "com.laterbox.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 23
-        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.23"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 24
+        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.24"
 
         val embeddedKey = resolveGeminiApiKey(project)
         buildConfigField("String", "EMBEDDED_GEMINI_API_KEY", "\"$embeddedKey\"")
@@ -249,6 +249,17 @@ gradle.taskGraph.whenReady {
                     "Refusing to fall back to debug signing."
             )
         }
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    val customCacerts = file("/home/antigravity/cacerts")
+    if (customCacerts.exists()) {
+        jvmArgs(
+            "-Djavax.net.ssl.trustStore=${customCacerts.absolutePath}",
+            "-Djavax.net.ssl.trustStorePassword=changeit",
+            "-Djavax.net.ssl.trustStoreType=PKCS12"
+        )
     }
 }
 

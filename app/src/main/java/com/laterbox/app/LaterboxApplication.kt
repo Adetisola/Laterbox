@@ -107,6 +107,9 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
                     Log.w("LaterboxApplication", "Failed to clean old update APKs: ${t.message}")
                 }
 
+                // Reconcile and recover pending, stale, or uninspected media links
+                container.mediaInspectionManager.reconcileInspections()
+
                 // Check for yt-dlp binary updates if > 24 hours (deferred to prevent startup lock contention)
                 applicationScope.launch {
                     kotlinx.coroutines.delay(15_000L)
@@ -120,5 +123,33 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
                 // Safeguard against test environments
             }
         }
+
+        // Register foreground transition observer to reconcile media inspections
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            private var startedActivities = 0
+
+            override fun onActivityStarted(activity: android.app.Activity) {
+                if (startedActivities == 0) {
+                    applicationScope.launch {
+                        try {
+                            container.mediaInspectionManager.reconcileInspections()
+                        } catch (t: Throwable) {
+                            Log.w("LaterboxApplication", "Foreground inspection reconciliation error: ${t.message}")
+                        }
+                    }
+                }
+                startedActivities++
+            }
+
+            override fun onActivityStopped(activity: android.app.Activity) {
+                startedActivities = (startedActivities - 1).coerceAtLeast(0)
+            }
+
+            override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
     }
 }

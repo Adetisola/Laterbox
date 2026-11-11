@@ -228,8 +228,9 @@ class YtDlpRuntimeManager(
                     null
                 }
 
-                _ytDlpState.value = YtDlpInitState.Initialized(version)
-                Log.i(tag, "yt-dlp successfully initialized (version: $version)")
+                val detectedPython = detectPythonVersion()
+                _ytDlpState.value = YtDlpInitState.Initialized(version, detectedPython)
+                Log.i(tag, "yt-dlp successfully initialized (version: $version, python: $detectedPython)")
                 Result.success(version)
             } catch (t: Throwable) {
                 val categorizedException = categorizeException(t, isFfmpeg = false)
@@ -494,11 +495,26 @@ class YtDlpRuntimeManager(
             runtimeExtractedFiles = runtimeFiles,
             ytDlpStateSummary = _ytDlpState.value.name,
             ytDlpVersion = ytDlpVersion,
-            pythonVersion = "3.12",
+            pythonVersion = detectPythonVersion(),
             ffmpegStateSummary = _ffmpegState.value.name,
             lastExceptionCategory = lastRecordedException?.category,
             lastExceptionMessage = lastRecordedException?.message,
             lastExceptionStackTrace = stackTrace
         )
+    }
+
+    fun detectPythonVersion(): String {
+        try {
+            val pythonLibDir = File(appContext.noBackupFilesDir, "youtubedl-android/packages/python/usr/lib")
+            if (pythonLibDir.exists() && pythonLibDir.isDirectory) {
+                val pyDirs = pythonLibDir.listFiles { f -> f.isDirectory && f.name.startsWith("python3.") }
+                val first = pyDirs?.firstOrNull()?.name?.removePrefix("python")
+                if (!first.isNullOrBlank()) {
+                    return first
+                }
+            }
+        } catch (_: Throwable) {
+        }
+        return "3.12"
     }
 }

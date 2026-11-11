@@ -56,7 +56,6 @@ class SaveLinkViewModelTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
-        database.close()
     }
 
     private fun createViewModel(
