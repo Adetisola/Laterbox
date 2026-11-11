@@ -213,7 +213,8 @@ class InboxViewModelTest {
             var updated = database.savedLinkDao().getEntityById(id)
             var attempts = 0
             while (updated?.previewImageUrl == null && attempts < 50) {
-                kotlinx.coroutines.delay(50)
+                Thread.sleep(50)
+                testScheduler.advanceUntilIdle()
                 updated = database.savedLinkDao().getEntityById(id)
                 attempts++
             }

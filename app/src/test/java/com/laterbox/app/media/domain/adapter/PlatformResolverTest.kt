@@ -88,14 +88,14 @@ class PlatformResolverTest {
             id = "slow_adapter",
             handles = { true },
             resultProvider = {
-                // Simulates hanging inspection exceeding 30s
-                delay(35_000L)
+                // Simulates hanging inspection exceeding timeout
+                delay(200L)
                 InspectionResult.Unsupported("Done")
             }
         )
 
         val registry = AdapterRegistry(listOf(slowAdapter))
-        val resolver = PlatformResolver(registry)
+        val resolver = PlatformResolver(registry, timeoutMs = 50L)
 
         val result = resolver.resolveAndInspect("https://slow.com")
         assertTrue("Must fail with timeout", result is InspectionResult.Failed)

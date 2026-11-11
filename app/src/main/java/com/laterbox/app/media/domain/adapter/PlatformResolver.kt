@@ -17,14 +17,15 @@ class AdapterRegistry(
 }
 
 class PlatformResolver(
-    private val registry: AdapterRegistry
+    private val registry: AdapterRegistry,
+    private val timeoutMs: Long = 30_000L
 ) {
     suspend fun resolveAndInspect(url: String): InspectionResult = withContext(Dispatchers.IO) {
         val adapter = registry.findAdapter(url)
             ?: return@withContext InspectionResult.Unsupported("No adapter found to handle $url")
 
         try {
-            val result = withTimeoutOrNull(30_000L) {
+            val result = withTimeoutOrNull(timeoutMs) {
                 adapter.inspect(url)
             }
             result ?: InspectionResult.Failed(
