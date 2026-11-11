@@ -1256,5 +1256,55 @@ class LaterboxDatabaseTest {
 
         helper.close()
     }
+
+    @Test
+    fun migration7To8AddsHeadersJsonColumnToDownloadTask() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(7) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `download_task` (
+                            `id` TEXT NOT NULL PRIMARY KEY,
+                            `saved_link_id` INTEGER NOT NULL,
+                            `source_url` TEXT NOT NULL,
+                            `source_platform` TEXT NOT NULL,
+                            `media_type` TEXT NOT NULL,
+                            `status` TEXT NOT NULL,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+
+        // Insert task record in v7 schema
+        sqliteDb.execSQL("INSERT INTO `download_task` (`id`, `saved_link_id`, `source_url`, `source_platform`, `media_type`, `status`, `createdAt`, `updatedAt`) VALUES ('t_mig_7_8', 10, 'https://x.com/pic.jpg', 'X', 'IMAGE', 'QUEUED', 1000, 1000)")
+
+        // Execute MIGRATION_7_8
+        LaterboxDatabase.MIGRATION_7_8.migrate(sqliteDb)
+
+        // Verify headersJson column exists, can store and retrieve data
+        sqliteDb.execSQL("UPDATE `download_task` SET `headersJson` = '{\"Referer\":\"https://x.com/\"}' WHERE `id` = 't_mig_7_8'")
+        val taskCursor = sqliteDb.query("SELECT headersJson FROM download_task WHERE id = 't_mig_7_8'")
+        assertTrue(taskCursor.moveToFirst())
+        assertEquals("{\"Referer\":\"https://x.com/\"}", taskCursor.getString(0))
+        taskCursor.close()
+
+        helper.close()
+    }
 }
 

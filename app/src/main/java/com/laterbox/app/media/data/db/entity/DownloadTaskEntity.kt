@@ -53,7 +53,8 @@ data class DownloadTaskEntity(
     val spotifyTrackId: String? = null,
     val versionTag: String? = null,
     val stage: String? = null,
-    val stageDetail: String? = null
+    val stageDetail: String? = null,
+    val headersJson: String? = null
 ) {
     fun toDomain(): DownloadTask = DownloadTask(
         id = id,
@@ -83,10 +84,24 @@ data class DownloadTaskEntity(
         spotifyTrackId = spotifyTrackId,
         versionTag = versionTag,
         stage = com.laterbox.app.media.domain.model.DownloadStage.fromNameOrNull(stage),
-        stageDetail = stageDetail
+        stageDetail = stageDetail,
+        headers = headersJson?.let { parseHeaders(it) } ?: emptyMap()
     )
 
     companion object {
+        private fun parseHeaders(jsonStr: String): Map<String, String> {
+            return try {
+                val obj = org.json.JSONObject(jsonStr)
+                val map = mutableMapOf<String, String>()
+                for (key in obj.keys()) {
+                    map[key] = obj.optString(key)
+                }
+                map
+            } catch (_: Exception) {
+                emptyMap()
+            }
+        }
+
         fun fromDomain(task: DownloadTask): DownloadTaskEntity = DownloadTaskEntity(
             id = task.id,
             savedLinkId = task.savedLinkId,
@@ -115,7 +130,12 @@ data class DownloadTaskEntity(
             spotifyTrackId = task.spotifyTrackId,
             versionTag = task.versionTag,
             stage = task.stage?.name,
-            stageDetail = task.stageDetail
+            stageDetail = task.stageDetail,
+            headersJson = if (task.headers.isNotEmpty()) {
+                val obj = org.json.JSONObject()
+                task.headers.forEach { (k, v) -> obj.put(k, v) }
+                obj.toString()
+            } else null
         )
     }
 }

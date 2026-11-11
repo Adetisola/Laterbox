@@ -366,6 +366,13 @@ fun MediaSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = colors.textSecondary
                             )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LaterboxSecondaryButton(
+                                text = "Retry inspection",
+                                leadingIcon = LaterboxIcons.Refresh,
+                                onClick = onRetryClick,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 }

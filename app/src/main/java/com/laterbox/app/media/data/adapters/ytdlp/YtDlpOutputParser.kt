@@ -23,6 +23,7 @@ object YtDlpOutputParser {
             val extractorVersion = root.optJSONObject("_version")?.optString("version")
                 ?: root.optString("_version").takeIf { it.isNotBlank() }
 
+            val rootHeaders = extractHttpHeaders(root)
             val candidates = mutableListOf<MediaCandidate>()
             val partialFailures = mutableListOf<String>()
             val entriesArray = root.optJSONArray("entries")
@@ -42,6 +43,7 @@ object YtDlpOutputParser {
 
                     try {
                         val entryId = entryJson.optString("id").ifBlank { "item_$idx" }
+                        val entryHeaders = extractHttpHeaders(entryJson).ifEmpty { rootHeaders }
                         val entryFormats = parseFormats(entryJson.optJSONArray("formats") ?: JSONArray())
                         val videoFormats = entryFormats.filter { it.vcodec != null }
 
@@ -61,7 +63,7 @@ object YtDlpOutputParser {
 
                         // Extract image / thumbnail candidates for this entry
                         val entryImagesBefore = candidates.size
-                        addExplicitImageCandidates(candidates, entryFormats, entryId, platform)
+                        addExplicitImageCandidates(candidates, entryFormats, entryId, platform, entryHeaders)
                         addThumbnailCandidates(
                             candidates = candidates,
                             json = entryJson,
@@ -69,7 +71,9 @@ object YtDlpOutputParser {
                             platform = platform,
                             isMultiEntry = true,
                             entryIndex = idx + 1,
-                            totalEntries = totalEntries
+                            totalEntries = totalEntries,
+                            hasVideo = videoFormats.isNotEmpty(),
+                            headers = entryHeaders
                         )
 
                         // If neither video nor thumbnail candidate was found, try fallback image url
@@ -78,7 +82,7 @@ object YtDlpOutputParser {
                             if (imageUrl != null) {
                                 imageIndex++
                                 val (w, h) = extractDimensions(entryJson, entryFormats)
-                                val label = if (totalEntries > 1) "Image $imageIndex of $totalEntries" else "Image (Original)"
+                                val label = if (totalEntries > 1) "Photo $imageIndex of $totalEntries" else "Photo (Original)"
                                 candidates.add(
                                     MediaCandidate(
                                         candidateId = "ytdlp_image_${entryId}_$idx",
@@ -88,7 +92,7 @@ object YtDlpOutputParser {
                                         durationMs = null,
                                         width = w,
                                         height = h,
-                                        source = AcquisitionSource.DirectHttp(url = imageUrl),
+                                        source = AcquisitionSource.DirectHttp(url = imageUrl, headers = entryHeaders),
                                         extractor = platform
                                     )
                                 )
@@ -151,7 +155,7 @@ object YtDlpOutputParser {
                 }
 
                 // 3. Explicit standalone image formats (e.g. photos/graphics exposed in format list)
-                addExplicitImageCandidates(candidates, formats, id, platform)
+                addExplicitImageCandidates(candidates, formats, id, platform, rootHeaders)
 
                 // 4. Discovered thumbnails (video thumbnails, poster images, photo thumbnails)
                 addThumbnailCandidates(
@@ -159,7 +163,9 @@ object YtDlpOutputParser {
                     json = root,
                     id = id,
                     platform = platform,
-                    isMultiEntry = false
+                    isMultiEntry = false,
+                    hasVideo = videoFormats.isNotEmpty(),
+                    headers = rootHeaders
                 )
             }
 
@@ -218,21 +224,12 @@ object YtDlpOutputParser {
             is InspectionResult.Unsupported,
             is InspectionResult.Failed,
             is InspectionResult.NeedsAuth -> {
-                InspectionResult.Available(
-                    platform = platform,
-                    title = "Web Preview",
-                    thumbnailUrl = previewImageUrl,
-                    candidates = listOf(ogCandidate)
-                )
+                // Never convert Failed, Unsupported, or NeedsAuth into Available.
+                // Keep the original extraction failure and error information intact.
+                result
             }
             is InspectionResult.MetadataOnly -> {
-                InspectionResult.Available(
-                    platform = platform,
-                    title = result.title,
-                    thumbnailUrl = previewImageUrl,
-                    artist = result.artist,
-                    candidates = listOf(ogCandidate)
-                )
+                result
             }
         }
     }
@@ -297,7 +294,7 @@ object YtDlpOutputParser {
             val audioTrackMissing = !hasDirectAudio && audioFormats.isEmpty()
 
             val formatSelector = if (requiresMerge) {
-                "${fmt.formatId}+bestaudio[ext=m4a]/bestaudio/best"
+                "${fmt.formatId}+bestaudio[ext=m4a]/${fmt.formatId}+bestaudio/${fmt.formatId}"
             } else {
                 fmt.formatId
             }
@@ -421,14 +418,24 @@ object YtDlpOutputParser {
         }
     }
 
-    /**
-     * Extracts explicit image formats (e.g. photo posts on Instagram, Reddit, X).
-     */
+    private fun extractHttpHeaders(json: JSONObject): Map<String, String> {
+        val hObj = json.optJSONObject("http_headers") ?: return emptyMap()
+        val map = mutableMapOf<String, String>()
+        for (k in hObj.keys()) {
+            val v = hObj.optString(k)
+            if (v.isNotBlank()) {
+                map[k] = v
+            }
+        }
+        return map
+    }
+
     private fun addExplicitImageCandidates(
         candidates: MutableList<MediaCandidate>,
         formats: List<ParsedFormat>,
         id: String,
-        platform: String
+        platform: String,
+        headers: Map<String, String> = emptyMap()
     ) {
         val explicitImageFormats = formats.filter {
             (it.vcodec == null || it.vcodec == "none") &&
@@ -450,7 +457,7 @@ object YtDlpOutputParser {
                     durationMs = null,
                     width = w,
                     height = h,
-                    source = AcquisitionSource.DirectHttp(url = imgFmt.url!!),
+                    source = AcquisitionSource.DirectHttp(url = imgFmt.url!!, headers = headers),
                     formatId = imgFmt.formatId,
                     ext = imgFmt.ext,
                     hasVideo = false,
@@ -470,6 +477,7 @@ object YtDlpOutputParser {
      * Supports YouTube (long-form, Shorts, youtu.be), Instagram, TikTok, Reddit, etc.
      * Filters out storyboard sprite-sheets.
      * Independent of video/audio candidates.
+     * For photo-only Instagram posts, treats discovered images as original Photo candidates rather than video thumbnails.
      */
     private fun addThumbnailCandidates(
         candidates: MutableList<MediaCandidate>,
@@ -478,7 +486,9 @@ object YtDlpOutputParser {
         platform: String,
         isMultiEntry: Boolean = false,
         entryIndex: Int = 1,
-        totalEntries: Int = 1
+        totalEntries: Int = 1,
+        hasVideo: Boolean = false,
+        headers: Map<String, String> = emptyMap()
     ) {
         val rawThumbnails = mutableListOf<ThumbnailInfo>()
 
@@ -524,7 +534,6 @@ object YtDlpOutputParser {
         )
 
         for (thumb in sorted) {
-            val normalizedUrl = thumb.url.substringBefore("?")
             val dimPair = Pair(thumb.width, thumb.height)
 
             // Keep if URL is new AND (dimensions are null OR dimensions haven't been seen)
@@ -537,38 +546,47 @@ object YtDlpOutputParser {
             }
         }
 
-        // 4. Create independent MediaCandidate for each distinct thumbnail variant
+        val isInstagramPhoto = !hasVideo && platform.equals("Instagram", ignoreCase = true)
+
+        // 4. Create independent MediaCandidate for each distinct variant
         for ((idx, thumb) in distinctThumbnails.withIndex()) {
             val isBest = idx == 0
             val bestSuffix = if (isBest) " (Best)" else ""
             val entrySuffix = if (isMultiEntry && totalEntries > 1) " (Slide $entryIndex)" else ""
 
+            val labelPrefix = if (isInstagramPhoto) "Photo" else "Thumbnail"
             val label = if (thumb.width != null && thumb.height != null) {
-                "Thumbnail — ${thumb.width} × ${thumb.height}$bestSuffix$entrySuffix"
+                "$labelPrefix — ${thumb.width} × ${thumb.height}$bestSuffix$entrySuffix"
             } else {
-                "Thumbnail — Original$bestSuffix$entrySuffix"
+                "$labelPrefix — Original$bestSuffix$entrySuffix"
             }
 
             val ext = thumb.url.substringAfterLast(".").substringBefore("?")
                 .takeIf { isImageExt(it) } ?: "jpg"
 
+            val candidateId = if (isInstagramPhoto) {
+                "ytdlp_insta_photo_${id}_${thumb.width ?: 0}x${thumb.height ?: 0}_$idx"
+            } else {
+                "ytdlp_thumb_${id}_${thumb.width ?: 0}x${thumb.height ?: 0}_$idx"
+            }
+
             candidates.add(
                 MediaCandidate(
-                    candidateId = "ytdlp_thumb_${id}_${thumb.width ?: 0}x${thumb.height ?: 0}_$idx",
+                    candidateId = candidateId,
                     mediaType = MediaType.IMAGE,
                     formatLabel = label,
                     estimatedBytes = null,
                     durationMs = null,
                     width = thumb.width,
                     height = thumb.height,
-                    source = AcquisitionSource.DirectHttp(url = thumb.url),
+                    source = AcquisitionSource.DirectHttp(url = thumb.url, headers = headers),
                     isOgFallback = false,
                     formatId = null,
                     ext = ext,
                     hasVideo = false,
                     hasAudio = false,
                     isBest = isBest,
-                    isThumbnail = true,
+                    isThumbnail = !isInstagramPhoto,
                     qualityLabel = if (thumb.width != null && thumb.height != null) "${thumb.width} × ${thumb.height}" else "Original",
                     requiresMerge = false,
                     audioTrackMissing = false,

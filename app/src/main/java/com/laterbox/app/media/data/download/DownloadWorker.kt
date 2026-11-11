@@ -189,6 +189,7 @@ class DownloadWorker(
                     httpDownloader.download(
                         url = task.sourceUrl,
                         destinationFile = partFile,
+                        headers = task.toDomain().headers,
                         onProgress = { bytes, total, percent, stage ->
                             onProgressCallback(bytes, total, percent, stage)
                         }
@@ -208,6 +209,26 @@ class DownloadWorker(
                 when (result) {
                     is DownloadResult.Success -> {
                         val mediaType = try { MediaType.valueOf(task.mediaType) } catch (_: Exception) { MediaType.OTHER }
+
+                        // Validate downloaded file integrity and media tracks
+                        val expectedHasAudio = mediaType == MediaType.VIDEO && (task.formatSelector?.contains("bestaudio") == true)
+                        val validation = MediaValidator.validate(
+                            file = partFile,
+                            expectedType = mediaType,
+                            expectedHasAudio = expectedHasAudio
+                        )
+                        if (validation is ValidationResult.Invalid) {
+                            storageManager.deletePartFile(taskId)
+                            taskDao.updateError(
+                                id = taskId,
+                                status = DownloadState.FAILED.name,
+                                errorCode = validation.failureCode.name,
+                                errorMessage = validation.reason,
+                                retryCount = task.retryCount
+                            )
+                            notificationManager.cancel(notificationId)
+                            return Result.failure()
+                        }
 
                         // 5. Audio Metadata Tagging stage
                         if (mediaType == MediaType.AUDIO && (!task.artist.isNullOrBlank() || !task.title.isNullOrBlank())) {

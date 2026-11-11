@@ -95,9 +95,13 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
             appContext = context.applicationContext,
             runtimeManager = ytDlpRuntimeManager
         )
+        val xAdapter = com.laterbox.app.media.data.adapters.x.XMediaAdapter(
+            okHttpClient = okhttp3.OkHttpClient(),
+            fallbackYtDlpAdapter = ytDlpAdapter
+        )
         val metadataAdapter = com.laterbox.app.media.data.adapters.metadata.MetadataOnlyAdapter(okhttp3.OkHttpClient())
         val registry = com.laterbox.app.media.domain.adapter.AdapterRegistry(
-            listOf(directAdapter, spotifyAdapter, ytDlpAdapter, metadataAdapter)
+            listOf(directAdapter, spotifyAdapter, xAdapter, ytDlpAdapter, metadataAdapter)
         )
         com.laterbox.app.media.domain.adapter.PlatformResolver(registry)
     }

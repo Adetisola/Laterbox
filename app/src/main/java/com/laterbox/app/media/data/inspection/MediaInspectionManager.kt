@@ -45,14 +45,39 @@ class MediaInspectionManager(
                     entity.resultJson?.let { InspectionResultJsonAdapter.fromJson(it) }
                 }
                 "FAILED" -> {
-                    val code = entity.errorCode?.let {
-                        try { FailureCode.valueOf(it) } catch (_: Exception) { FailureCode.UNKNOWN }
-                    } ?: FailureCode.UNKNOWN
-                    InspectionResult.Failed(
-                        code = code,
-                        message = entity.errorMessage,
-                        retryable = code.isRetryable
-                    )
+                    val fromJson = entity.resultJson?.let { InspectionResultJsonAdapter.fromJson(it) }
+                    if (fromJson is InspectionResult.Failed) {
+                        fromJson
+                    } else {
+                        val code = entity.errorCode?.let {
+                            try { FailureCode.valueOf(it) } catch (_: Exception) { FailureCode.UNKNOWN }
+                        } ?: FailureCode.UNKNOWN
+                        InspectionResult.Failed(
+                            code = code,
+                            message = entity.errorMessage,
+                            retryable = code.isRetryable
+                        )
+                    }
+                }
+                "NEEDS_AUTH" -> {
+                    val fromJson = entity.resultJson?.let { InspectionResultJsonAdapter.fromJson(it) }
+                    if (fromJson is InspectionResult.NeedsAuth) {
+                        fromJson
+                    } else {
+                        InspectionResult.NeedsAuth(
+                            reason = entity.errorMessage ?: "Authentication required"
+                        )
+                    }
+                }
+                "UNSUPPORTED" -> {
+                    val fromJson = entity.resultJson?.let { InspectionResultJsonAdapter.fromJson(it) }
+                    if (fromJson is InspectionResult.Unsupported) {
+                        fromJson
+                    } else {
+                        InspectionResult.Unsupported(
+                            reason = entity.errorMessage ?: "Unsupported media"
+                        )
+                    }
                 }
                 else -> null
             }
@@ -126,6 +151,8 @@ class MediaInspectionManager(
                 val json = InspectionResultJsonAdapter.toJson(result)
                 val (status, errCode, errMsg) = when (result) {
                     is InspectionResult.Failed -> Triple("FAILED", result.code.name, result.message)
+                    is InspectionResult.NeedsAuth -> Triple("NEEDS_AUTH", null, result.reason)
+                    is InspectionResult.Unsupported -> Triple("UNSUPPORTED", null, result.reason)
                     else -> Triple("COMPLETED", null, null)
                 }
 
@@ -176,6 +203,8 @@ class MediaInspectionManager(
                     val json = InspectionResultJsonAdapter.toJson(fallbackResult)
                     val (status, errCode, errMsg) = when (fallbackResult) {
                         is InspectionResult.Failed -> Triple("FAILED", fallbackResult.code.name, fallbackResult.message)
+                        is InspectionResult.NeedsAuth -> Triple("NEEDS_AUTH", null, fallbackResult.reason)
+                        is InspectionResult.Unsupported -> Triple("UNSUPPORTED", null, fallbackResult.reason)
                         else -> Triple("COMPLETED", null, null)
                     }
 

@@ -30,7 +30,7 @@ import com.laterbox.app.media.data.db.entity.MediaInspectionEntity
         DownloadTaskEntity::class,
         MediaInspectionEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -388,6 +388,17 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from version 7 to version 8:
+         * Adds headersJson column to download_task table to preserve request headers (e.g., Referer, User-Agent)
+         * across worker restarts and app lifecycles.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `headersJson` TEXT")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -398,7 +409,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                     .build()
                     .also { INSTANCE = it }
             }

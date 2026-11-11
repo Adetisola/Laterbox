@@ -72,11 +72,21 @@ class YtDlpAdapter(
                 }
             }
 
+            val host = try {
+                URI(url).host?.lowercase() ?: ""
+            } catch (_: Exception) {
+                ""
+            }
+            val isInstagram = host.contains("instagram.com")
+
             val request = YoutubeDLRequest(url).apply {
                 addOption("--dump-single-json")
-                addOption("--no-playlist")
+                if (!isInstagram) {
+                    addOption("--no-playlist")
+                } else {
+                    addOption("--yes-playlist")
+                }
                 addOption("--socket-timeout", "15")
-                addOption("--no-warnings")
                 addOption("--cache-dir", YtDlpOptimizer.getCacheDir(appContext).absolutePath)
                 addOption("--extractor-args", "youtube:player_client=default")
             }

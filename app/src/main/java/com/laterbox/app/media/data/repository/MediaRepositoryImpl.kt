@@ -99,6 +99,16 @@ class MediaRepositoryImpl(
             is AcquisitionSource.DirectHttp -> null
             is AcquisitionSource.YtDlp -> s.formatSelector
         }
+        val headersJson = when (val s = candidate.source) {
+            is AcquisitionSource.DirectHttp -> {
+                if (s.headers.isNotEmpty()) {
+                    val obj = org.json.JSONObject()
+                    s.headers.forEach { (k, v) -> obj.put(k, v) }
+                    obj.toString()
+                } else null
+            }
+            is AcquisitionSource.YtDlp -> null
+        }
 
         val taskEntity = DownloadTaskEntity(
             id = taskId,
@@ -126,7 +136,8 @@ class MediaRepositoryImpl(
             album = album,
             artworkUrl = artworkUrl,
             spotifyTrackId = spotifyTrackId,
-            versionTag = versionTag
+            versionTag = versionTag,
+            headersJson = headersJson
         )
 
         taskDao.insertTask(taskEntity)

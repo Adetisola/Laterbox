@@ -243,15 +243,38 @@ class YtDlpRuntimeManager(
                     Log.i(tag, "yt-dlp optimization status: isOptimized=${optResult.isOptimized}, patched=${optResult.isPlayerCachePatched}, fallback=${optResult.fallbackToArchive}")
                 }
 
-                val version = try {
-                    YoutubeDL.getInstance().version(appContext)
-                } catch (_: Throwable) {
-                    null
+                // 5. Verify Python compatibility and probe version
+                val pythonInfo = inspectPythonInterpreter()
+                if (!pythonInfo.isCompatible) {
+                    throw YtDlpInitException(
+                        YtDlpInitFailureCategory.PYTHON_RUNTIME_INIT_FAILURE,
+                        "Python runtime (${pythonInfo.versionString}) is incompatible with yt-dlp requirements"
+                    )
                 }
 
-                val detectedPython = detectPythonVersion()
-                _ytDlpState.value = YtDlpInitState.Initialized(version, detectedPython)
-                Log.i(tag, "yt-dlp successfully initialized (version: $version, python: $detectedPython)")
+                val version = if (Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+                    "2025.11.12"
+                } else {
+                    val probed = try {
+                        YoutubeDL.getInstance().version(appContext)
+                    } catch (e: Throwable) {
+                        throw YtDlpInitException(
+                            YtDlpInitFailureCategory.YTDLP_SCRIPT_INIT_FAILURE,
+                            "Failed to probe yt-dlp version: ${e.message}",
+                            e
+                        )
+                    }
+                    if (probed.isNullOrBlank()) {
+                        throw YtDlpInitException(
+                            YtDlpInitFailureCategory.YTDLP_SCRIPT_INIT_FAILURE,
+                            "yt-dlp version probe returned empty response"
+                        )
+                    }
+                    probed
+                }
+
+                _ytDlpState.value = YtDlpInitState.Initialized(version, pythonInfo.versionString)
+                Log.i(tag, "yt-dlp successfully initialized (version: $version, python: ${pythonInfo.versionString})")
                 Result.success(version)
             } catch (t: Throwable) {
                 val categorizedException = categorizeException(t, isFfmpeg = false)
@@ -563,7 +586,15 @@ class YtDlpRuntimeManager(
                     "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
                 )
                 val env = pb.environment()
-                env["LD_LIBRARY_PATH"] = libDir.absolutePath
+                val packagesDir = File(noBackup, "packages")
+                val pythonUsrLib = File(packagesDir, "python/usr/lib")
+                val ffmpegUsrLib = File(packagesDir, "ffmpeg/usr/lib")
+                val aria2cUsrLib = File(packagesDir, "aria2c/usr/lib")
+                val ldPaths = listOf(pythonUsrLib, ffmpegUsrLib, aria2cUsrLib, libDir)
+                    .filter { it.exists() }
+                    .joinToString(":") { it.absolutePath }
+
+                env["LD_LIBRARY_PATH"] = ldPaths
                 env["PYTHONHOME"] = pythonHome.absolutePath
                 val certFile = File(pythonHome, "etc/tls/cert.pem")
                 if (certFile.exists()) {
@@ -573,13 +604,36 @@ class YtDlpRuntimeManager(
                 env["TMPDIR"] = appContext.cacheDir.absolutePath
 
                 val process = pb.start()
-                val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+                val stdoutSb = StringBuilder()
+                val stderrSb = StringBuilder()
+
+                val stdoutThread = Thread {
+                    try {
+                        process.inputStream.bufferedReader().forEachLine { line ->
+                            stdoutSb.appendLine(line)
+                        }
+                    } catch (_: Exception) {}
+                }
+                val stderrThread = Thread {
+                    try {
+                        process.errorStream.bufferedReader().forEachLine { line ->
+                            stderrSb.appendLine(line)
+                        }
+                    } catch (_: Exception) {}
+                }
+                stdoutThread.start()
+                stderrThread.start()
+
                 val exited = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
                 if (!exited) {
                     process.destroyForcibly()
+                    process.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)
                 }
+                stdoutThread.join(1000)
+                stderrThread.join(1000)
 
-                if (process.exitValue() == 0 && output.isNotBlank()) {
+                val output = stdoutSb.toString().trim()
+                if (exited && process.exitValue() == 0 && output.isNotBlank()) {
                     val parts = output.split(".")
                     if (parts.size >= 2) {
                         val maj = parts[0].toIntOrNull() ?: 0

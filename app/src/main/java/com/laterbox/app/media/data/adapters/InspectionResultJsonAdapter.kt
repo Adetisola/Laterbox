@@ -45,6 +45,14 @@ object InspectionResultJsonAdapter {
             is AcquisitionSource.DirectHttp -> {
                 srcObj.put("type", "DirectHttp")
                 srcObj.put("url", s.url)
+                if (s.headers.isNotEmpty()) {
+                    val hObj = JSONObject()
+                    s.headers.forEach { (k, v) -> hObj.put(k, v) }
+                    srcObj.put("headers", hObj)
+                }
+                if (s.mimeType != null) {
+                    srcObj.put("mimeType", s.mimeType)
+                }
             }
             is AcquisitionSource.YtDlp -> {
                 srcObj.put("type", "YtDlp")
@@ -90,7 +98,15 @@ object InspectionResultJsonAdapter {
 
         val sObj = cObj.optJSONObject("source") ?: return null
         val src = if (sObj.optString("type") == "DirectHttp") {
-            AcquisitionSource.DirectHttp(url = sObj.optString("url"))
+            val hObj = sObj.optJSONObject("headers")
+            val headers = mutableMapOf<String, String>()
+            if (hObj != null) {
+                for (k in hObj.keys()) {
+                    headers[k] = hObj.optString(k)
+                }
+            }
+            val mimeType = if (sObj.isNull("mimeType")) null else sObj.optString("mimeType").takeIf { it.isNotBlank() }
+            AcquisitionSource.DirectHttp(url = sObj.optString("url"), headers = headers, mimeType = mimeType)
         } else {
             AcquisitionSource.YtDlp(
                 url = sObj.optString("url"),

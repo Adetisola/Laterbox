@@ -69,19 +69,18 @@ class YtDlpUpdater(
                 Log.i(tag, "Checking and updating yt-dlp binary from GitHub...")
                 val status = YoutubeDL.getInstance().updateYoutubeDL(appContext, YoutubeDL.UpdateChannel.STABLE)
 
+                val pythonInfo = runtimeManager.inspectPythonInterpreter()
+                val minPythonReq = YtDlpOptimizer.getMinimumPythonRequirement(ytdlBin)
+                if (pythonInfo.major > 0 && (pythonInfo.major < minPythonReq.first || (pythonInfo.major == minPythonReq.first && pythonInfo.minor < minPythonReq.second))) {
+                    throw IllegalStateException("yt-dlp requires Python >= ${minPythonReq.first}.${minPythonReq.second}, but bundled Python interpreter is ${pythonInfo.versionString}.")
+                }
+
                 if (status == YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE) {
                     val currentVersion = YoutubeDL.getInstance().version(appContext) ?: "latest"
                     if (backupBin.exists()) backupBin.delete()
                     userPreferencesRepository.recordYtDlpUpdate(currentVersion, System.currentTimeMillis())
                     Log.i(tag, "yt-dlp is already up to date: $currentVersion")
                     return@withContext Result.success(currentVersion)
-                }
-
-                // 2. Validate minimum Python requirement before accepting update
-                val minPythonReq = YtDlpOptimizer.getMinimumPythonRequirement(ytdlBin)
-                val pythonInfo = runtimeManager.inspectPythonInterpreter()
-                if (pythonInfo.major > 0 && (pythonInfo.major < minPythonReq.first || (pythonInfo.major == minPythonReq.first && pythonInfo.minor < minPythonReq.second))) {
-                    throw IllegalStateException("Newly updated yt-dlp requires Python >= ${minPythonReq.first}.${minPythonReq.second}, but bundled Python interpreter is ${pythonInfo.versionString}. Update rejected.")
                 }
 
                 // 3. Unpack, patch player cache, and validate new script

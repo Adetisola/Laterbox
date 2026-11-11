@@ -28,5 +28,6 @@ data class DownloadTask(
     val spotifyTrackId: String? = null,
     val versionTag: String? = null,
     val stage: DownloadStage? = null,
-    val stageDetail: String? = null
+    val stageDetail: String? = null,
+    val headers: Map<String, String> = emptyMap()
 )

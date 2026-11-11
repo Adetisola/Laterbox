@@ -551,7 +551,7 @@ class YtDlpOutputParserTest {
     }
 
     @Test
-    fun attachPreviewImageFallback_addsOgFallbackCandidate_whenInspectionFailed() {
+    fun attachPreviewImageFallback_preservesFailedResult_andDoesNotConvertToAvailable() {
         val failed = InspectionResult.Failed(
             code = FailureCode.EXTRACTOR_BROKEN,
             message = "Unable to extract post",
@@ -560,13 +560,75 @@ class YtDlpOutputParserTest {
         val ogUrl = "https://preview.linkedin.com/feed/og_image.jpg"
         val attached = YtDlpOutputParser.attachPreviewImageFallback(failed, ogUrl)
 
-        assertTrue(attached is InspectionResult.Available)
-        val available = attached as InspectionResult.Available
-        assertEquals(1, available.candidates.size)
-        val candidate = available.candidates[0]
-        assertEquals(MediaType.IMAGE, candidate.mediaType)
-        assertTrue(candidate.isOgFallback)
-        assertEquals("Preview image (Open Graph fallback)", candidate.formatLabel)
+        assertTrue(attached is InspectionResult.Failed)
+        val resultFailed = attached as InspectionResult.Failed
+        assertEquals(FailureCode.EXTRACTOR_BROKEN, resultFailed.code)
+        assertEquals("Unable to extract post", resultFailed.message)
+    }
+
+    @Test
+    fun parse_safeVideoFormatSelector_neverFallsBackToAudioOnly() {
+        val json = """
+            {
+              "id": "safe_sel_vid",
+              "title": "Safe Selector Test",
+              "extractor_key": "Youtube",
+              "formats": [
+                {
+                  "format_id": "137",
+                  "ext": "mp4",
+                  "vcodec": "avc1.640028",
+                  "acodec": "none",
+                  "width": 1920,
+                  "height": 1080
+                },
+                {
+                  "format_id": "140",
+                  "ext": "m4a",
+                  "vcodec": "none",
+                  "acodec": "mp4a.40.2"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = YtDlpOutputParser.parse("https://youtube.com/watch?v=safe_sel_vid", json)
+        assertTrue(result is InspectionResult.Available)
+        val video = (result as InspectionResult.Available).candidates.first { it.mediaType == MediaType.VIDEO }
+        val source = video.source as com.laterbox.app.media.domain.model.AcquisitionSource.YtDlp
+
+        // Format selector must never contain audio-only fallback "bestaudio/best"
+        assertFalse(source.formatSelector.contains("/bestaudio/best"))
+        assertEquals("137+bestaudio[ext=m4a]/137+bestaudio/137", source.formatSelector)
+    }
+
+    @Test
+    fun parse_instagramPhotoPost_createsPhotoCandidateInsteadOfThumbnail() {
+        val json = """
+            {
+              "id": "insta_photo_1",
+              "title": "Instagram Photo Post",
+              "extractor_key": "Instagram",
+              "thumbnails": [
+                {
+                  "id": "0",
+                  "url": "https://instagram.com/p/pic_1080.jpg",
+                  "width": 1080,
+                  "height": 1350
+                }
+              ],
+              "formats": []
+            }
+        """.trimIndent()
+
+        val result = YtDlpOutputParser.parse("https://instagram.com/p/insta_photo_1", json)
+        assertTrue(result is InspectionResult.Available)
+        val candidates = (result as InspectionResult.Available).candidates
+        val photo = candidates.first { it.mediaType == MediaType.IMAGE }
+        assertFalse("Photo post candidate must not be marked as a video thumbnail", photo.isThumbnail)
+        assertTrue(photo.formatLabel.startsWith("Photo"))
+        assertEquals(1080, photo.width)
+        assertEquals(1350, photo.height)
     }
 
     @Test

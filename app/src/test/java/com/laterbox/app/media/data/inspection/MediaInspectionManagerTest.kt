@@ -127,7 +127,7 @@ class MediaInspectionManagerTest {
     }
 
     @Test
-    fun startInspection_attachesOgFallbackWhenInspectionFails() = testScope.runTest {
+    fun startInspection_preservesFailureWhenInspectionFails() = testScope.runTest {
         val link = SavedLinkEntity(
             originalUrl = "https://linkedin.com/posts/xyz",
             normalizedUrl = "https://linkedin.com/posts/xyz",
@@ -163,12 +163,16 @@ class MediaInspectionManagerTest {
 
         val result = manager.getInspectionResultForLink(linkId).filterNotNull().first()
 
-        // Should have attached the preview image fallback candidate
-        assertTrue(result is InspectionResult.Available)
-        val available = result as InspectionResult.Available
-        assertEquals(1, available.candidates.size)
-        assertTrue(available.candidates[0].isOgFallback)
-        assertEquals(MediaType.IMAGE, available.candidates[0].mediaType)
+        // Extraction failure must NOT be masked by OG preview image
+        assertTrue(result is InspectionResult.Failed)
+        val failed = result as InspectionResult.Failed
+        assertEquals(FailureCode.EXTRACTOR_BROKEN, failed.code)
+        assertEquals("Unable to extract video", failed.message)
+
+        val entity = inspectionDao.getEntityForLink(linkId)
+        assertNotNull(entity)
+        assertEquals("FAILED", entity?.status)
+        assertEquals(FailureCode.EXTRACTOR_BROKEN.name, entity?.errorCode)
     }
 
     @Test
