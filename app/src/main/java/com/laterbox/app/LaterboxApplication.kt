@@ -13,6 +13,7 @@ import com.laterbox.app.data.metadata.MetadataSyncWorker
 import com.laterbox.app.di.AppContainer
 import com.laterbox.app.di.DefaultAppContainer
 import com.laterbox.app.reminders.smart.SmartReminderCoordinator
+import com.laterbox.app.update.ApkInstallerHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -97,6 +98,14 @@ class LaterboxApplication : Application(), ImageLoaderFactory {
                 // Recover any interrupted media downloads and sweep orphan files
                 container.mediaRepository.recoverInterruptedTasks()
                 container.mediaRepository.runOrphanSweep()
+
+                // Sweep obsolete or already installed update APKs from cache
+                try {
+                    val currentVersion = packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0.0"
+                    ApkInstallerHelper.cleanupOldUpdateApks(this@LaterboxApplication, currentVersion)
+                } catch (t: Throwable) {
+                    Log.w("LaterboxApplication", "Failed to clean old update APKs: ${t.message}")
+                }
 
                 // Check for yt-dlp binary updates if > 24 hours (deferred to prevent startup lock contention)
                 applicationScope.launch {

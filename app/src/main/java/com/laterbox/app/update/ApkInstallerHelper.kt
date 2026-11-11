@@ -442,4 +442,66 @@ object ApkInstallerHelper {
             Log.e(TAG, "Failed to open release fallback page", e)
         }
     }
+
+    /**
+     * Cleans up cached update APK files in [context.cacheDir/updates].
+     * Automatically deletes any APK corresponding to the currently running version or older,
+     * as well as temporary or unparseable partial files older than 24 hours.
+     * Retains newer, verified APKs that the user may have downloaded but not yet installed.
+     *
+     * @return Number of deleted files.
+     */
+    fun cleanupOldUpdateApks(context: Context, currentVersionName: String): Int {
+        val updatesDir = File(context.cacheDir, "updates")
+        if (!updatesDir.exists() || !updatesDir.isDirectory) return 0
+
+        val files = updatesDir.listFiles() ?: return 0
+        var deletedCount = 0
+        val pm = context.packageManager
+        val cleanCurrent = AppUpdateInfo.cleanVersion(currentVersionName)
+
+        for (file in files) {
+            try {
+                if (!file.isFile) continue
+
+                if (file.name.endsWith(".apk", ignoreCase = true)) {
+                    val archiveInfo = try {
+                        pm.getPackageArchiveInfo(file.absolutePath, 0)
+                    } catch (_: Exception) {
+                        null
+                    }
+
+                    val archiveVersion = archiveInfo?.versionName?.let { AppUpdateInfo.cleanVersion(it) }
+                    val nameVersion = Regex("""(\d+\.\d+(?:\.\d+)?)""").find(file.name)?.value?.let {
+                        AppUpdateInfo.cleanVersion(it)
+                    }
+                    val detectedVersion = archiveVersion ?: nameVersion
+
+                    if (detectedVersion != null && detectedVersion.isNotBlank()) {
+                        // If the APK version is <= current version, it has already been installed or superseded
+                        if (!AppUpdateInfo.isNewerVersion(detectedVersion, cleanCurrent)) {
+                            Log.d(TAG, "Deleting obsolete update APK: ${file.name} (detected=$detectedVersion, current=$cleanCurrent)")
+                            if (file.delete()) deletedCount++
+                        }
+                    } else {
+                        // Unparseable APK older than 24 hours
+                        val ageMs = System.currentTimeMillis() - file.lastModified()
+                        if (ageMs > 24 * 60 * 60 * 1000L) {
+                            Log.d(TAG, "Deleting stale unparseable APK: ${file.name}")
+                            if (file.delete()) deletedCount++
+                        }
+                    }
+                } else {
+                    // Non-APK temporary files in updates folder older than 24 hours
+                    val ageMs = System.currentTimeMillis() - file.lastModified()
+                    if (ageMs > 24 * 60 * 60 * 1000L) {
+                        if (file.delete()) deletedCount++
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error cleaning update file: ${file.name}", e)
+            }
+        }
+        return deletedCount
+    }
 }

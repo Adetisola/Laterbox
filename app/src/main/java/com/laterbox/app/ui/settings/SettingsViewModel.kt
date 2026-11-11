@@ -285,6 +285,11 @@ class SettingsViewModel(
             _isCheckingUpdate.value = true
             try {
                 userPreferencesRepository.recordUpdateCheck()
+                appContext?.let { ctx ->
+                    try {
+                        com.laterbox.app.update.ApkInstallerHelper.cleanupOldUpdateApks(ctx, currentVersion)
+                    } catch (_: Exception) {}
+                }
                 when (val result = com.laterbox.app.update.GitHubUpdateChecker.checkForUpdate(currentVersion)) {
                     is com.laterbox.app.update.UpdateCheckResult.UpdateAvailable -> {
                         _updateCheckResult.value = result.updateInfo

@@ -1,11 +1,16 @@
 package com.laterbox.app.update
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.io.File
 
+@RunWith(RobolectricTestRunner::class)
 class ApkInstallerHelperTest {
 
     @Test
@@ -39,8 +44,43 @@ class ApkInstallerHelperTest {
 
     @Test
     fun `verifyApk returns false on non-existent file`() {
-        // Without an Android context with PackageManager, testing non-existent file safely
         val nonExistent = File("/tmp/non_existent_update.apk")
         assertFalse(nonExistent.exists())
+    }
+
+    @Test
+    fun `cleanupOldUpdateApks deletes current and older APKs while retaining newer APKs`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+
+        // Setup test files in cache/updates/
+        val oldApk = File(updatesDir, "Laterbox-ARM32-1.0.21.apk").apply { writeText("old-apk-content") }
+        val currentApk = File(updatesDir, "Laterbox-1.0.22.apk").apply { writeText("current-apk-content") }
+        val newerApk = File(updatesDir, "Laterbox-ARM64-1.0.23.apk").apply { writeText("newer-apk-content") }
+
+        assertTrue(oldApk.exists())
+        assertTrue(currentApk.exists())
+        assertTrue(newerApk.exists())
+
+        val deletedCount = ApkInstallerHelper.cleanupOldUpdateApks(context, "1.0.22")
+
+        assertEquals(2, deletedCount)
+        assertFalse("Old APK (1.0.21) should have been deleted", oldApk.exists())
+        assertFalse("Current APK (1.0.22) should have been deleted after update", currentApk.exists())
+        assertTrue("Newer APK (1.0.23) should be retained for future install", newerApk.exists())
+
+        // Cleanup test directory
+        newerApk.delete()
+        updatesDir.delete()
+    }
+
+    @Test
+    fun `cleanupOldUpdateApks returns 0 when updates directory does not exist`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val updatesDir = File(context.cacheDir, "updates")
+        if (updatesDir.exists()) updatesDir.deleteRecursively()
+
+        val deleted = ApkInstallerHelper.cleanupOldUpdateApks(context, "1.0.22")
+        assertEquals(0, deleted)
     }
 }
