@@ -222,6 +222,12 @@ class YtDlpRuntimeManager(
                     }
                 }
 
+                // 4. One-time extraction & player cache optimization
+                if (!Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+                    val optResult = YtDlpOptimizer.ensureOptimized(appContext)
+                    Log.i(tag, "yt-dlp optimization status: isOptimized=${optResult.isOptimized}, patched=${optResult.isPlayerCachePatched}, fallback=${optResult.fallbackToArchive}")
+                }
+
                 val version = try {
                     YoutubeDL.getInstance().version(appContext)
                 } catch (_: Throwable) {

@@ -70,6 +70,7 @@ class MusicDiscoveryProviderImpl(
                 addOption("--no-playlist")
                 addOption("--socket-timeout", "15")
                 addOption("--no-warnings")
+                addOption("--cache-dir", com.laterbox.app.media.data.adapters.ytdlp.YtDlpOptimizer.getCacheDir(appContext).absolutePath)
                 addOption("--extractor-args", "youtube:player_client=default")
             }
 

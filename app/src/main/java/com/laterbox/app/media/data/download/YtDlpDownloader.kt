@@ -69,6 +69,7 @@ class YtDlpDownloader(
             addOption("--socket-timeout", "20")
             addOption("--no-playlist")
             addOption("--no-warnings")
+            addOption("--cache-dir", com.laterbox.app.media.data.adapters.ytdlp.YtDlpOptimizer.getCacheDir(appContext).absolutePath)
             addOption("--extractor-args", "youtube:player_client=default")
         }
 

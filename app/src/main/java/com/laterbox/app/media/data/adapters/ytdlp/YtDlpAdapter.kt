@@ -72,6 +72,7 @@ class YtDlpAdapter(
                 addOption("--no-playlist")
                 addOption("--socket-timeout", "15")
                 addOption("--no-warnings")
+                addOption("--cache-dir", YtDlpOptimizer.getCacheDir(appContext).absolutePath)
                 addOption("--extractor-args", "youtube:player_client=default")
             }
 

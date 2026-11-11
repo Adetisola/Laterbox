@@ -77,10 +77,19 @@ class YtDlpUpdater(
                     return@withContext Result.success(currentVersion)
                 }
 
-                // 2. Validate new script before finalizing (probe execution)
+                // 2. Unpack, patch player cache, and validate new script with real interpreter check
+                if (!android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+                    val optResult = YtDlpOptimizer.ensureOptimized(appContext, forceReextract = true)
+                    Log.i(tag, "Post-update optimization status: isOptimized=${optResult.isOptimized}, patched=${optResult.isPlayerCachePatched}")
+                }
+
+                val detectedPython = runtimeManager.detectPythonVersion()
+                Log.i(tag, "Validating updated yt-dlp against bundled Python interpreter ($detectedPython)...")
+
                 var probeSuccess = false
                 val probeRequest = com.yausername.youtubedl_android.YoutubeDLRequest(emptyList()).apply {
                     addOption("--version")
+                    addOption("--cache-dir", YtDlpOptimizer.getCacheDir(appContext).absolutePath)
                 }
                 val probeId = "probe_${System.currentTimeMillis()}"
                 try {
@@ -88,14 +97,14 @@ class YtDlpUpdater(
                     val probeOutput = probeResponse.out?.trim()
                     if (!probeOutput.isNullOrBlank()) {
                         probeSuccess = true
-                        Log.i(tag, "Script probe succeeded: $probeOutput")
+                        Log.i(tag, "Script probe succeeded with output: $probeOutput (Python: $detectedPython)")
                     }
                 } catch (pe: Exception) {
                     Log.w(tag, "Script probe execution failed on newly updated yt-dlp: ${pe.message}", pe)
                 }
 
                 if (!probeSuccess && !android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
-                    throw IllegalStateException("Newly updated yt-dlp script failed probe validation.")
+                    throw IllegalStateException("Newly updated yt-dlp failed probe validation on Python $detectedPython.")
                 }
 
                 // 3. Verification passed: clean up backup
@@ -103,7 +112,7 @@ class YtDlpUpdater(
 
                 val version = YoutubeDL.getInstance().version(appContext) ?: "latest"
                 userPreferencesRepository.recordYtDlpUpdate(version, System.currentTimeMillis())
-                Log.i(tag, "yt-dlp update completed and verified: status=$status, version=$version")
+                Log.i(tag, "yt-dlp update completed and verified: status=$status, version=$version, python=$detectedPython")
                 Result.success(version)
             } catch (t: Throwable) {
                 Log.e(tag, "Failed to update yt-dlp: ${t.message}. Initiating rollback...", t)
@@ -116,6 +125,9 @@ class YtDlpUpdater(
                     } else if (ytdlDir.exists()) {
                         YoutubeDL.getInstance().init_ytdlp(appContext, ytdlDir)
                         Log.i(tag, "Successfully re-extracted bundled yt-dlp binary from APK")
+                    }
+                    if (!android.os.Build.FINGERPRINT.equals("robolectric", ignoreCase = true)) {
+                        YtDlpOptimizer.ensureOptimized(appContext, forceReextract = true)
                     }
                 } catch (re: Exception) {
                     Log.e(tag, "Rollback error: ${re.message}", re)
