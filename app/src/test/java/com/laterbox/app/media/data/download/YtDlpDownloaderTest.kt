@@ -50,7 +50,7 @@ class YtDlpDownloaderTest {
             formatSelector = "best",
             destinationFile = destFile,
             taskId = "task_test_123",
-            onProgress = { _, _, percent ->
+            onProgress = { _, _, percent, _ ->
                 if (percent == 100) progressReported = true
             }
         )
@@ -77,7 +77,7 @@ class YtDlpDownloaderTest {
             formatSelector = "best",
             destinationFile = destFile,
             taskId = "task_geo_123",
-            onProgress = { _, _, _ -> }
+            onProgress = { _, _, _, _ -> }
         )
 
         assertTrue(result is DownloadResult.Failure)

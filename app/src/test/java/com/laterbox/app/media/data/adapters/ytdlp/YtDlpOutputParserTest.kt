@@ -268,4 +268,166 @@ class YtDlpOutputParserTest {
         assertTrue(result is InspectionResult.Failed)
         assertEquals(FailureCode.PYTHON_RUNTIME_ERROR, (result as InspectionResult.Failed).code)
     }
+
+    @Test
+    fun parse_handlesMultiImageCarousel_extractsAllImages() {
+        val json = """
+            {
+              "id": "carousel_post_1",
+              "title": "A 3-photo carousel",
+              "extractor_key": "Instagram",
+              "_type": "playlist",
+              "entries": [
+                {
+                  "id": "carousel_post_1_1",
+                  "title": "Photo 1",
+                  "formats": [],
+                  "thumbnails": [
+                    { "url": "https://instagram.com/p1_small.jpg", "width": 320, "height": 320 },
+                    { "url": "https://instagram.com/p1_large.jpg", "width": 1080, "height": 1080 }
+                  ]
+                },
+                {
+                  "id": "carousel_post_1_2",
+                  "title": "Photo 2",
+                  "formats": [],
+                  "thumbnails": [
+                    { "url": "https://instagram.com/p2_large.jpg", "width": 1080, "height": 1080 }
+                  ]
+                },
+                {
+                  "id": "carousel_post_1_3",
+                  "title": "Photo 3",
+                  "url": "https://instagram.com/p3_direct.jpg",
+                  "formats": []
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = YtDlpOutputParser.parse("https://instagram.com/p/carousel_post_1", json)
+
+        assertTrue(result is InspectionResult.Available)
+        val available = result as InspectionResult.Available
+        val imageCandidates = available.candidates.filter { it.mediaType == MediaType.IMAGE }
+        assertEquals(3, imageCandidates.size)
+        assertEquals(1080, imageCandidates[0].width)
+        assertEquals(1080, imageCandidates[1].width)
+        assertTrue(imageCandidates[0].formatLabel.contains("Image 1"))
+        assertTrue(imageCandidates[1].formatLabel.contains("Image 2"))
+        assertTrue(imageCandidates[2].formatLabel.contains("Image 3"))
+    }
+
+    @Test
+    fun parse_handlesMixedCarousel_extractsBothVideoAndImages() {
+        val json = """
+            {
+              "id": "mixed_post",
+              "title": "Post with Video and Photo",
+              "extractor_key": "Instagram",
+              "_type": "playlist",
+              "entries": [
+                {
+                  "id": "entry_vid",
+                  "title": "Video clip",
+                  "duration": 15.0,
+                  "formats": [
+                    {
+                      "format_id": "v1",
+                      "ext": "mp4",
+                      "vcodec": "avc1",
+                      "acodec": "aac",
+                      "width": 1080,
+                      "height": 1920,
+                      "filesize": 12000000
+                    }
+                  ]
+                },
+                {
+                  "id": "entry_pic",
+                  "title": "Photo slide",
+                  "formats": [],
+                  "thumbnails": [
+                    { "url": "https://instagram.com/slide2.jpg", "width": 1080, "height": 1080 }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = YtDlpOutputParser.parse("https://instagram.com/p/mixed_post", json)
+
+        assertTrue(result is InspectionResult.Available)
+        val available = result as InspectionResult.Available
+        val videos = available.candidates.filter { it.mediaType == MediaType.VIDEO }
+        val images = available.candidates.filter { it.mediaType == MediaType.IMAGE }
+        assertTrue("Should extract video candidates (best + saver)", videos.isNotEmpty())
+        assertEquals(1, images.size)
+        assertEquals(1920, videos[0].height)
+        assertEquals(1080, images[0].width)
+    }
+
+    @Test
+    fun parse_doesNotMistakeVideoThumbnailForOriginalImage() {
+        val json = """
+            {
+              "id": "single_video",
+              "title": "Just a Video",
+              "extractor_key": "Youtube",
+              "thumbnail": "https://i.ytimg.com/vi/single_video/hqdefault.jpg",
+              "thumbnails": [
+                { "url": "https://i.ytimg.com/vi/single_video/maxresdefault.jpg", "width": 1280, "height": 720 }
+              ],
+              "formats": [
+                {
+                  "format_id": "22",
+                  "ext": "mp4",
+                  "vcodec": "avc1",
+                  "acodec": "aac",
+                  "width": 1280,
+                  "height": 720,
+                  "filesize": 25000000
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = YtDlpOutputParser.parse("https://youtube.com/watch?v=single_video", json)
+
+        assertTrue(result is InspectionResult.Available)
+        val available = result as InspectionResult.Available
+        // Video thumbnail must NOT be included as an image candidate
+        val imageCandidates = available.candidates.filter { it.mediaType == MediaType.IMAGE }
+        assertTrue(imageCandidates.isEmpty())
+        val videoCandidates = available.candidates.filter { it.mediaType == MediaType.VIDEO }
+        assertTrue("Should extract video candidates", videoCandidates.isNotEmpty())
+    }
+
+    @Test
+    fun attachPreviewImageFallback_addsOgFallbackCandidate_whenInspectionFailed() {
+        val failed = InspectionResult.Failed(
+            code = FailureCode.EXTRACTOR_BROKEN,
+            message = "Unable to extract post",
+            retryable = false
+        )
+        val ogUrl = "https://preview.linkedin.com/feed/og_image.jpg"
+        val attached = YtDlpOutputParser.attachPreviewImageFallback(failed, ogUrl)
+
+        assertTrue(attached is InspectionResult.Available)
+        val available = attached as InspectionResult.Available
+        assertEquals(1, available.candidates.size)
+        val candidate = available.candidates[0]
+        assertEquals(MediaType.IMAGE, candidate.mediaType)
+        assertTrue(candidate.isOgFallback)
+        assertEquals("Preview image (Open Graph fallback)", candidate.formatLabel)
+    }
+
+    @Test
+    fun parseError_mapsLinkedInExtractionError_toExtractorBroken() {
+        val err = "ERROR: [LinkedIn] Unable to extract video: No valid video manifest found"
+        val result = YtDlpOutputParser.parseError(err)
+
+        assertTrue(result is InspectionResult.Failed)
+        assertEquals(FailureCode.EXTRACTOR_BROKEN, (result as InspectionResult.Failed).code)
+    }
 }

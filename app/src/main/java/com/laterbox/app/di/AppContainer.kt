@@ -17,6 +17,7 @@ interface AppContainer {
     val reminderScheduler: com.laterbox.app.reminders.ReminderScheduler
     val notificationHistoryRepository: NotificationHistoryRepository
     val mediaRepository: com.laterbox.app.media.domain.repository.MediaRepository
+    val mediaInspectionManager: com.laterbox.app.media.data.inspection.MediaInspectionManager
     val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver
     val ytDlpRuntimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager
     val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater
@@ -52,11 +53,20 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         NotificationHistoryRepository(database.notificationHistoryDao())
     }
 
+    override val mediaInspectionManager: com.laterbox.app.media.data.inspection.MediaInspectionManager by lazy {
+        com.laterbox.app.media.data.inspection.MediaInspectionManager(
+            appContext = context.applicationContext,
+            inspectionDao = database.mediaInspectionDao(),
+            platformResolver = platformResolver
+        )
+    }
+
     override val mediaRepository: com.laterbox.app.media.domain.repository.MediaRepository by lazy {
         com.laterbox.app.media.data.repository.MediaRepositoryImpl(
             context = context.applicationContext,
             assetDao = database.downloadedAssetDao(),
-            taskDao = database.downloadTaskDao()
+            taskDao = database.downloadTaskDao(),
+            inspectionManager = mediaInspectionManager
         )
     }
 

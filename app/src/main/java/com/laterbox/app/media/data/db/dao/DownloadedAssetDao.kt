@@ -49,6 +49,9 @@ interface DownloadedAssetDao {
     @Query("UPDATE downloaded_asset SET exportedUri = :exportedUri WHERE id = :id")
     suspend fun updateExportedUri(id: String, exportedUri: String?)
 
+    @Query("UPDATE downloaded_asset SET thumbnailPath = :thumbnailPath WHERE id = :id")
+    suspend fun updateThumbnailPath(id: String, thumbnailPath: String?)
+
     @Query("DELETE FROM downloaded_asset WHERE id = :id")
     suspend fun deleteAssetById(id: String)
 

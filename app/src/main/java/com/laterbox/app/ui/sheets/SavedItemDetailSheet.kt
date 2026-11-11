@@ -94,6 +94,7 @@ fun SavedItemDetailSheet(
     onDeleteMediaAsset: (com.laterbox.app.media.domain.model.MediaAsset) -> Unit = {},
     onOverrideCellular: (String) -> Unit = {},
     onCancelTask: (String) -> Unit = {},
+    onDismissTask: (String) -> Unit = {},
     onDeleteWithFiles: (Boolean) -> Unit = {}
 ) {
     val colors = LaterboxTheme.colors
@@ -641,7 +642,8 @@ fun SavedItemDetailSheet(
                 onExportAsset = onExportMediaAsset,
                 onDeleteAsset = onDeleteMediaAsset,
                 onOverrideCellular = onOverrideCellular,
-                onCancelTask = onCancelTask
+                onCancelTask = onCancelTask,
+                onDismissTask = onDismissTask
             )
         }
 

@@ -60,9 +60,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
+import androidx.documentfile.provider.DocumentFile
 import com.laterbox.app.R
 import com.laterbox.app.data.preferences.FontSizeScale
 import com.laterbox.app.data.preferences.SmartReminderPersistence
@@ -121,6 +123,8 @@ fun SettingsScreen(
     onToggleExcludedPackage: (String) -> Unit = {},
     onMediaDownloadNetworkPolicyChange: (com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy) -> Unit = {},
     onAutoInspectMediaOnSaveChange: (Boolean) -> Unit = {},
+    onSetCustomExportDirectory: (String, String) -> Unit = { _, _ -> },
+    onClearCustomExportDirectory: () -> Unit = {},
     isUpdatingYtDlp: Boolean = false,
     onUpdateYtDlpClick: () -> Unit = {},
     ytDlpState: com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState = com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.NotInitialized,
@@ -222,6 +226,23 @@ fun SettingsScreen(
                 } catch (e: Exception) {
                     Toast.makeText(context, "Import error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
+            }
+        }
+    }
+
+    val directoryPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+                val doc = DocumentFile.fromTreeUri(context, uri)
+                val folderName = doc?.name ?: "Selected Folder"
+                onSetCustomExportDirectory(uri.toString(), folderName)
+                Toast.makeText(context, "Export directory set to $folderName", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not set directory: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1179,6 +1200,68 @@ fun SettingsScreen(
                                 actionText = "Retry",
                                 onActionClick = onRetryInitializeEngine
                             )
+                        }
+
+                        Divider(colors.borderSubtle)
+
+                        // Export Location (SAF DocumentTree)
+                        Column(verticalArrangement = Arrangement.spacedBy(spacing.xs)) {
+                            Text(
+                                text = "Export Storage Location",
+                                style = typography.uiMedium,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = "Choose where downloaded media files are copied when exported. By default, files are exported to the system Downloads/Laterbox folder.",
+                                style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                color = colors.textSecondary
+                            )
+
+                            Spacer(modifier = Modifier.height(spacing.xxs))
+
+                            val currentExportFolder = preferences.customExportDirectoryName ?: "Default (System MediaStore)"
+                            Text(
+                                text = "Current: $currentExportFolder",
+                                style = typography.metaText.copy(fontWeight = FontWeight.Medium),
+                                color = if (preferences.customExportDirectoryUri != null) colors.accentPrimary else colors.textSecondary
+                            )
+
+                            Spacer(modifier = Modifier.height(spacing.xxs))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { directoryPickerLauncher.launch(null) },
+                                    shape = LaterboxShapeTokens.Button
+                                ) {
+                                    Icon(
+                                        painter = painterResource(LaterboxIcons.Folder),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = colors.accentPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (preferences.customExportDirectoryUri != null) "Change Folder" else "Choose Folder",
+                                        style = typography.uiMedium.copy(fontSize = 13.sp),
+                                        color = colors.accentPrimary
+                                    )
+                                }
+
+                                if (preferences.customExportDirectoryUri != null) {
+                                    TextButton(
+                                        onClick = onClearCustomExportDirectory
+                                    ) {
+                                        Text(
+                                            text = "Reset to Default",
+                                            style = typography.uiMedium.copy(fontSize = 13.sp),
+                                            color = colors.textSecondary
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

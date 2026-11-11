@@ -140,10 +140,17 @@ fun LibraryAssetCard(
                     .background(colors.surfaceSecondary),
                 contentAlignment = Alignment.Center
             ) {
-                val hasArtwork = asset.mediaType == MediaType.AUDIO && !asset.artworkUrl.isNullOrBlank()
-                if ((asset.mediaType == MediaType.IMAGE && file.exists()) || hasArtwork) {
+                val thumbFile = asset.thumbnailPath?.let { File(context.filesDir, it) }
+                val imageModel: Any? = when {
+                    thumbFile?.exists() == true -> thumbFile
+                    asset.mediaType == MediaType.IMAGE && file.exists() -> file
+                    !asset.artworkUrl.isNullOrBlank() -> asset.artworkUrl
+                    else -> null
+                }
+
+                if (imageModel != null) {
                     AsyncImage(
-                        model = if (hasArtwork) asset.artworkUrl else file,
+                        model = imageModel,
                         contentDescription = asset.title,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -212,7 +219,7 @@ fun LibraryAssetCard(
 
             IconButton(onClick = onExport) {
                 Icon(
-                    painter = painterResource(LaterboxIcons.Copy),
+                    painter = painterResource(LaterboxIcons.Download),
                     contentDescription = "Export to shared storage",
                     tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp)

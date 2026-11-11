@@ -78,6 +78,7 @@ fun MediaSection(
     onDeleteAsset: (MediaAsset) -> Unit,
     onOverrideCellular: (String) -> Unit,
     onCancelTask: (String) -> Unit,
+    onDismissTask: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -162,7 +163,8 @@ fun MediaSection(
                     ActiveTaskRow(
                         task = task,
                         onOverrideCellular = { onOverrideCellular(task.id) },
-                        onCancel = { onCancelTask(task.id) }
+                        onCancel = { onCancelTask(task.id) },
+                        onDismiss = { onDismissTask(task.id) }
                     )
                 }
             }
@@ -189,9 +191,9 @@ fun MediaSection(
                     color = colors.textSecondary
                 )
             }
-        } else if (inspectionResult == null && assets.isEmpty() && activeTasks.isEmpty()) {
+        } else if (inspectionResult == null) {
             LaterboxSecondaryButton(
-                text = "Inspect for downloadable media",
+                text = if (assets.isNotEmpty()) "Check for additional media" else "Inspect for downloadable media",
                 leadingIcon = LaterboxIcons.Download,
                 onClick = onInspectClick,
                 modifier = Modifier.fillMaxWidth()
@@ -205,12 +207,45 @@ fun MediaSection(
                             onDownloadCandidate = handleStartDownload
                         )
                     } else {
-                        Text(
-                            text = "Available Formats",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = colors.textSecondary
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Available Formats",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = colors.textSecondary
+                            )
+                            Text(
+                                text = "Re-inspect",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = colors.accentPrimary,
+                                modifier = Modifier.clickable(onClick = onInspectClick)
+                            )
+                        }
                         Spacer(modifier = Modifier.height(6.dp))
+
+                        // Bulk image download button when multiple images exist
+                        val imageCandidates = inspectionResult.candidates.filter { it.mediaType == MediaType.IMAGE }
+                        if (imageCandidates.size > 1) {
+                            OutlinedButton(
+                                onClick = { imageCandidates.forEach { handleStartDownload(it) } },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = LaterboxShapeTokens.PillNav
+                            ) {
+                                Icon(
+                                    painter = painterResource(LaterboxIcons.Download),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = colors.accentPrimary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Download all images (${imageCandidates.size})", color = colors.accentPrimary)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             inspectionResult.candidates.forEach { candidate ->
                                 CandidateCard(
@@ -380,8 +415,8 @@ private fun DownloadedAssetRow(
 
             IconButton(onClick = onExport, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    painter = painterResource(LaterboxIcons.Copy),
-                    contentDescription = "Export",
+                    painter = painterResource(LaterboxIcons.Download),
+                    contentDescription = "Export to shared storage",
                     tint = colors.textSecondary,
                     modifier = Modifier.size(16.dp)
                 )
@@ -403,9 +438,11 @@ private fun DownloadedAssetRow(
 private fun ActiveTaskRow(
     task: DownloadTask,
     onOverrideCellular: () -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onDismiss: () -> Unit
 ) {
     val colors = LaterboxTheme.colors
+    val isTerminal = task.status == DownloadState.CANCELLED || task.status == DownloadState.FAILED
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -424,10 +461,10 @@ private fun ActiveTaskRow(
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                     color = colors.textPrimary
                 )
-                IconButton(onClick = onCancel, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = if (isTerminal) onDismiss else onCancel, modifier = Modifier.size(24.dp)) {
                     Icon(
                         painter = painterResource(LaterboxIcons.Close),
-                        contentDescription = "Cancel",
+                        contentDescription = if (isTerminal) "Dismiss" else "Cancel",
                         tint = colors.textSecondary,
                         modifier = Modifier.size(14.dp)
                     )
@@ -438,17 +475,40 @@ private fun ActiveTaskRow(
 
             when (task.status) {
                 DownloadState.DOWNLOADING, DownloadState.PROCESSING -> {
-                    LinearProgressIndicator(
-                        progress = { task.progress / 100f },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(4.dp),
-                        color = colors.accentPrimary,
-                        trackColor = colors.surfaceSecondary
-                    )
+                    val stage = task.stage
+                    val isIndeterminate = stage?.isIndeterminate == true || task.progress <= 0
+                    if (isIndeterminate) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp),
+                            color = colors.accentPrimary,
+                            trackColor = colors.surfaceSecondary
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { task.progress / 100f },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp),
+                            color = colors.accentPrimary,
+                            trackColor = colors.surfaceSecondary
+                        )
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
+                    val progressLabel = if (stage != null) {
+                        if (task.progress > 0 && !stage.isIndeterminate) {
+                            "${stage.label} (${task.progress}% · ${formatBytes(task.downloadedBytes)})"
+                        } else {
+                            stage.label
+                        }
+                    } else if (task.status == DownloadState.PROCESSING) {
+                        "Processing..."
+                    } else {
+                        "${task.progress}% · ${formatBytes(task.downloadedBytes)}"
+                    }
                     Text(
-                        text = if (task.status == DownloadState.PROCESSING) "Processing..." else "${task.progress}% · ${formatBytes(task.downloadedBytes)}",
+                        text = progressLabel,
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.textSecondary
                     )
@@ -469,9 +529,51 @@ private fun ActiveTaskRow(
                     )
                 }
 
+                DownloadState.CANCELLED -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Download cancelled",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textSecondary
+                        )
+                        Text(
+                            text = "Dismiss",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = colors.accentPrimary,
+                            modifier = Modifier.clickable(onClick = onDismiss)
+                        )
+                    }
+                }
+
+                DownloadState.FAILED -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Failed: ${task.errorMessage ?: task.errorCode?.userMessage ?: "Download error"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Dismiss",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            color = colors.accentPrimary,
+                            modifier = Modifier.clickable(onClick = onDismiss)
+                        )
+                    }
+                }
+
                 else -> {
                     Text(
-                        text = task.status.name.lowercase().replaceFirstChar { it.uppercase() },
+                        text = task.stage?.label ?: task.status.name.lowercase().replaceFirstChar { it.uppercase() },
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.textSecondary
                     )
@@ -504,10 +606,19 @@ private fun CandidateCard(
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                     color = colors.textPrimary
                 )
+                if (candidate.isOgFallback) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Original media could not be extracted from this platform. Save preview image instead.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary
+                    )
+                }
                 Spacer(modifier = Modifier.height(2.dp))
                 val sizeText = candidate.estimatedBytes?.let { formatBytes(it) } ?: "Size unknown"
+                val dimText = if (candidate.width != null && candidate.height != null) " · ${candidate.width}x${candidate.height}" else ""
                 Text(
-                    text = "${candidate.mediaType.name} · $sizeText",
+                    text = "${candidate.mediaType.name} · $sizeText$dimText",
                     style = MaterialTheme.typography.labelSmall,
                     color = colors.textSecondary
                 )

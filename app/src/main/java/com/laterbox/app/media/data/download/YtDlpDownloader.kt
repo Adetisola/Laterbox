@@ -4,6 +4,7 @@ import android.content.Context
 import com.laterbox.app.LaterboxApplication
 import com.laterbox.app.media.data.adapters.ytdlp.YtDlpOutputParser
 import com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager
+import com.laterbox.app.media.domain.model.DownloadStage
 import com.laterbox.app.media.domain.model.FailureCode
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
@@ -25,7 +26,7 @@ class YtDlpDownloader(
         formatSelector: String,
         destinationFile: File,
         taskId: String,
-        onProgress: suspend (bytesDownloaded: Long, totalBytes: Long?, percent: Int) -> Unit
+        onProgress: (bytesDownloaded: Long, totalBytes: Long?, percent: Int, stage: DownloadStage?) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
         if (customExecutor == null) {
             val ytDlpInitResult = runtimeManager.ensureYtDlpInitialized()
@@ -68,18 +69,24 @@ class YtDlpDownloader(
             addOption("--socket-timeout", "20")
             addOption("--no-playlist")
             addOption("--no-warnings")
+            addOption("--extractor-args", "youtube:player_client=android,web,web_creator")
         }
 
         try {
             var lastReportedPercent = -1
-            val progressCallback: (Float, Long, String) -> Unit = { progress, etaInSeconds, line ->
+            val progressCallback: (Float, Long, String) -> Unit = { progress, _, line ->
+                val stage = when {
+                    line.contains("[Merger]") -> DownloadStage.MERGING
+                    line.contains("[ExtractAudio]") -> DownloadStage.EXTRACTING_AUDIO
+                    line.contains("[ffmpeg]") -> DownloadStage.CONVERTING
+                    line.contains("[download]") -> DownloadStage.DOWNLOADING
+                    else -> null
+                }
                 val percent = progress.toInt().coerceIn(0, 100)
-                if (percent != lastReportedPercent) {
+                if (percent != lastReportedPercent || stage != null) {
                     lastReportedPercent = percent
-                    kotlinx.coroutines.runBlocking {
-                        val currentLen = if (destinationFile.exists()) destinationFile.length() else 0L
-                        onProgress(currentLen, null, percent)
-                    }
+                    val currentLen = if (destinationFile.exists()) destinationFile.length() else 0L
+                    onProgress(currentLen, null, percent, stage)
                 }
             }
 
@@ -96,7 +103,7 @@ class YtDlpDownloader(
                     located.renameTo(destinationFile)
                 }
                 val fileSize = destinationFile.length()
-                onProgress(fileSize, fileSize, 100)
+                onProgress(fileSize, fileSize, 100, DownloadStage.FINALIZING)
                 DownloadResult.Success(fileSize, fileSize)
             } else {
                 val err = response.err?.takeIf { it.isNotBlank() } ?: "yt-dlp exited without creating output file"

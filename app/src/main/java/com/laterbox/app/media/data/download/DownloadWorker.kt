@@ -21,15 +21,27 @@ import com.laterbox.app.R
 import com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy
 import com.laterbox.app.media.data.db.entity.DownloadedAssetEntity
 import com.laterbox.app.media.data.storage.MediaStorageManager
+import com.laterbox.app.media.data.storage.ThumbnailGenerator
 import com.laterbox.app.media.domain.model.AssetFileStatus
+import com.laterbox.app.media.domain.model.DownloadStage
 import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.media.domain.model.FailureCode
 import com.laterbox.app.media.domain.model.MediaType
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.util.UUID
+
+private data class ProgressEvent(
+    val bytes: Long,
+    val totalBytes: Long?,
+    val percent: Int,
+    val stage: DownloadStage?
+)
 
 class DownloadWorker(
     private val appContext: Context,
@@ -63,7 +75,6 @@ class DownloadWorker(
             val isBlocked = when (prefs.mediaDownloadNetworkPolicy) {
                 MediaDownloadNetworkPolicy.WIFI_ONLY -> true
                 MediaDownloadNetworkPolicy.WIFI_OVER_20MB -> {
-                    // Only hold if size is explicitly known to exceed 20 MB; do not block streams with unknown size
                     task.totalBytes != null && task.totalBytes > 20L * 1024 * 1024
                 }
                 MediaDownloadNetworkPolicy.ANY_NETWORK -> false
@@ -71,7 +82,6 @@ class DownloadWorker(
 
             if (isBlocked) {
                 taskDao.updateStatus(taskId, DownloadState.WAITING_FOR_WIFI.name)
-                // Schedule WorkManager constraint for unmetered network
                 val constraints = Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.UNMETERED)
                     .build()
@@ -103,7 +113,7 @@ class DownloadWorker(
         // 3. Setup low-importance silent notification & attempt setForeground
         ensureNotificationChannel()
         val notificationId = taskId.hashCode()
-        val initialNotification = buildNotification(task.title ?: "Downloading media", 0, null, taskId)
+        val initialNotification = buildNotification(task.title ?: "Downloading media", 0, null, taskId, DownloadStage.PREPARING.label)
         try {
             val foregroundInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ForegroundInfo(notificationId, initialNotification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -116,10 +126,54 @@ class DownloadWorker(
         }
 
         // 4. Download transfer under concurrency gate
+        val progressChannel = Channel<ProgressEvent>(Channel.CONFLATED)
+        val progressJob = CoroutineScope(coroutineContext).launch {
+            var lastReportedStage: DownloadStage? = null
+            var lastDbUpdateTime = 0L
+            var lastDbPercent = -1
+
+            for (event in progressChannel) {
+                val now = System.currentTimeMillis()
+                val stageChanged = event.stage != null && event.stage != lastReportedStage
+                val percentAdvancement = event.percent - lastDbPercent >= 1 || event.percent == 100
+                val timeElapsed = now - lastDbUpdateTime >= 500L
+
+                if (stageChanged || (timeElapsed && percentAdvancement)) {
+                    lastDbUpdateTime = now
+                    lastDbPercent = event.percent
+                    if (event.stage != null) lastReportedStage = event.stage
+
+                    val current = taskDao.getEntityById(taskId)
+                    if (current?.status == DownloadState.CANCELLED.name) break
+
+                    taskDao.updateProgress(taskId, event.percent, event.bytes, event.totalBytes)
+                    if (lastReportedStage != null) {
+                        taskDao.updateStage(taskId, lastReportedStage?.name, null)
+                    }
+
+                    try {
+                        val updatedNotification = buildNotification(
+                            title = task.title ?: "Downloading media",
+                            progress = event.percent,
+                            totalBytes = event.totalBytes,
+                            taskId = taskId,
+                            stageLabel = lastReportedStage?.label
+                        )
+                        notificationManager.notify(notificationId, updatedNotification)
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+
         return try {
             downloadSemaphore.withPermit {
-                taskDao.updateStatus(taskId, DownloadState.DOWNLOADING.name)
+                taskDao.updateStatusAndStage(taskId, DownloadState.DOWNLOADING.name, DownloadStage.DOWNLOADING.name, null)
                 val partFile = storageManager.getPartFile(taskId)
+
+                val onProgressCallback: (Long, Long?, Int, DownloadStage?) -> Unit = { bytes, total, percent, stage ->
+                    progressChannel.trySend(ProgressEvent(bytes, total, percent, stage))
+                }
 
                 val result = if (task.formatSelector != null) {
                     val ytDlpDownloader = YtDlpDownloader(appContext)
@@ -128,48 +182,36 @@ class DownloadWorker(
                         formatSelector = task.formatSelector,
                         destinationFile = partFile,
                         taskId = taskId,
-                        onProgress = { bytesDownloaded, totalBytes, percent ->
-                            taskDao.updateProgress(taskId, percent, bytesDownloaded, totalBytes)
-                            try {
-                                val updatedNotification = buildNotification(
-                                    title = task.title ?: "Downloading media",
-                                    progress = percent,
-                                    totalBytes = totalBytes,
-                                    taskId = taskId
-                                )
-                                notificationManager.notify(notificationId, updatedNotification)
-                            } catch (_: Exception) {
-                            }
-                        }
+                        onProgress = onProgressCallback
                     )
                 } else {
                     val httpDownloader = HttpDownloader()
                     httpDownloader.download(
                         url = task.sourceUrl,
                         destinationFile = partFile,
-                        onProgress = { bytesDownloaded, totalBytes, percent ->
-                            taskDao.updateProgress(taskId, percent, bytesDownloaded, totalBytes)
-                            try {
-                                val updatedNotification = buildNotification(
-                                    title = task.title ?: "Downloading media",
-                                    progress = percent,
-                                    totalBytes = totalBytes,
-                                    taskId = taskId
-                                )
-                                notificationManager.notify(notificationId, updatedNotification)
-                            } catch (_: Exception) {
-                            }
+                        onProgress = { bytes, total, percent, stage ->
+                            onProgressCallback(bytes, total, percent, stage)
                         }
                     )
                 }
 
+                progressChannel.close()
+                progressJob.join()
+
+                // Cancellation check before finalizing
+                val checkCancel = taskDao.getEntityById(taskId)
+                if (checkCancel?.status == DownloadState.CANCELLED.name) {
+                    storageManager.deletePartFile(taskId)
+                    return Result.success()
+                }
+
                 when (result) {
                     is DownloadResult.Success -> {
-                        // 5. Finalize & Deduplicate
-                        taskDao.updateStatus(taskId, DownloadState.PROCESSING.name)
                         val mediaType = try { MediaType.valueOf(task.mediaType) } catch (_: Exception) { MediaType.OTHER }
 
+                        // 5. Audio Metadata Tagging stage
                         if (mediaType == MediaType.AUDIO && (!task.artist.isNullOrBlank() || !task.title.isNullOrBlank())) {
+                            taskDao.updateStatusAndStage(taskId, DownloadState.PROCESSING.name, DownloadStage.TAGGING_METADATA.name, null)
                             AudioTaggingProcessor.tagAudioFile(
                                 appContext = appContext,
                                 audioFile = partFile,
@@ -181,20 +223,45 @@ class DownloadWorker(
                             )
                         }
 
+                        // 6. Finalizing & Storage Deduplication
+                        taskDao.updateStatusAndStage(taskId, DownloadState.PROCESSING.name, DownloadStage.FINALIZING.name, null)
+
                         val checksum = com.laterbox.app.media.data.storage.ChecksumUtil.calculateSha256(partFile)
                         val existingAsset = assetDao.findByChecksum(checksum)
                         val duplicatePath = if (existingAsset != null && storageManager.resolveFile(existingAsset.localPath).exists()) {
                             existingAsset.localPath
                         } else null
 
+                        val cleanSuggestedExt = when (mediaType) {
+                            MediaType.AUDIO -> "m4a"
+                            MediaType.VIDEO -> "mp4"
+                            MediaType.IMAGE -> "jpg"
+                            else -> null
+                        }
+
                         val finalized = storageManager.finalizeDownload(
                             taskId = taskId,
                             mediaType = mediaType,
-                            suggestedExt = task.formatSelector,
+                            suggestedExt = cleanSuggestedExt,
                             existingDuplicatePath = duplicatePath
                         )
 
+                        val finalMediaFile = storageManager.resolveFile(finalized.relativePath)
                         val assetId = UUID.randomUUID().toString()
+
+                        // 7. Thumbnail Generation stage
+                        taskDao.updateStage(taskId, DownloadStage.GENERATING_THUMBNAIL.name, null)
+                        val thumbPath = ThumbnailGenerator.generateThumbnail(
+                            context = appContext,
+                            mediaFile = finalMediaFile,
+                            mediaType = mediaType,
+                            assetId = assetId,
+                            artworkUrl = task.artworkUrl
+                        )
+
+                        // 8. Saving to Library
+                        taskDao.updateStage(taskId, DownloadStage.SAVING_TO_LIBRARY.name, null)
+
                         val assetEntity = DownloadedAssetEntity(
                             id = assetId,
                             savedLinkId = task.savedLinkId,
@@ -217,15 +284,23 @@ class DownloadWorker(
                             album = task.album,
                             artworkUrl = task.artworkUrl,
                             spotifyTrackId = task.spotifyTrackId,
-                            versionTag = task.versionTag
+                            versionTag = task.versionTag,
+                            thumbnailPath = thumbPath
                         )
 
                         assetDao.insertAsset(assetEntity)
+                        taskDao.updateStatusAndStage(taskId, DownloadState.COMPLETED.name, DownloadStage.COMPLETED.name, null)
                         taskDao.markCompleted(taskId, assetId)
                         notificationManager.cancel(notificationId)
                         Result.success()
                     }
                     is DownloadResult.Failure -> {
+                        val current = taskDao.getEntityById(taskId)
+                        if (current?.status == DownloadState.CANCELLED.name) {
+                            storageManager.deletePartFile(taskId)
+                            return Result.success()
+                        }
+
                         val isRetryable = result.code.isRetryable
                         val newRetry = task.retryCount + 1
                         if (isRetryable && newRetry <= 3) {
@@ -251,6 +326,8 @@ class DownloadWorker(
                 }
             }
         } catch (ce: CancellationException) {
+            progressChannel.close()
+            progressJob.cancel()
             if (task.formatSelector != null) {
                 YtDlpDownloader(appContext).cancel(taskId)
             }
@@ -263,15 +340,22 @@ class DownloadWorker(
             }
             throw ce
         } catch (e: Exception) {
-            val newRetry = task.retryCount + 1
-            taskDao.updateError(
-                id = taskId,
-                status = if (newRetry <= 3) DownloadState.QUEUED.name else DownloadState.FAILED.name,
-                errorCode = FailureCode.UNKNOWN.name,
-                errorMessage = e.localizedMessage ?: "Unknown error",
-                retryCount = newRetry
-            )
-            if (newRetry <= 3) Result.retry() else Result.failure()
+            progressChannel.close()
+            progressJob.cancel()
+            val currentTask = taskDao.getEntityById(taskId)
+            if (currentTask?.status != DownloadState.CANCELLED.name) {
+                val newRetry = task.retryCount + 1
+                taskDao.updateError(
+                    id = taskId,
+                    status = if (newRetry <= 3) DownloadState.QUEUED.name else DownloadState.FAILED.name,
+                    errorCode = FailureCode.UNKNOWN.name,
+                    errorMessage = e.localizedMessage ?: "Unknown error",
+                    retryCount = newRetry
+                )
+                if (newRetry <= 3) Result.retry() else Result.failure()
+            } else {
+                Result.success()
+            }
         } finally {
             notificationManager.cancel(notificationId)
         }
@@ -297,7 +381,8 @@ class DownloadWorker(
         title: String,
         progress: Int,
         totalBytes: Long?,
-        taskId: String
+        taskId: String,
+        stageLabel: String? = null
     ): android.app.Notification {
         val cancelIntent = Intent(appContext, DownloadCancelReceiver::class.java).apply {
             putExtra(DownloadCancelReceiver.EXTRA_TASK_ID, taskId)
@@ -309,10 +394,11 @@ class DownloadWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val isIndeterminate = totalBytes == null || totalBytes <= 0L
+        val isIndeterminate = totalBytes == null || totalBytes <= 0L || progress <= 0
+        val subtext = if (!stageLabel.isNullOrBlank()) "$stageLabel ($progress%)" else title
         return NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setContentTitle("Laterbox Download")
-            .setContentText(title)
+            .setContentText(subtext)
             .setSmallIcon(R.drawable.ic_stat_laterbox)
             .setOngoing(true)
             .setSilent(true)

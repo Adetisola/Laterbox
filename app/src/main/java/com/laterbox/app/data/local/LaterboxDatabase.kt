@@ -15,8 +15,10 @@ import com.laterbox.app.data.local.entity.NotificationHistoryEntity
 import com.laterbox.app.data.local.entity.SavedLinkEntity
 import com.laterbox.app.media.data.db.dao.DownloadedAssetDao
 import com.laterbox.app.media.data.db.dao.DownloadTaskDao
+import com.laterbox.app.media.data.db.dao.MediaInspectionDao
 import com.laterbox.app.media.data.db.entity.DownloadedAssetEntity
 import com.laterbox.app.media.data.db.entity.DownloadTaskEntity
+import com.laterbox.app.media.data.db.entity.MediaInspectionEntity
 
 @Database(
     entities = [
@@ -25,9 +27,10 @@ import com.laterbox.app.media.data.db.entity.DownloadTaskEntity
         com.laterbox.app.data.local.entity.LinkCollectionCrossRef::class,
         NotificationHistoryEntity::class,
         DownloadedAssetEntity::class,
-        DownloadTaskEntity::class
+        DownloadTaskEntity::class,
+        MediaInspectionEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -38,6 +41,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
     abstract fun notificationHistoryDao(): NotificationHistoryDao
     abstract fun downloadedAssetDao(): DownloadedAssetDao
     abstract fun downloadTaskDao(): DownloadTaskDao
+    abstract fun mediaInspectionDao(): MediaInspectionDao
 
     companion object {
         private const val DATABASE_NAME = "laterbox.db"
@@ -352,6 +356,38 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from version 6 to version 7:
+         * 1. Adds stage and stageDetail columns to download_task table for transparent progress stages.
+         * 2. Adds thumbnailPath column to downloaded_asset table for local thumbnail rendering.
+         * 3. Creates media_inspection table with indexes and foreign keys for persistent inspection.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `stage` TEXT")
+                db.execSQL("ALTER TABLE `download_task` ADD COLUMN `stageDetail` TEXT")
+                db.execSQL("ALTER TABLE `downloaded_asset` ADD COLUMN `thumbnailPath` TEXT")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `media_inspection` (
+                        `id` TEXT NOT NULL,
+                        `savedLinkId` INTEGER NOT NULL,
+                        `url` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `resultJson` TEXT,
+                        `errorCode` TEXT,
+                        `errorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`savedLinkId`) REFERENCES `saved_links`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_inspection_savedLinkId` ON `media_inspection` (`savedLinkId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_inspection_status` ON `media_inspection` (`status`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -362,7 +398,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { INSTANCE = it }
             }

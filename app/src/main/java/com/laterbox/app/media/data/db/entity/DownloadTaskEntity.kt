@@ -51,7 +51,9 @@ data class DownloadTaskEntity(
     val album: String? = null,
     val artworkUrl: String? = null,
     val spotifyTrackId: String? = null,
-    val versionTag: String? = null
+    val versionTag: String? = null,
+    val stage: String? = null,
+    val stageDetail: String? = null
 ) {
     fun toDomain(): DownloadTask = DownloadTask(
         id = id,
@@ -79,7 +81,9 @@ data class DownloadTaskEntity(
         album = album,
         artworkUrl = artworkUrl,
         spotifyTrackId = spotifyTrackId,
-        versionTag = versionTag
+        versionTag = versionTag,
+        stage = com.laterbox.app.media.domain.model.DownloadStage.fromNameOrNull(stage),
+        stageDetail = stageDetail
     )
 
     companion object {
@@ -109,7 +113,9 @@ data class DownloadTaskEntity(
             album = task.album,
             artworkUrl = task.artworkUrl,
             spotifyTrackId = task.spotifyTrackId,
-            versionTag = task.versionTag
+            versionTag = task.versionTag,
+            stage = task.stage?.name,
+            stageDetail = task.stageDetail
         )
     }
 }

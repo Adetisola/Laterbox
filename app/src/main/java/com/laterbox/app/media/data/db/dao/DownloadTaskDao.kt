@@ -38,6 +38,15 @@ interface DownloadTaskDao {
     @Query("UPDATE download_task SET status = :status, updatedAt = :updatedAt WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE download_task SET status = :status, updatedAt = :updatedAt WHERE id = :id AND status != 'CANCELLED'")
+    suspend fun updateStatusIfNotCancelled(id: String, status: String, updatedAt: Long = System.currentTimeMillis()): Int
+
+    @Query("UPDATE download_task SET stage = :stage, stageDetail = :stageDetail, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateStage(id: String, stage: String?, stageDetail: String?, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE download_task SET status = :status, stage = :stage, stageDetail = :stageDetail, updatedAt = :updatedAt WHERE id = :id AND status != 'CANCELLED'")
+    suspend fun updateStatusAndStage(id: String, status: String, stage: String?, stageDetail: String?, updatedAt: Long = System.currentTimeMillis()): Int
+
     @Query("""
         UPDATE download_task 
         SET progress = :progress, downloadedBytes = :downloadedBytes, totalBytes = :totalBytes, updatedAt = :updatedAt 

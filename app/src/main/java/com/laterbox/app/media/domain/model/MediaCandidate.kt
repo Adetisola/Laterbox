@@ -8,5 +8,6 @@ data class MediaCandidate(
     val durationMs: Long?,
     val width: Int?,
     val height: Int?,
-    val source: AcquisitionSource
+    val source: AcquisitionSource,
+    val isOgFallback: Boolean = false
 )

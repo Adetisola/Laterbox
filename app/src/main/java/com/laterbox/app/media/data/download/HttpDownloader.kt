@@ -1,5 +1,6 @@
 package com.laterbox.app.media.data.download
 
+import com.laterbox.app.media.domain.model.DownloadStage
 import com.laterbox.app.media.domain.model.FailureCode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +35,7 @@ class HttpDownloader(
         url: String,
         destinationFile: File,
         headers: Map<String, String> = emptyMap(),
-        onProgress: suspend (bytesDownloaded: Long, totalBytes: Long?, percent: Int) -> Unit
+        onProgress: suspend (bytesDownloaded: Long, totalBytes: Long?, percent: Int, stage: DownloadStage?) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
         val existingLength = if (destinationFile.exists()) destinationFile.length() else 0L
 
@@ -101,7 +102,7 @@ class HttpDownloader(
                             } else 0
 
                             if (percent != lastReportedPercent || now - lastProgressTime >= 250L) {
-                                onProgress(bytesDownloaded, totalBytes, percent)
+                                onProgress(bytesDownloaded, totalBytes, percent, DownloadStage.DOWNLOADING)
                                 lastReportedPercent = percent
                                 lastProgressTime = now
                             }
@@ -109,7 +110,7 @@ class HttpDownloader(
                     }
                 }
 
-                onProgress(bytesDownloaded, totalBytes, 100)
+                onProgress(bytesDownloaded, totalBytes, 100, DownloadStage.FINALIZING)
                 DownloadResult.Success(bytesDownloaded, totalBytes ?: bytesDownloaded)
             }
         } catch (ce: CancellationException) {

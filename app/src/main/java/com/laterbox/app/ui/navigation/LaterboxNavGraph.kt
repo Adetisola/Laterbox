@@ -400,6 +400,8 @@ fun LaterboxApp(
                         onToggleExcludedPackage = settingsViewModel::toggleExcludedCapturePackage,
                         onMediaDownloadNetworkPolicyChange = settingsViewModel::setMediaDownloadNetworkPolicy,
                         onAutoInspectMediaOnSaveChange = settingsViewModel::setAutoInspectMediaOnSave,
+                        onSetCustomExportDirectory = settingsViewModel::setCustomExportDirectory,
+                        onClearCustomExportDirectory = settingsViewModel::clearCustomExportDirectory,
                         onBackClick = { navController.popBackStack() }
                     )
                 }
@@ -577,6 +579,7 @@ fun LaterboxApp(
             onDeleteMediaAsset = { asset -> savedItemDetailViewModel.deleteAsset(asset.id) },
             onOverrideCellular = savedItemDetailViewModel::overrideCellular,
             onCancelTask = savedItemDetailViewModel::cancelTask,
+            onDismissTask = savedItemDetailViewModel::dismissTask,
             onQuickOpen = { url ->
                 BrowserLauncher.openUrl(context, url, colors)
                 selectedLinkForDetails?.let { inboxViewModel.onLinkOpened(it.id) }

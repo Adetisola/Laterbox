@@ -73,7 +73,7 @@ class MediaStorageManager(private val context: Context) {
 
         val checksum = ChecksumUtil.calculateSha256(partFile)
         val fileSize = partFile.length()
-        val mimeType = sniffMimeType(partFile, suggestedExt)
+        val mimeType = sniffMimeType(partFile, suggestedExt, mediaType)
 
         // Duplicate deduplication check: if caller provided existing path and that file exists
         if (existingDuplicatePath != null) {
@@ -90,7 +90,7 @@ class MediaStorageManager(private val context: Context) {
             }
         }
 
-        val ext = resolveExtension(mimeType, suggestedExt)
+        val ext = resolveExtension(mimeType, suggestedExt, mediaType)
         val typeDir = File(mediaBaseDir, mediaType.name.lowercase()).apply { if (!exists()) mkdirs() }
         val targetFile = File(typeDir, "$checksum.$ext")
         val relativePath = "${mediaType.name.lowercase()}/$checksum.$ext"
@@ -143,6 +143,12 @@ class MediaStorageManager(private val context: Context) {
         return false
     }
 
+    fun deleteThumbnailFile(thumbnailRelativePath: String?): Boolean {
+        if (thumbnailRelativePath.isNullOrBlank()) return false
+        val thumbFile = File(context.filesDir, thumbnailRelativePath)
+        return if (thumbFile.exists()) thumbFile.delete() else false
+    }
+
     /**
      * Cleans up partial .part files that do not correspond to any active or paused task.
      */
@@ -160,9 +166,9 @@ class MediaStorageManager(private val context: Context) {
         return deleted
     }
 
-    private fun resolveExtension(mimeType: String, suggestedExt: String?): String {
+    internal fun resolveExtension(mimeType: String, suggestedExt: String?, mediaType: MediaType? = null): String {
         val cleanSuggested = suggestedExt?.trim()?.removePrefix(".")?.lowercase()
-        if (!cleanSuggested.isNullOrBlank() && cleanSuggested.length in 2..5) {
+        if (!cleanSuggested.isNullOrBlank() && cleanSuggested.length in 2..5 && !cleanSuggested.contains("[") && !cleanSuggested.contains("/")) {
             return cleanSuggested
         }
         val fromMime = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
@@ -174,16 +180,16 @@ class MediaStorageManager(private val context: Context) {
             "image/png" -> "png"
             "image/webp" -> "webp"
             "image/gif" -> "gif"
-            "video/mp4" -> "mp4"
+            "video/mp4" -> if (mediaType == MediaType.AUDIO) "m4a" else "mp4"
             "video/webm" -> "webm"
             "audio/mp4", "audio/m4a" -> "m4a"
             "audio/mpeg" -> "mp3"
             "application/pdf" -> "pdf"
-            else -> "bin"
+            else -> if (mediaType == MediaType.AUDIO) "m4a" else "bin"
         }
     }
 
-    private fun sniffMimeType(file: File, fallbackExt: String?): String {
+    fun sniffMimeType(file: File, fallbackExt: String? = null, mediaType: MediaType? = null): String {
         try {
             val header = ByteArray(32)
             val bytesRead = FileInputStream(file).use { it.read(header) }
@@ -216,11 +222,11 @@ class MediaStorageManager(private val context: Context) {
                     header[4] == 'f'.code.toByte() && header[5] == 't'.code.toByte() && header[6] == 'y'.code.toByte() && header[7] == 'p'.code.toByte()
                 ) {
                     val brand = if (bytesRead >= 12) String(header, 8, 4, Charsets.US_ASCII) else ""
-                    return if (brand.startsWith("M4A") || brand.startsWith("m4a")) "audio/mp4" else "video/mp4"
+                    return if (brand.startsWith("M4A") || brand.startsWith("m4a") || mediaType == MediaType.AUDIO) "audio/mp4" else "video/mp4"
                 }
                 // Matroska / WebM: 1A 45 DF A3
                 if (header[0] == 0x1A.toByte() && header[1] == 0x45.toByte() && header[2] == 0xDF.toByte() && header[3] == 0xA3.toByte()) {
-                    return "video/webm"
+                    return if (mediaType == MediaType.AUDIO) "audio/webm" else "video/webm"
                 }
                 // MP3: ID3
                 if (header[0] == 'I'.code.toByte() && header[1] == 'D'.code.toByte() && header[2] == '3'.code.toByte()) {
@@ -239,7 +245,11 @@ class MediaStorageManager(private val context: Context) {
             // Fall through to extension
         }
 
-        if (!fallbackExt.isNullOrBlank()) {
+        if (mediaType == MediaType.AUDIO) {
+            return "audio/mp4"
+        }
+
+        if (!fallbackExt.isNullOrBlank() && !fallbackExt.contains("[") && !fallbackExt.contains("/")) {
             val ext = fallbackExt.removePrefix(".").lowercase()
             val fromExt = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
             if (!fromExt.isNullOrBlank()) return fromExt

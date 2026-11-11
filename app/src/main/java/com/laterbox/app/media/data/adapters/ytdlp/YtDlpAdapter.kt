@@ -70,6 +70,7 @@ class YtDlpAdapter(
                 addOption("--no-playlist")
                 addOption("--socket-timeout", "15")
                 addOption("--no-warnings")
+                addOption("--extractor-args", "youtube:player_client=android,web,web_creator")
             }
 
             val response = try {

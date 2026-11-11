@@ -1121,5 +1121,140 @@ class LaterboxDatabaseTest {
         val matchesAlbum = assetDao.filterAssets("AUDIO", "After Hours").first()
         assertEquals(1, matchesAlbum.size)
     }
+
+    @Test
+    fun testMediaInspectionDao_insertAndCascadeDelete() = runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://instagram.com/p/test_inspect",
+            normalizedUrl = "https://instagram.com/p/test_inspect",
+            title = "Test Post",
+            domain = "instagram.com"
+        )
+        val linkId = linkDao.insertLink(link)
+        val inspectionDao = db.mediaInspectionDao()
+
+        val entity = com.laterbox.app.media.data.db.entity.MediaInspectionEntity(
+            id = "inspect_test_1",
+            savedLinkId = linkId,
+            url = "https://instagram.com/p/test_inspect",
+            status = "COMPLETED",
+            resultJson = """{"type":"Available","platform":"Instagram","candidates":[]}""",
+            createdAt = 1000L,
+            updatedAt = 1000L
+        )
+        inspectionDao.insert(entity)
+
+        val retrieved = inspectionDao.getEntityForLink(linkId)
+        assertNotNull(retrieved)
+        assertEquals("COMPLETED", retrieved?.status)
+        assertEquals(linkId, retrieved?.savedLinkId)
+
+        // Delete link, verify cascade delete removes inspection
+        linkDao.deleteLink(linkId)
+        val afterDelete = inspectionDao.getEntityForLink(linkId)
+        assertNull(afterDelete)
+    }
+
+    @Test
+    fun migration6To7CreatesMediaInspectionAndAddsStageAndThumbnailColumns() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(6) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `saved_links` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `original_url` TEXT NOT NULL,
+                            `normalized_url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `domain` TEXT NOT NULL,
+                            `content_type` TEXT NOT NULL,
+                            `is_read` INTEGER NOT NULL,
+                            `is_archived` INTEGER NOT NULL,
+                            `metadata_status` TEXT NOT NULL,
+                            `retry_count` INTEGER NOT NULL,
+                            `created_at` INTEGER NOT NULL,
+                            `updated_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `download_task` (
+                            `id` TEXT NOT NULL PRIMARY KEY,
+                            `saved_link_id` INTEGER NOT NULL,
+                            `source_url` TEXT NOT NULL,
+                            `source_platform` TEXT NOT NULL,
+                            `media_type` TEXT NOT NULL,
+                            `title` TEXT,
+                            `status` TEXT NOT NULL,
+                            `created_at` INTEGER NOT NULL,
+                            `updated_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `downloaded_asset` (
+                            `id` TEXT NOT NULL PRIMARY KEY,
+                            `saved_link_id` INTEGER NOT NULL,
+                            `source_platform` TEXT NOT NULL,
+                            `original_source_url` TEXT NOT NULL,
+                            `title` TEXT,
+                            `mime_type` TEXT NOT NULL,
+                            `media_type` TEXT NOT NULL,
+                            `local_path` TEXT NOT NULL,
+                            `file_size` INTEGER NOT NULL,
+                            `checksum` TEXT NOT NULL,
+                            `created_at` INTEGER NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+
+        // Insert sample records in v6 schema
+        sqliteDb.execSQL("INSERT INTO `saved_links` (`id`, `original_url`, `normalized_url`, `title`, `domain`, `content_type`, `is_read`, `is_archived`, `metadata_status`, `retry_count`, `created_at`, `updated_at`) VALUES (1, 'https://example.com', 'https://example.com', 'Ex', 'example.com', 'ARTICLE', 0, 0, 'SUCCESS', 0, 1000, 1000)")
+        sqliteDb.execSQL("INSERT INTO `download_task` (`id`, `saved_link_id`, `source_url`, `source_platform`, `media_type`, `status`, `created_at`, `updated_at`) VALUES ('t1', 1, 'https://example.com/v.mp4', 'Direct', 'VIDEO', 'QUEUED', 1000, 1000)")
+        sqliteDb.execSQL("INSERT INTO `downloaded_asset` (`id`, `saved_link_id`, `source_platform`, `original_source_url`, `mime_type`, `media_type`, `local_path`, `file_size`, `checksum`, `created_at`) VALUES ('a1', 1, 'Direct', 'https://example.com/v.mp4', 'video/mp4', 'VIDEO', 'video/a1.mp4', 1000, 'abc', 1000)")
+
+        // Run MIGRATION_6_7
+        LaterboxDatabase.MIGRATION_6_7.migrate(sqliteDb)
+
+        // Verify media_inspection table exists and works
+        sqliteDb.execSQL("INSERT INTO `media_inspection` (`id`, `savedLinkId`, `url`, `status`, `resultJson`, `createdAt`, `updatedAt`) VALUES ('insp1', 1, 'https://example.com', 'COMPLETED', '{}', 1000, 1000)")
+        val inspectCursor = sqliteDb.query("SELECT savedLinkId, status FROM media_inspection WHERE savedLinkId = 1")
+        assertTrue(inspectCursor.moveToFirst())
+        assertEquals(1L, inspectCursor.getLong(0))
+        assertEquals("COMPLETED", inspectCursor.getString(1))
+        inspectCursor.close()
+
+        // Verify stage and stageDetail columns in download_task
+        val taskCursor = sqliteDb.query("SELECT stage, stageDetail FROM download_task WHERE id = 't1'")
+        assertTrue(taskCursor.moveToFirst())
+        assertTrue(taskCursor.isNull(0))
+        assertTrue(taskCursor.isNull(1))
+        taskCursor.close()
+
+        // Verify thumbnailPath in downloaded_asset
+        val assetCursor = sqliteDb.query("SELECT thumbnailPath FROM downloaded_asset WHERE id = 'a1'")
+        assertTrue(assetCursor.moveToFirst())
+        assertTrue(assetCursor.isNull(0))
+        assetCursor.close()
+
+        helper.close()
+    }
 }
 

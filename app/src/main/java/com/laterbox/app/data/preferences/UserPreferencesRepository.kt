@@ -104,7 +104,9 @@ data class UserPreferences(
     val mediaDownloadNetworkPolicy: MediaDownloadNetworkPolicy = MediaDownloadNetworkPolicy.WIFI_OVER_20MB,
     val autoInspectMediaOnSave: Boolean = false,
     val ytDlpVersion: String = "",
-    val lastYtDlpUpdateCheck: Long = 0L
+    val lastYtDlpUpdateCheck: Long = 0L,
+    val customExportDirectoryUri: String? = null,
+    val customExportDirectoryName: String? = null
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 
@@ -199,6 +201,8 @@ class UserPreferencesRepository(private val context: Context) {
         val AUTO_INSPECT_MEDIA_ON_SAVE = booleanPreferencesKey("auto_inspect_media_on_save")
         val YTDLP_VERSION = stringPreferencesKey("ytdlp_version")
         val LAST_YTDLP_UPDATE_CHECK = longPreferencesKey("last_ytdlp_update_check")
+        val CUSTOM_EXPORT_DIRECTORY_URI = stringPreferencesKey("custom_export_directory_uri")
+        val CUSTOM_EXPORT_DIRECTORY_NAME = stringPreferencesKey("custom_export_directory_name")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -361,7 +365,9 @@ class UserPreferencesRepository(private val context: Context) {
             mediaDownloadNetworkPolicy = mediaDownloadNetworkPolicy,
             autoInspectMediaOnSave = autoInspectMediaOnSave,
             ytDlpVersion = ytDlpVersion,
-            lastYtDlpUpdateCheck = lastYtDlpUpdateCheck
+            lastYtDlpUpdateCheck = lastYtDlpUpdateCheck,
+            customExportDirectoryUri = preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_URI],
+            customExportDirectoryName = preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME]
         )
     }
 
@@ -611,6 +617,28 @@ class UserPreferencesRepository(private val context: Context) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.YTDLP_VERSION] = version
             preferences[PreferencesKeys.LAST_YTDLP_UPDATE_CHECK] = timestamp
+        }
+    }
+
+    suspend fun setCustomExportDirectory(uriString: String?, displayName: String?) {
+        context.userDataStore.edit { preferences ->
+            if (uriString != null) {
+                preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_URI] = uriString
+            } else {
+                preferences.remove(PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_URI)
+            }
+            if (displayName != null) {
+                preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME] = displayName
+            } else {
+                preferences.remove(PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME)
+            }
+        }
+    }
+
+    suspend fun clearCustomExportDirectory() {
+        context.userDataStore.edit { preferences ->
+            preferences.remove(PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_URI)
+            preferences.remove(PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME)
         }
     }
 }

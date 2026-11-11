@@ -47,7 +47,8 @@ data class DownloadedAssetEntity(
     val album: String? = null,
     val artworkUrl: String? = null,
     val spotifyTrackId: String? = null,
-    val versionTag: String? = null
+    val versionTag: String? = null,
+    val thumbnailPath: String? = null
 ) {
     fun toDomain(): MediaAsset = MediaAsset(
         id = id,
@@ -71,7 +72,8 @@ data class DownloadedAssetEntity(
         album = album,
         artworkUrl = artworkUrl,
         spotifyTrackId = spotifyTrackId,
-        versionTag = versionTag
+        versionTag = versionTag,
+        thumbnailPath = thumbnailPath
     )
 
     companion object {
@@ -97,7 +99,8 @@ data class DownloadedAssetEntity(
             album = asset.album,
             artworkUrl = asset.artworkUrl,
             spotifyTrackId = asset.spotifyTrackId,
-            versionTag = asset.versionTag
+            versionTag = asset.versionTag,
+            thumbnailPath = asset.thumbnailPath
         )
     }
 }

@@ -387,5 +387,17 @@ class SettingsViewModel(
             }
         }
     }
+
+    fun setCustomExportDirectory(uri: String, name: String) {
+        viewModelScope.launch {
+            userPreferencesRepository.setCustomExportDirectory(uri, name)
+        }
+    }
+
+    fun clearCustomExportDirectory() {
+        viewModelScope.launch {
+            userPreferencesRepository.clearCustomExportDirectory()
+        }
+    }
 }
 

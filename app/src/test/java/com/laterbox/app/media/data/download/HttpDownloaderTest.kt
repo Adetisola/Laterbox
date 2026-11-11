@@ -50,7 +50,7 @@ class HttpDownloaderTest {
         val result = downloader.download(
             url = server.url("/media.bin").toString(),
             destinationFile = destFile,
-            onProgress = { _, _, percent ->
+            onProgress = { _, _, percent, _ ->
                 progressUpdates.add(percent)
             }
         )
@@ -84,7 +84,7 @@ class HttpDownloaderTest {
         val result = downloader.download(
             url = server.url("/resumable_media.mp4").toString(),
             destinationFile = destFile,
-            onProgress = { _, _, _ -> }
+            onProgress = { _, _, _, _ -> }
         )
 
         val recordedRequest = server.takeRequest()
@@ -104,7 +104,7 @@ class HttpDownloaderTest {
         val result = downloader.download(
             url = server.url("/missing.jpg").toString(),
             destinationFile = destFile,
-            onProgress = { _, _, _ -> }
+            onProgress = { _, _, _, _ -> }
         )
 
         assertTrue(result is DownloadResult.Failure)

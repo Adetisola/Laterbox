@@ -28,11 +28,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+import com.laterbox.app.media.data.inspection.MediaInspectionManager
+
 class MediaRepositoryImpl(
     private val context: Context,
     private val assetDao: DownloadedAssetDao,
     private val taskDao: DownloadTaskDao,
-    private val storageManager: MediaStorageManager = MediaStorageManager(context)
+    private val storageManager: MediaStorageManager = MediaStorageManager(context),
+    private val inspectionManager: MediaInspectionManager? = null
 ) : MediaRepository {
 
     override fun getAssetsForLink(linkId: Long): Flow<List<MediaAsset>> {
@@ -175,6 +178,7 @@ class MediaRepositoryImpl(
         val refCount = assetDao.countByLocalPath(asset.localPath)
         assetDao.deleteAssetById(assetId)
         storageManager.deletePhysicalFileIfUnreferenced(asset.localPath, refCount)
+        storageManager.deleteThumbnailFile(asset.thumbnailPath)
     }
 
     override suspend fun deleteAssetsForLink(linkId: Long, deleteFiles: Boolean): Unit = withContext(Dispatchers.IO) {
@@ -184,6 +188,7 @@ class MediaRepositoryImpl(
                 val refCount = assetDao.countByLocalPath(asset.localPath)
                 assetDao.deleteAssetById(asset.id)
                 storageManager.deletePhysicalFileIfUnreferenced(asset.localPath, refCount)
+                storageManager.deleteThumbnailFile(asset.thumbnailPath)
             }
         }
         taskDao.deleteTasksForLink(linkId)
@@ -210,7 +215,11 @@ class MediaRepositoryImpl(
         }
     }
 
-    private val mediaStoreExporter = MediaStoreExporter(context, storageManager)
+    private val mediaStoreExporter = MediaStoreExporter(
+        context = context,
+        storageManager = storageManager,
+        userPreferencesRepository = com.laterbox.app.data.preferences.UserPreferencesRepository(context)
+    )
 
     override suspend fun exportAsset(assetId: String): Result<String> = withContext(Dispatchers.IO) {
         val assetEntity = assetDao.getEntityById(assetId)
@@ -242,5 +251,26 @@ class MediaRepositoryImpl(
             ExistingWorkPolicy.REPLACE,
             request
         )
+    }
+
+    override fun getInspectionForLink(linkId: Long): Flow<com.laterbox.app.media.domain.model.InspectionResult?> {
+        return inspectionManager?.getInspectionResultForLink(linkId) ?: kotlinx.coroutines.flow.flowOf(null)
+    }
+
+    override fun isInspectingLink(linkId: Long): Flow<Boolean> {
+        return inspectionManager?.isInspectingFlow(linkId) ?: kotlinx.coroutines.flow.flowOf(false)
+    }
+
+    override fun startInspection(
+        linkId: Long,
+        url: String,
+        previewImageUrl: String?,
+        forceRefresh: Boolean
+    ) {
+        inspectionManager?.startInspection(linkId, url, previewImageUrl, forceRefresh)
+    }
+
+    override suspend fun cancelInspection(linkId: Long) {
+        inspectionManager?.cancelInspection(linkId)
     }
 }

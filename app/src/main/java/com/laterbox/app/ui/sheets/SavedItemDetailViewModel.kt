@@ -54,15 +54,20 @@ class SavedItemDetailViewModel(
     private val _editedNote = MutableStateFlow("")
     private val _selectedCollectionIds = MutableStateFlow<Set<Long>>(emptySet())
     private val _isSaving = MutableStateFlow(false)
-    private val _inspectionResult = MutableStateFlow<InspectionResult?>(null)
-    private val _isInspecting = MutableStateFlow(false)
-
     private val _assets = _currentLink.flatMapLatest { link ->
         if (link == null) flowOf(emptyList()) else mediaRepository.getAssetsForLink(link.id)
     }
 
     private val _tasks = _currentLink.flatMapLatest { link ->
         if (link == null) flowOf(emptyList()) else mediaRepository.getTasksForLink(link.id)
+    }
+
+    private val _inspectionResult = _currentLink.flatMapLatest { link ->
+        if (link == null) flowOf(null) else mediaRepository.getInspectionForLink(link.id)
+    }
+
+    private val _isInspecting = _currentLink.flatMapLatest { link ->
+        if (link == null) flowOf(false) else mediaRepository.isInspectingLink(link.id)
     }
 
     val uiState: StateFlow<SavedItemDetailUiState> = combine(
@@ -98,8 +103,6 @@ class SavedItemDetailViewModel(
         _editedTitle.value = link.title
         _editedNote.value = link.personalNote.orEmpty()
         _selectedCollectionIds.value = link.collectionIds.toSet()
-        _inspectionResult.value = null
-        _isInspecting.value = false
     }
 
     fun onTitleChange(newTitle: String) {
@@ -239,28 +242,19 @@ class SavedItemDetailViewModel(
     }
 
     // Media library actions
-    fun inspectLink() {
+    fun inspectLink(forceRefresh: Boolean = false) {
         val link = _currentLink.value ?: return
-        viewModelScope.launch {
-            _isInspecting.value = true
-            try {
-                val result = platformResolver.resolveAndInspect(link.originalUrl)
-                _inspectionResult.value = result
-            } catch (t: Throwable) {
-                _inspectionResult.value = InspectionResult.Failed(
-                    code = com.laterbox.app.media.domain.model.FailureCode.UNKNOWN,
-                    message = t.localizedMessage ?: "Failed to inspect",
-                    retryable = true
-                )
-            } finally {
-                _isInspecting.value = false
-            }
-        }
+        mediaRepository.startInspection(
+            linkId = link.id,
+            url = link.originalUrl,
+            previewImageUrl = link.previewImageUrl,
+            forceRefresh = forceRefresh
+        )
     }
 
     fun downloadCandidate(candidate: MediaCandidate) {
         val link = _currentLink.value ?: return
-        val available = _inspectionResult.value as? InspectionResult.Available
+        val available = uiState.value.inspectionResult as? InspectionResult.Available
         val platform = available?.platform ?: "Direct"
         val title = available?.title ?: link.title
 
@@ -291,6 +285,12 @@ class SavedItemDetailViewModel(
     fun cancelTask(taskId: String) {
         viewModelScope.launch {
             mediaRepository.cancelDownload(taskId)
+        }
+    }
+
+    fun dismissTask(taskId: String) {
+        viewModelScope.launch {
+            mediaRepository.dismissTask(taskId)
         }
     }
 

@@ -144,22 +144,41 @@ fun QueueTaskCard(
 
             when (task.status) {
                 DownloadState.DOWNLOADING, DownloadState.PROCESSING -> {
-                    LinearProgressIndicator(
-                        progress = { task.progress / 100f },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp),
-                        color = colors.accentPrimary,
-                        trackColor = colors.surfaceSecondary
-                    )
+                    val stage = task.stage
+                    val isIndeterminate = stage?.isIndeterminate == true || (task.progress <= 0 && task.status != DownloadState.DOWNLOADING)
+                    if (isIndeterminate) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp),
+                            color = colors.accentPrimary,
+                            trackColor = colors.surfaceSecondary
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { (task.progress.coerceIn(0, 100)) / 100f },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp),
+                            color = colors.accentPrimary,
+                            trackColor = colors.surfaceSecondary
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val stageLabel = stage?.label ?: if (task.status == DownloadState.PROCESSING) "Processing..." else "Downloading..."
+                        val detail = if (!task.stageDetail.isNullOrBlank()) " · ${task.stageDetail}" else ""
+                        val progressText = if (isIndeterminate) {
+                            "$stageLabel$detail"
+                        } else {
+                            "$stageLabel · ${task.progress}% · ${formatBytes(task.downloadedBytes)}$detail"
+                        }
                         Text(
-                            text = if (task.status == DownloadState.PROCESSING) "Processing..." else "${task.progress}% · ${formatBytes(task.downloadedBytes)}",
+                            text = progressText,
                             style = MaterialTheme.typography.labelSmall,
                             color = colors.textSecondary
                         )
@@ -205,30 +224,63 @@ fun QueueTaskCard(
                 }
 
                 DownloadState.FAILED -> {
+                    val errorMsg = task.errorMessage ?: task.errorCode?.userMessage ?: "Download error"
                     Text(
-                        text = "Failed: ${task.errorCode ?: "Unknown error"}",
+                        text = "Failed: $errorMsg",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedButton(
-                        onClick = onRetryTask,
-                        shape = LaterboxShapeTokens.PillNav
-                    ) {
-                        Icon(
-                            painter = painterResource(LaterboxIcons.Refresh),
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = colors.accentPrimary
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "Retry", color = colors.accentPrimary)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onRetryTask,
+                            shape = LaterboxShapeTokens.PillNav
+                        ) {
+                            Icon(
+                                painter = painterResource(LaterboxIcons.Refresh),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = colors.accentPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Retry", color = colors.accentPrimary)
+                        }
+                        TextButton(onClick = onDismissTask) {
+                            Text(text = "Dismiss", color = colors.textSecondary)
+                        }
+                    }
+                }
+
+                DownloadState.CANCELLED -> {
+                    Text(
+                        text = "Download cancelled",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onRetryTask,
+                            shape = LaterboxShapeTokens.PillNav
+                        ) {
+                            Icon(
+                                painter = painterResource(LaterboxIcons.Refresh),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = colors.accentPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "Retry", color = colors.accentPrimary)
+                        }
+                        TextButton(onClick = onDismissTask) {
+                            Text(text = "Dismiss", color = colors.textSecondary)
+                        }
                     }
                 }
 
                 DownloadState.QUEUED, DownloadState.INSPECTING, DownloadState.READY -> {
                     Text(
-                        text = "Queued...",
+                        text = task.stage?.label ?: "Queued...",
                         style = MaterialTheme.typography.bodySmall,
                         color = colors.textSecondary
                     )

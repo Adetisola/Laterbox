@@ -43,4 +43,9 @@ interface MediaRepository {
     suspend fun deleteAssetsForLink(linkId: Long, deleteFiles: Boolean)
     suspend fun runOrphanSweep()
     suspend fun recoverInterruptedTasks()
+
+    fun getInspectionForLink(linkId: Long): Flow<com.laterbox.app.media.domain.model.InspectionResult?>
+    fun isInspectingLink(linkId: Long): Flow<Boolean>
+    fun startInspection(linkId: Long, url: String, previewImageUrl: String? = null, forceRefresh: Boolean = false)
+    suspend fun cancelInspection(linkId: Long)
 }
