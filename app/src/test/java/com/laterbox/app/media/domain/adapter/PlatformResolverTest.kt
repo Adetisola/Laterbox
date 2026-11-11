@@ -17,6 +17,7 @@ class PlatformResolverTest {
     private class FakeAdapter(
         override val id: String,
         private val handles: (String) -> Boolean,
+        override val inspectionTimeoutMs: Long = 30_000L,
         private val resultProvider: suspend (String) -> InspectionResult
     ) : MediaPlatformAdapter {
         override fun canHandle(url: String): Boolean = handles(url)
@@ -28,6 +29,7 @@ class PlatformResolverTest {
         val adapter1 = FakeAdapter(
             id = "adapter_direct",
             handles = { it.endsWith(".mp4") },
+            inspectionTimeoutMs = 15_000L,
             resultProvider = {
                 InspectionResult.Available(
                     platform = "Direct",
@@ -52,6 +54,7 @@ class PlatformResolverTest {
         val adapter2 = FakeAdapter(
             id = "adapter_metadata",
             handles = { it.contains("spotify") },
+            inspectionTimeoutMs = 30_000L,
             resultProvider = {
                 InspectionResult.MetadataOnly(
                     title = "Spotify Track",
@@ -83,25 +86,50 @@ class PlatformResolverTest {
     }
 
     @Test
-    fun platformResolver_timesOutWhenAdapterExceeds30Seconds() = runBlocking {
+    fun platformResolver_enforcesPerAdapterTimeout_producingExtractionTimeout() = runBlocking {
         val slowAdapter = FakeAdapter(
             id = "slow_adapter",
             handles = { true },
+            inspectionTimeoutMs = 50L,
             resultProvider = {
-                // Simulates hanging inspection exceeding timeout
                 delay(200L)
                 InspectionResult.Unsupported("Done")
             }
         )
 
         val registry = AdapterRegistry(listOf(slowAdapter))
-        val resolver = PlatformResolver(registry, timeoutMs = 50L)
+        val resolver = PlatformResolver(registry)
 
         val result = resolver.resolveAndInspect("https://slow.com")
         assertTrue("Must fail with timeout", result is InspectionResult.Failed)
         val failed = result as InspectionResult.Failed
-        assertEquals(FailureCode.NETWORK_ERROR, failed.code)
+        assertEquals(FailureCode.EXTRACTION_TIMEOUT, failed.code)
         assertTrue(failed.retryable)
+    }
+
+    @Test
+    fun platformResolver_doesNotPrematurelyCancelLongerBudgetAdapter() = runBlocking {
+        val longBudgetAdapter = FakeAdapter(
+            id = "long_budget_adapter",
+            handles = { true },
+            inspectionTimeoutMs = 200L,
+            resultProvider = {
+                delay(50L) // Completes after 50ms, well within 200ms
+                InspectionResult.Available(
+                    platform = "YouTube",
+                    title = "Long Video",
+                    thumbnailUrl = null,
+                    candidates = emptyList()
+                )
+            }
+        )
+
+        val registry = AdapterRegistry(listOf(longBudgetAdapter))
+        val resolver = PlatformResolver(registry)
+
+        val result = resolver.resolveAndInspect("https://youtube.com/watch?v=123")
+        assertTrue("Must succeed within budget", result is InspectionResult.Available)
+        assertEquals("YouTube", (result as InspectionResult.Available).platform)
     }
 
     @Test

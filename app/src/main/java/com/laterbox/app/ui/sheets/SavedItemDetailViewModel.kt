@@ -257,6 +257,13 @@ class SavedItemDetailViewModel(
         inspectLink(forceRefresh = true)
     }
 
+    fun cancelInspection() {
+        val link = _currentLink.value ?: return
+        viewModelScope.launch {
+            mediaRepository.cancelInspection(link.id)
+        }
+    }
+
     fun downloadCandidate(candidate: MediaCandidate) {
         val link = _currentLink.value ?: return
         val available = uiState.value.inspectionResult as? InspectionResult.Available

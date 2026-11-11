@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +79,7 @@ fun MediaSection(
     isInspecting: Boolean,
     onInspectClick: () -> Unit,
     onRetryClick: () -> Unit = onInspectClick,
+    onCancelInspection: () -> Unit = {},
     onDownloadCandidate: (MediaCandidate) -> Unit,
     onOpenAsset: (MediaAsset) -> Unit,
     onExportAsset: (MediaAsset) -> Unit,
@@ -178,6 +181,14 @@ fun MediaSection(
 
         // 3. Inspection State & Candidates
         if (isInspecting) {
+            val isYouTube = remember(linkUrl) {
+                try {
+                    val host = java.net.URI(linkUrl).host?.lowercase() ?: ""
+                    host.contains("youtube.com") || host.contains("youtu.be")
+                } catch (_: Exception) {
+                    false
+                }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -190,11 +201,32 @@ fun MediaSection(
                     color = colors.accentPrimary
                 )
                 Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = "Checking media availability...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.textSecondary
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Checking media availability...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textPrimary
+                    )
+                    if (isYouTube) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "YouTube extraction may take up to a minute",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(
+                    onClick = onCancelInspection,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "Cancel",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.accentPrimary
+                    )
+                }
             }
         } else if (inspectionResult == null) {
             LaterboxSecondaryButton(

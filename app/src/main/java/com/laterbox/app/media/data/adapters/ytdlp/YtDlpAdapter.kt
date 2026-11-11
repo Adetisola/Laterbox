@@ -27,10 +27,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 class YtDlpAdapter(
     private val appContext: Context,
     private val runtimeManager: YtDlpRuntimeManager = (appContext.applicationContext as? LaterboxApplication)?.container?.ytDlpRuntimeManager ?: YtDlpRuntimeManager(appContext),
-    private val customExecutor: ((YoutubeDLRequest) -> YoutubeDLResponse)? = null
+    private val customExecutor: ((YoutubeDLRequest) -> YoutubeDLResponse)? = null,
+    private val timeoutMs: Long = DEFAULT_INSPECTION_TIMEOUT_MS
 ) : MediaPlatformAdapter {
 
     override val id: String = "ytdlp"
+    override val inspectionTimeoutMs: Long = timeoutMs
 
     override fun canHandle(url: String): Boolean {
         val host = try {
@@ -56,7 +58,17 @@ class YtDlpAdapter(
 
     override suspend fun inspect(url: String): InspectionResult = inspect(url, null)
 
-    override suspend fun inspect(url: String, processId: String?): InspectionResult = withContext(Dispatchers.IO) {
+    override suspend fun inspect(url: String, processId: String?): InspectionResult =
+        inspectInternal(url, processId, timeoutMs = null)
+
+    suspend fun inspect(url: String, processId: String?, timeoutMs: Long?): InspectionResult =
+        inspectInternal(url, processId, timeoutMs)
+
+    private suspend fun inspectInternal(
+        url: String,
+        processId: String?,
+        timeoutMs: Long?
+    ): InspectionResult = withContext(Dispatchers.IO) {
         val inspectionId = processId ?: "inspect_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         try {
             if (customExecutor == null) {
@@ -86,17 +98,17 @@ class YtDlpAdapter(
                 } else {
                     addOption("--yes-playlist")
                 }
-                addOption("--socket-timeout", "15")
+                addOption("--socket-timeout", "30")
                 addOption("--cache-dir", YtDlpOptimizer.getCacheDir(appContext).absolutePath)
                 addOption("--extractor-args", "youtube:player_client=default")
             }
 
             val response = try {
-                executeCancellable(request, inspectionId, timeoutMs = 25_000L)
+                executeCancellable(request, inspectionId, timeoutMs = timeoutMs)
             } catch (te: TimeoutCancellationException) {
                 return@withContext InspectionResult.Failed(
                     code = FailureCode.EXTRACTION_TIMEOUT,
-                    message = "Media inspection timed out after 25 seconds.",
+                    message = "Media inspection timed out after ${(timeoutMs ?: inspectionTimeoutMs) / 1000} seconds.",
                     retryable = true
                 )
             } catch (ce: CancellationException) {
@@ -126,18 +138,15 @@ class YtDlpAdapter(
     private suspend fun executeCancellable(
         request: YoutubeDLRequest,
         processId: String,
-        timeoutMs: Long
+        timeoutMs: Long? = null
     ): YoutubeDLResponse = coroutineScope {
-        if (customExecutor != null) {
-            return@coroutineScope withTimeout(timeoutMs) {
-                customExecutor.invoke(request)
-            }
-        }
-
         val isCancelled = AtomicBoolean(false)
         val deferred = async(Dispatchers.IO) {
             if (isCancelled.get() || cancelledProcessIds.contains(processId)) {
                 throw CancellationException("Process $processId was cancelled prior to execution")
+            }
+            if (customExecutor != null) {
+                return@async customExecutor.invoke(request)
             }
             try {
                 YoutubeDL.getInstance().execute(request, processId)
@@ -158,7 +167,11 @@ class YtDlpAdapter(
         }
 
         try {
-            withTimeout(timeoutMs) {
+            if (timeoutMs != null) {
+                withTimeout(timeoutMs) {
+                    deferred.await()
+                }
+            } else {
                 deferred.await()
             }
         } catch (t: Throwable) {
@@ -175,6 +188,7 @@ class YtDlpAdapter(
     }
 
     companion object {
+        const val DEFAULT_INSPECTION_TIMEOUT_MS = 90_000L
         private val cancelledProcessIds = ConcurrentHashMap.newKeySet<String>()
     }
 }

@@ -14,6 +14,7 @@ class MetadataOnlyAdapter(
 ) : MediaPlatformAdapter {
 
     override val id: String = "metadata_only"
+    override val inspectionTimeoutMs: Long = 15_000L
 
     override fun canHandle(url: String): Boolean {
         val host = try {

@@ -17,6 +17,7 @@ class SpotifyMusicAdapter(
 ) : MediaPlatformAdapter {
 
     override val id: String = "spotify"
+    override val inspectionTimeoutMs: Long = 30_000L
 
     override fun canHandle(url: String): Boolean {
         return SpotifyUrlParser.isSpotifyUrl(url)

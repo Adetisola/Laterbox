@@ -113,4 +113,30 @@ class YtDlpAdapterTest {
             assertEquals("Test cancellation", ce.message)
         }
     }
+
+    @Test
+    fun adapterInspectionTimeoutMs_defaultsTo90Seconds() {
+        val adapter = YtDlpAdapter(context)
+        assertEquals(90_000L, adapter.inspectionTimeoutMs)
+    }
+
+    @Test
+    fun adapterInspectionTimeoutMs_isConfigurable() {
+        val adapter = YtDlpAdapter(context, timeoutMs = 120_000L)
+        assertEquals(120_000L, adapter.inspectionTimeoutMs)
+    }
+
+    @Test
+    fun inspect_withExplicitTimeout_timesOutAndProducesExtractionTimeout() = runBlocking {
+        val adapter = YtDlpAdapter(context, customExecutor = {
+            Thread.sleep(200L)
+            YoutubeDLResponse(emptyList(), 0, 0L, "{}", "")
+        })
+
+        val result = adapter.inspect("https://youtube.com/watch?v=timeout_id", processId = "proc1", timeoutMs = 50L)
+        assertTrue(result is InspectionResult.Failed)
+        val failed = result as InspectionResult.Failed
+        assertEquals(FailureCode.EXTRACTION_TIMEOUT, failed.code)
+        assertTrue(failed.retryable)
+    }
 }

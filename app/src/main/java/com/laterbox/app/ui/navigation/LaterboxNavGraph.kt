@@ -560,6 +560,7 @@ fun LaterboxApp(
             },
             onInspectMedia = { savedItemDetailViewModel.inspectLink(forceRefresh = false) },
             onRetryInspection = { savedItemDetailViewModel.retryInspection() },
+            onCancelInspection = savedItemDetailViewModel::cancelInspection,
             onDownloadCandidate = savedItemDetailViewModel::downloadCandidate,
             onOpenMediaAsset = { asset ->
                 when (asset.mediaType) {

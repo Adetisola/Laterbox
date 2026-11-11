@@ -18,19 +18,20 @@ class AdapterRegistry(
 
 class PlatformResolver(
     private val registry: AdapterRegistry,
-    private val timeoutMs: Long = 30_000L
+    private val fallbackTimeoutMs: Long = 30_000L
 ) {
     suspend fun resolveAndInspect(url: String, processId: String? = null): InspectionResult = withContext(Dispatchers.IO) {
         val adapter = registry.findAdapter(url)
             ?: return@withContext InspectionResult.Unsupported("No adapter found to handle $url")
 
+        val deadlineMs = adapter.inspectionTimeoutMs.takeIf { it > 0 } ?: fallbackTimeoutMs
         try {
-            val result = withTimeoutOrNull(timeoutMs) {
+            val result = withTimeoutOrNull(deadlineMs) {
                 adapter.inspect(url, processId)
             }
             result ?: InspectionResult.Failed(
-                code = FailureCode.NETWORK_ERROR,
-                message = "Media inspection timed out after ${timeoutMs / 1000} seconds",
+                code = FailureCode.EXTRACTION_TIMEOUT,
+                message = "Media inspection timed out after ${deadlineMs / 1000} seconds",
                 retryable = true
             )
         } catch (ce: kotlinx.coroutines.CancellationException) {

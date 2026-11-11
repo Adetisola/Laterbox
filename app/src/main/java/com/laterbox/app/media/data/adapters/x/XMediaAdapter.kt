@@ -23,6 +23,8 @@ class XMediaAdapter(
     )
 
     override val id: String = "x_twitter"
+    override val inspectionTimeoutMs: Long
+        get() = fallbackYtDlpAdapter?.inspectionTimeoutMs ?: 25_000L
 
     private val statusRegex = Regex("""/status/(\d+)""", RegexOption.IGNORE_CASE)
 

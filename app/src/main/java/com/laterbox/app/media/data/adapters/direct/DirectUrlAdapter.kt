@@ -25,6 +25,7 @@ class DirectUrlAdapter(
 ) : MediaPlatformAdapter {
 
     override val id: String = "direct_url"
+    override val inspectionTimeoutMs: Long = 15_000L
 
     private val directExtensions = mapOf(
         // Images
