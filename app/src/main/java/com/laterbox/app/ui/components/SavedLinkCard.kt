@@ -61,7 +61,8 @@ fun SavedLinkCard(
     shape: androidx.compose.ui.graphics.Shape = LaterboxShapeTokens.Card,
     onToggleRead: (() -> Unit)? = null,
     onArchive: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null
+    onDelete: (() -> Unit)? = null,
+    isMediaReady: Boolean = false
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -163,6 +164,11 @@ fun SavedLinkCard(
                     Spacer(modifier = Modifier.width(8.dp))
 
                     ContentTypeBadge(contentType = link.contentType)
+
+                    if (isMediaReady) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        MediaReadyBadge()
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(LaterboxTheme.spacing.xs))
@@ -396,6 +402,43 @@ fun SavedLinkCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun MediaReadyBadge(modifier: Modifier = Modifier) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
+    Box(
+        modifier = modifier
+            .clip(LaterboxShapeTokens.Badge)
+            .background(colors.accentPrimary.copy(alpha = 0.12f))
+            .border(
+                width = spacing.hairline,
+                color = colors.accentPrimary.copy(alpha = 0.35f),
+                shape = LaterboxShapeTokens.Badge
+            )
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Icon(
+                painter = painterResource(LaterboxIcons.Download),
+                contentDescription = null,
+                tint = colors.accentPrimary,
+                modifier = Modifier.size(10.dp)
+            )
+            Text(
+                text = "Media ready",
+                style = typography.caption.copy(fontWeight = FontWeight.SemiBold, fontSize = 10.sp),
+                color = colors.accentPrimary
+            )
         }
     }
 }

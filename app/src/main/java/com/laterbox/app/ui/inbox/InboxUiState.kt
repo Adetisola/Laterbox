@@ -16,7 +16,8 @@ data class InboxUiState(
     val viewMode: InboxViewMode = InboxViewMode.HERO,
     val hasCompletedOnboarding: Boolean = true,
     val clipboardSuggestion: ClipboardSuggestion? = null,
-    val unreadNotificationCount: Int = 0
+    val unreadNotificationCount: Int = 0,
+    val mediaReadyLinkIds: Set<Long> = emptySet()
 ) {
     val isEmpty: Boolean
         get() = !isLoading && links.isEmpty() && searchQuery.isBlank() && activeFilterType == null && activeDateRangeFilter == DateRangeFilter.ALL

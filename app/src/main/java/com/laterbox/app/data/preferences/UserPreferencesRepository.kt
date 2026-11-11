@@ -103,6 +103,7 @@ data class UserPreferences(
     val dismissedUpdateTimestamp: Long = 0L,
     val mediaDownloadNetworkPolicy: MediaDownloadNetworkPolicy = MediaDownloadNetworkPolicy.WIFI_OVER_20MB,
     val autoInspectMediaOnSave: Boolean = true,
+    val fastEngineEnabled: Boolean = true,
     val ytDlpVersion: String = "",
     val lastYtDlpUpdateCheck: Long = 0L,
     val customExportDirectoryUri: String? = null,
@@ -199,6 +200,7 @@ class UserPreferencesRepository(private val context: Context) {
         val DISMISSED_UPDATE_TIMESTAMP = longPreferencesKey("dismissed_update_timestamp")
         val MEDIA_DOWNLOAD_NETWORK_POLICY = stringPreferencesKey("media_download_network_policy")
         val AUTO_INSPECT_MEDIA_ON_SAVE = booleanPreferencesKey("auto_inspect_media_on_save")
+        val FAST_ENGINE_ENABLED = booleanPreferencesKey("fast_engine_enabled")
         val YTDLP_VERSION = stringPreferencesKey("ytdlp_version")
         val LAST_YTDLP_UPDATE_CHECK = longPreferencesKey("last_ytdlp_update_check")
         val CUSTOM_EXPORT_DIRECTORY_URI = stringPreferencesKey("custom_export_directory_uri")
@@ -321,6 +323,7 @@ class UserPreferencesRepository(private val context: Context) {
             MediaDownloadNetworkPolicy.WIFI_OVER_20MB
         }
         val autoInspectMediaOnSave = preferences[PreferencesKeys.AUTO_INSPECT_MEDIA_ON_SAVE] ?: true
+        val fastEngineEnabled = preferences[PreferencesKeys.FAST_ENGINE_ENABLED] ?: true
         val ytDlpVersion = preferences[PreferencesKeys.YTDLP_VERSION] ?: ""
         val lastYtDlpUpdateCheck = preferences[PreferencesKeys.LAST_YTDLP_UPDATE_CHECK] ?: 0L
 
@@ -364,6 +367,7 @@ class UserPreferencesRepository(private val context: Context) {
             dismissedUpdateTimestamp = dismissedUpdateTimestamp,
             mediaDownloadNetworkPolicy = mediaDownloadNetworkPolicy,
             autoInspectMediaOnSave = autoInspectMediaOnSave,
+            fastEngineEnabled = fastEngineEnabled,
             ytDlpVersion = ytDlpVersion,
             lastYtDlpUpdateCheck = lastYtDlpUpdateCheck,
             customExportDirectoryUri = preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_URI],
@@ -610,6 +614,12 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setAutoInspectMediaOnSave(enabled: Boolean) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.AUTO_INSPECT_MEDIA_ON_SAVE] = enabled
+        }
+    }
+
+    suspend fun setFastEngineEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.FAST_ENGINE_ENABLED] = enabled
         }
     }
 

@@ -639,4 +639,91 @@ class YtDlpOutputParserTest {
         assertTrue(result is InspectionResult.Failed)
         assertEquals(FailureCode.EXTRACTOR_BROKEN, (result as InspectionResult.Failed).code)
     }
+
+    @Test
+    fun parseError_errno7AndDnsFailures_mappedToNetworkError() {
+        val err1 = "ERROR: [youtube] 12345: Unable to download webpage: <urlopen error [Errno 7] No address associated with hostname>"
+        val res1 = YtDlpOutputParser.parseError(err1)
+        assertTrue(res1 is InspectionResult.Failed)
+        assertEquals(FailureCode.NETWORK_ERROR, (res1 as InspectionResult.Failed).code)
+        assertTrue((res1 as InspectionResult.Failed).retryable)
+
+        val err2 = "ERROR: Unable to download API page: <urlopen error [Errno -3] Temporary failure in name resolution>"
+        val res2 = YtDlpOutputParser.parseError(err2)
+        assertTrue(res2 is InspectionResult.Failed)
+        assertEquals(FailureCode.NETWORK_ERROR, (res2 as InspectionResult.Failed).code)
+        assertTrue((res2 as InspectionResult.Failed).retryable)
+
+        val err3 = "socket.gaierror: [Errno 7] No address associated with hostname"
+        val res3 = YtDlpOutputParser.parseError(err3)
+        assertTrue(res3 is InspectionResult.Failed)
+        assertEquals(FailureCode.NETWORK_ERROR, (res3 as InspectionResult.Failed).code)
+        assertTrue((res3 as InspectionResult.Failed).retryable)
+    }
+
+    @Test
+    fun attachPreviewImageFallback_doesNotConvertFailureToAvailable() {
+        val failed = InspectionResult.Failed(FailureCode.NETWORK_ERROR, "Network down", retryable = true)
+        val previewUrl = "https://example.com/og_image.jpg"
+        val res = YtDlpOutputParser.attachPreviewImageFallback(failed, previewUrl)
+
+        assertTrue("Failure must remain Failed and not converted to Available", res is InspectionResult.Failed)
+        val failedRes = res as InspectionResult.Failed
+        assertEquals(FailureCode.NETWORK_ERROR, failedRes.code)
+        assertNotNull(failedRes.previewCandidate)
+        assertEquals("Preview image only", failedRes.previewCandidate?.formatLabel)
+        assertEquals(previewUrl, (failedRes.previewCandidate?.source as com.laterbox.app.media.domain.model.AcquisitionSource.DirectHttp).url)
+
+        val unsupported = InspectionResult.Unsupported("No formats")
+        val resUnsupported = YtDlpOutputParser.attachPreviewImageFallback(unsupported, previewUrl)
+        assertTrue("Unsupported must remain Unsupported", resUnsupported is InspectionResult.Unsupported)
+        assertNotNull((resUnsupported as InspectionResult.Unsupported).previewCandidate)
+    }
+
+    @Test
+    fun mergeResults_combinesCandidates_deduplicatesByFormatId_andSetsIsComplete() {
+        val candidate1 = com.laterbox.app.media.domain.model.MediaCandidate(
+            candidateId = "c1",
+            mediaType = MediaType.VIDEO,
+            formatLabel = "720p",
+            estimatedBytes = 1000000L,
+            durationMs = 60000L,
+            width = 1280,
+            height = 720,
+            source = com.laterbox.app.media.domain.model.AcquisitionSource.DirectHttp("https://vid1.mp4"),
+            formatId = "format_720"
+        )
+        val candidate2 = com.laterbox.app.media.domain.model.MediaCandidate(
+            candidateId = "c2",
+            mediaType = MediaType.VIDEO,
+            formatLabel = "1080p",
+            estimatedBytes = 2000000L,
+            durationMs = 60000L,
+            width = 1920,
+            height = 1080,
+            source = com.laterbox.app.media.domain.model.AcquisitionSource.DirectHttp("https://vid2.mp4"),
+            formatId = "format_1080"
+        )
+        val duplicateCandidate1 = candidate1.copy(candidateId = "c1_dup", formatLabel = "720p Duplicate")
+
+        val stage1 = InspectionResult.Available(
+            platform = "YouTube",
+            title = "Fast Stage Title",
+            candidates = listOf(candidate1),
+            isComplete = false
+        )
+        val stage2 = InspectionResult.Available(
+            platform = "YouTube",
+            title = "Complete Stage Title",
+            candidates = listOf(duplicateCandidate1, candidate2),
+            isComplete = false
+        )
+
+        val merged = YtDlpOutputParser.mergeResults(stage1, stage2)
+        assertTrue(merged.isComplete)
+        assertEquals(2, merged.candidates.size)
+        assertEquals("Fast Stage Title", merged.title)
+        assertTrue(merged.candidates.any { it.formatId == "format_720" })
+        assertTrue(merged.candidates.any { it.formatId == "format_1080" })
+    }
 }

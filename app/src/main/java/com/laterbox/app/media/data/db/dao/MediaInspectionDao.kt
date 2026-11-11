@@ -29,6 +29,12 @@ interface MediaInspectionDao {
     @Query("SELECT * FROM media_inspection WHERE status IN ('PENDING', 'PREPARING', 'INSPECTING', 'PROCESSING') AND updatedAt < :staleThreshold")
     suspend fun getStaleInspections(staleThreshold: Long): List<MediaInspectionEntity>
 
+    @Query("SELECT savedLinkId FROM media_inspection WHERE status = 'COMPLETED'")
+    fun getCompletedInspectionLinkIds(): Flow<List<Long>>
+
+    @Query("SELECT * FROM media_inspection WHERE status = 'COMPLETED' ORDER BY updatedAt DESC")
+    fun getCompletedInspections(): Flow<List<MediaInspectionEntity>>
+
     @Query("DELETE FROM media_inspection WHERE savedLinkId = :savedLinkId")
     suspend fun deleteForLink(savedLinkId: Long)
 

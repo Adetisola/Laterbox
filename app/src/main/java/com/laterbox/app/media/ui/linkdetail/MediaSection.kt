@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.laterbox.app.media.domain.model.CandidateStatus
 import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.media.domain.model.DownloadTask
+import com.laterbox.app.media.domain.model.FailureCode
 import com.laterbox.app.media.domain.model.InspectionResult
 import com.laterbox.app.media.domain.model.MatchConfidence
 import com.laterbox.app.media.domain.model.MediaAsset
@@ -312,7 +313,33 @@ fun MediaSection(
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
+                        // More formats loading banner if not complete
+                        if (!inspectionResult.isComplete) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                shape = LaterboxShapeTokens.Chip,
+                                color = colors.surfaceSecondary
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = colors.accentPrimary
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Discovering additional formats...",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = colors.textSecondary
+                                    )
+                                }
+                            }
+                        }
 
                         // Bulk image download button when multiple images exist
                         val imageCandidates = inspectionResult.candidates.filter { it.mediaType == MediaType.IMAGE }
@@ -386,7 +413,7 @@ fun MediaSection(
                         shape = LaterboxShapeTokens.Card,
                         color = colors.surfaceSecondary
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Text(
                                 text = "Login Required",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
@@ -398,7 +425,23 @@ fun MediaSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = colors.textSecondary
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Preview candidate if available
+                            inspectionResult.previewCandidate?.let { previewCandidate ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Preview image only (no video/audio found):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.textSecondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                CandidateCard(
+                                    candidate = previewCandidate,
+                                    onDownload = { handleStartDownload(previewCandidate) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
                             LaterboxSecondaryButton(
                                 text = "Retry inspection",
                                 leadingIcon = LaterboxIcons.Refresh,
@@ -436,7 +479,23 @@ fun MediaSection(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = colors.textSecondary
                             )
-                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Preview candidate if available
+                            inspectionResult.previewCandidate?.let { previewCandidate ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Preview image only (no video/audio found):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.textSecondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                CandidateCard(
+                                    candidate = previewCandidate,
+                                    onDownload = { handleStartDownload(previewCandidate) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
                             LaterboxSecondaryButton(
                                 text = "Retry inspection",
                                 leadingIcon = LaterboxIcons.Refresh,
@@ -448,6 +507,8 @@ fun MediaSection(
                 }
 
                 is InspectionResult.Failed -> {
+                    val isWaitingConnection = inspectionResult.code in listOf(FailureCode.NETWORK_ERROR, FailureCode.CONNECTION_TIMEOUT)
+                    val headerTitle = if (isWaitingConnection) "Waiting for connection" else "Inspection failed (${inspectionResult.code.name})"
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = LaterboxShapeTokens.Card,
@@ -458,17 +519,21 @@ fun MediaSection(
                                 Icon(
                                     painter = painterResource(LaterboxIcons.Refresh),
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error,
+                                    tint = if (isWaitingConnection) colors.accentPrimary else MaterialTheme.colorScheme.error,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Inspection failed (${inspectionResult.code.name})",
+                                    text = headerTitle,
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
-                                    color = MaterialTheme.colorScheme.error
+                                    color = if (isWaitingConnection) colors.textPrimary else MaterialTheme.colorScheme.error
                                 )
                             }
-                            val failureMessage = inspectionResult.message
+                            val failureMessage = if (isWaitingConnection) {
+                                "Connection unavailable or temporary DNS failure. Inspection will retry automatically when connection restores."
+                            } else {
+                                inspectionResult.message
+                            }
                             if (!failureMessage.isNullOrBlank()) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
@@ -479,6 +544,22 @@ fun MediaSection(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+
+                            // Preview candidate if available
+                            inspectionResult.previewCandidate?.let { previewCandidate ->
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Preview image only (no video/audio found):",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.textSecondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                CandidateCard(
+                                    candidate = previewCandidate,
+                                    onDownload = { handleStartDownload(previewCandidate) }
+                                )
+                            }
+
                             Spacer(modifier = Modifier.height(12.dp))
                             LaterboxSecondaryButton(
                                 text = "Retry inspection",

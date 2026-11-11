@@ -520,7 +520,8 @@ fun InboxScreen(
                                             modifier = Modifier.padding(bottom = spacing.sm),
                                             onToggleRead = { onToggleRead(link) },
                                             onArchive = { onArchive(link) },
-                                            onDelete = { onDelete(link) }
+                                            onDelete = { onDelete(link) },
+                                            isMediaReady = link.id in uiState.mediaReadyLinkIds
                                         )
                                     }
                                 }

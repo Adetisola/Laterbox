@@ -61,7 +61,8 @@ import com.laterbox.app.ui.theme.LaterboxTheme
 fun DownloadsScreen(
     viewModel: DownloadsViewModel,
     onSettingsClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenLinkDetail: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
     val colors = LaterboxTheme.colors
@@ -234,6 +235,8 @@ fun DownloadsScreen(
                         assets = uiState.assets,
                         selectedMediaType = uiState.selectedMediaType,
                         onMediaTypeSelected = viewModel::onMediaTypeSelected,
+                        readyToDownloadItems = uiState.readyToDownloadItems,
+                        onOpenLinkDetail = onOpenLinkDetail,
                         onOpenAsset = { asset ->
                             when (asset.mediaType) {
                                 MediaType.IMAGE -> activeViewerAsset = asset

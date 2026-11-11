@@ -28,8 +28,8 @@ class MediaInspectionWorker(
         const val KEY_PREVIEW_IMAGE_URL = "preview_image_url"
         const val KEY_FORCE_REFRESH = "force_refresh"
 
-        // Concurrency limit to prevent overwhelming device CPU/network
-        private val inspectionSemaphore = Semaphore(3)
+        // Concurrency limit for background inspection lane (concurrency 1, low priority)
+        private val inspectionSemaphore = Semaphore(1)
 
         fun schedule(
             context: Context,
@@ -52,7 +52,7 @@ class MediaInspectionWorker(
             val workRequest = OneTimeWorkRequestBuilder<MediaInspectionWorker>()
                 .setInputData(inputData)
                 .setConstraints(constraints)
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .addTag("media_inspection")
                 .addTag("link_$savedLinkId")
                 .build()
@@ -82,7 +82,28 @@ class MediaInspectionWorker(
                 platformResolver = container?.platformResolver ?: return Result.failure()
             )
 
-        val inspectionProcessId = "inspect_$savedLinkId"
+        // Pre-check 1: Low memory condition
+        val actManager = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
+        val memInfo = android.app.ActivityManager.MemoryInfo()
+        actManager?.getMemoryInfo(memInfo)
+        if (memInfo.lowMemory) {
+            android.util.Log.i("MediaInspectionWorker", "Deferring background inspection: device in low-memory state")
+            inspectionManager.markInspectionPending(savedLinkId, url)
+            return Result.retry()
+        }
+
+        // Pre-check 2: Network capability validated
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        val activeNet = cm?.activeNetwork
+        val caps = cm?.getNetworkCapabilities(activeNet)
+        val isValidated = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        if (!isValidated) {
+            android.util.Log.i("MediaInspectionWorker", "Deferring background inspection: network is not validated")
+            inspectionManager.markInspectionPending(savedLinkId, url)
+            return Result.retry()
+        }
+
+        val inspectionProcessId = "inspect_${savedLinkId}_worker_a${runAttemptCount}"
 
         return try {
             inspectionSemaphore.withPermit {
@@ -94,14 +115,14 @@ class MediaInspectionWorker(
                 val res = inspectionManager.executeInspection(savedLinkId, url, previewImageUrl, forceRefresh)
                 if (res.isSuccess) {
                     val result = res.getOrNull()
-                    if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 2) {
+                    if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 5) {
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
                         Result.success()
                     }
                 } else {
-                    if (runAttemptCount < 2) {
+                    if (runAttemptCount < 5) {
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
@@ -111,7 +132,7 @@ class MediaInspectionWorker(
             }
         } catch (_: Throwable) {
             cleanupProcess(inspectionProcessId)
-            if (runAttemptCount < 2) {
+            if (runAttemptCount < 5) {
                 inspectionManager.markInspectionPending(savedLinkId, url)
                 Result.retry()
             } else {

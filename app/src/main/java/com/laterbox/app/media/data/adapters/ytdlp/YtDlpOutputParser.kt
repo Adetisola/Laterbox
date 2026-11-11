@@ -196,10 +196,10 @@ object YtDlpOutputParser {
     ): InspectionResult {
         if (previewImageUrl.isNullOrBlank()) return result
 
-        val ogCandidate = MediaCandidate(
+        val previewCandidate = MediaCandidate(
             candidateId = "og_preview_fallback",
             mediaType = MediaType.IMAGE,
-            formatLabel = "Preview image (Open Graph fallback)",
+            formatLabel = "Preview image only",
             estimatedBytes = null,
             durationMs = null,
             width = null,
@@ -208,30 +208,46 @@ object YtDlpOutputParser {
             isOgFallback = true
         )
 
-        val platform = when (result) {
-            is InspectionResult.Available -> result.platform
-            else -> "Web"
-        }
-
         return when (result) {
             is InspectionResult.Available -> {
                 if (result.candidates.none { it.mediaType == MediaType.IMAGE }) {
-                    result.copy(candidates = result.candidates + ogCandidate)
+                    result.copy(candidates = result.candidates + previewCandidate)
                 } else {
                     result
                 }
             }
-            is InspectionResult.Unsupported,
-            is InspectionResult.Failed,
+            is InspectionResult.Unsupported -> {
+                result.copy(previewCandidate = previewCandidate)
+            }
+            is InspectionResult.Failed -> {
+                result.copy(previewCandidate = previewCandidate)
+            }
             is InspectionResult.NeedsAuth -> {
-                // Never convert Failed, Unsupported, or NeedsAuth into Available.
-                // Keep the original extraction failure and error information intact.
-                result
+                result.copy(previewCandidate = previewCandidate)
             }
             is InspectionResult.MetadataOnly -> {
                 result
             }
         }
+    }
+
+    /**
+     * Merges format candidates from Stage 1 (fast extractor) and Stage 2 (complete extraction),
+     * deduplicating by formatId and marking the merged result as complete.
+     */
+    fun mergeResults(stage1: InspectionResult.Available, stage2: InspectionResult.Available): InspectionResult.Available {
+        val existingFormatIds = stage1.candidates.mapNotNull { it.formatId }.toSet()
+        val newCandidates = stage2.candidates.filter { it.formatId == null || it.formatId !in existingFormatIds }
+        val mergedCandidates = stage1.candidates + newCandidates
+
+        return stage1.copy(
+            candidates = mergedCandidates,
+            title = stage1.title ?: stage2.title,
+            thumbnailUrl = stage1.thumbnailUrl ?: stage2.thumbnailUrl,
+            artist = stage1.artist ?: stage2.artist,
+            album = stage1.album ?: stage2.album,
+            isComplete = true
+        )
     }
 
     /**
@@ -800,7 +816,8 @@ object YtDlpOutputParser {
                 FailureCode.EXTRACTOR_BROKEN
 
             lower.contains("unable to download webpage") || lower.contains("temporary failure in name resolution") ||
-                lower.contains("network is unreachable") || lower.contains("no internet") ->
+                lower.contains("no address associated with hostname") || lower.contains("errno 7") || lower.contains("gaierror") ||
+                lower.contains("name or service not known") || lower.contains("network is unreachable") || lower.contains("no internet") ->
                 FailureCode.NETWORK_ERROR
 
             else -> FailureCode.UNKNOWN

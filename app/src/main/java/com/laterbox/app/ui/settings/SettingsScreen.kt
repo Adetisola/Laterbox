@@ -123,6 +123,7 @@ fun SettingsScreen(
     onToggleExcludedPackage: (String) -> Unit = {},
     onMediaDownloadNetworkPolicyChange: (com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy) -> Unit = {},
     onAutoInspectMediaOnSaveChange: (Boolean) -> Unit = {},
+    onFastEngineEnabledChange: (Boolean) -> Unit = {},
     onSetCustomExportDirectory: (String, String) -> Unit = { _, _ -> },
     onClearCustomExportDirectory: () -> Unit = {},
     isUpdatingYtDlp: Boolean = false,
@@ -130,6 +131,7 @@ fun SettingsScreen(
     ytDlpState: com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState = com.laterbox.app.media.data.adapters.ytdlp.YtDlpInitState.NotInitialized,
     ffmpegState: com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState = com.laterbox.app.media.data.adapters.ytdlp.FfmpegInitState.NotInitialized,
     onGetDiagnosticReport: () -> com.laterbox.app.media.data.adapters.ytdlp.YtDlpDiagnosticReport? = { null },
+    onGetDiagnosticReportText: () -> String = { "" },
     onRetryInitializeEngine: () -> Unit = {},
     isCheckingUpdate: Boolean = false,
     availableUpdateInfo: com.laterbox.app.update.AppUpdateInfo? = null,
@@ -149,6 +151,7 @@ fun SettingsScreen(
     var showLicensesDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var diagnosticReport by remember { mutableStateOf<com.laterbox.app.media.data.adapters.ytdlp.YtDlpDiagnosticReport?>(null) }
+    var diagnosticReportText by remember { mutableStateOf<String?>(null) }
     var showAccessibilityOnboarding by remember { mutableStateOf(false) }
     var showExcludedAppsDialog by remember { mutableStateOf(false) }
     val accessibilitySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -1102,6 +1105,37 @@ fun SettingsScreen(
 
                     Divider(colors.borderSubtle)
 
+                    // Fast engine (warm background extractor process)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Fast engine",
+                                style = typography.uiMedium,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = "Keep extractor warm in background for faster format discovery",
+                                style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                color = colors.textSecondary
+                            )
+                        }
+
+                        Switch(
+                            checked = preferences.fastEngineEnabled,
+                            onCheckedChange = onFastEngineEnabledChange,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.surfaceElevated,
+                                checkedTrackColor = colors.accentPrimary
+                            )
+                        )
+                    }
+
+                    Divider(colors.borderSubtle)
+
                     // yt-dlp extractor engine status and diagnostics
                     Column(verticalArrangement = Arrangement.spacedBy(spacing.sm)) {
                         Row(
@@ -1135,6 +1169,7 @@ fun SettingsScreen(
                                 OutlinedButton(
                                     onClick = {
                                         diagnosticReport = onGetDiagnosticReport()
+                                        diagnosticReportText = onGetDiagnosticReportText()
                                         showDiagnosticsDialog = true
                                     },
                                     shape = LaterboxShapeTokens.Button
@@ -1431,7 +1466,7 @@ fun SettingsScreen(
                     )
                 },
                 text = {
-                    val reportText = diagnosticReport?.toFormattedString() ?: "No diagnostics captured."
+                    val reportText = diagnosticReportText ?: diagnosticReport?.toFormattedString() ?: "No diagnostics captured."
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1450,7 +1485,7 @@ fun SettingsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(spacing.xs)) {
                         TextButton(
                             onClick = {
-                                val reportText = diagnosticReport?.toFormattedString() ?: ""
+                                val reportText = diagnosticReportText ?: diagnosticReport?.toFormattedString() ?: ""
                                 clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(reportText))
                                 android.widget.Toast.makeText(context, "Diagnostics copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
                             }

@@ -20,7 +20,8 @@ object AppViewModelProvider {
             InboxViewModel(
                 linkRepository = app.container.linkRepository,
                 userPreferencesRepository = app.container.userPreferencesRepository,
-                notificationHistoryRepository = app.container.notificationHistoryRepository
+                notificationHistoryRepository = app.container.notificationHistoryRepository,
+                inspectionDao = app.container.database.mediaInspectionDao()
             )
         }
         initializer {
@@ -56,7 +57,10 @@ object AppViewModelProvider {
         }
         initializer {
             val app = laterboxApplication()
-            com.laterbox.app.media.ui.downloads.DownloadsViewModel(app.container.mediaRepository)
+            com.laterbox.app.media.ui.downloads.DownloadsViewModel(
+                mediaRepository = app.container.mediaRepository,
+                inspectionDao = app.container.database.mediaInspectionDao()
+            )
         }
         initializer {
             val app = laterboxApplication()
@@ -66,7 +70,8 @@ object AppViewModelProvider {
                 linkRepository = app.container.linkRepository,
                 appContext = app.applicationContext,
                 ytDlpUpdater = app.container.ytDlpUpdater,
-                ytDlpRuntimeManager = app.container.ytDlpRuntimeManager
+                ytDlpRuntimeManager = app.container.ytDlpRuntimeManager,
+                diagnosticsBuffer = app.container.diagnosticsBuffer
             )
         }
     }

@@ -53,6 +53,7 @@ object LaterboxShapeTokens {
     val PillNav = RoundedCornerShape(20.dp)
     val Sheet = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
     val Dialog = RoundedCornerShape(16.dp)
+    val Badge = RoundedCornerShape(6.dp)
 }
 
 /**

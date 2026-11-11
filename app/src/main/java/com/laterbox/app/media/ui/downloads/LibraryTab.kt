@@ -54,9 +54,12 @@ fun LibraryTab(
     onOpenAsset: (MediaAsset) -> Unit,
     onExportAsset: (MediaAsset) -> Unit,
     onDeleteAsset: (MediaAsset) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    readyToDownloadItems: List<ReadyToDownloadItem> = emptyList(),
+    onOpenLinkDetail: (Long) -> Unit = {}
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -79,6 +82,48 @@ fun LibraryTab(
                     isSelected = selectedMediaType == type,
                     onClick = { onMediaTypeSelected(type) }
                 )
+            }
+        }
+
+        if (readyToDownloadItems.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = spacing.xs)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = spacing.base, vertical = spacing.xxs),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Ready to download",
+                        style = typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = "${readyToDownloadItems.size} ready",
+                        style = typography.metaText,
+                        color = colors.accentPrimary
+                    )
+                }
+                Spacer(modifier = Modifier.height(spacing.xxs))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = spacing.base),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.sm)
+                ) {
+                    readyToDownloadItems.forEach { item ->
+                        ReadyToDownloadCard(
+                            item = item,
+                            onClick = { onOpenLinkDetail(item.savedLinkId) }
+                        )
+                    }
+                }
             }
         }
 
@@ -237,3 +282,105 @@ fun LibraryAssetCard(
         }
     }
 }
+
+@Composable
+fun ReadyToDownloadCard(
+    item: ReadyToDownloadItem,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
+    Card(
+        modifier = modifier
+            .width(220.dp)
+            .clickable(onClick = onClick),
+        shape = LaterboxShapeTokens.Card,
+        colors = CardDefaults.cardColors(containerColor = colors.surfacePrimary),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(spacing.sm)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(96.dp)
+                    .clip(LaterboxShapeTokens.Card)
+                    .background(colors.surfaceSecondary),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!item.thumbnailUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = item.thumbnailUrl,
+                        contentDescription = item.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(
+                            when (item.mediaType) {
+                                MediaType.IMAGE -> LaterboxIcons.Globe
+                                MediaType.VIDEO -> LaterboxIcons.ViewCard
+                                MediaType.AUDIO -> LaterboxIcons.Bell
+                                else -> LaterboxIcons.Folder
+                            }
+                        ),
+                        contentDescription = null,
+                        tint = colors.accentPrimary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
+                        .clip(LaterboxShapeTokens.Badge)
+                        .background(colors.surfacePrimary.copy(alpha = 0.92f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "${item.candidateCount} ${if (item.candidateCount == 1) "format" else "formats"}",
+                        style = typography.badgeText,
+                        color = colors.accentPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.xs))
+
+            Text(
+                text = item.title,
+                style = typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                color = colors.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(LaterboxIcons.Download),
+                    contentDescription = null,
+                    tint = colors.accentPrimary,
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Tap to choose & download",
+                    style = typography.metaText,
+                    color = colors.accentPrimary
+                )
+            }
+        }
+    }
+}
+

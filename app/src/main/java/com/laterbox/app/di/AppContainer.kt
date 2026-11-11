@@ -21,6 +21,8 @@ interface AppContainer {
     val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver
     val ytDlpRuntimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager
     val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater
+    val diagnosticsBuffer: com.laterbox.app.media.data.diagnostics.InspectionDiagnosticsBuffer
+    val warmYtDlpServer: com.laterbox.app.media.data.adapters.ytdlp.WarmYtDlpServer
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -82,6 +84,17 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         )
     }
 
+    override val diagnosticsBuffer: com.laterbox.app.media.data.diagnostics.InspectionDiagnosticsBuffer by lazy {
+        com.laterbox.app.media.data.diagnostics.InspectionDiagnosticsBuffer()
+    }
+
+    override val warmYtDlpServer: com.laterbox.app.media.data.adapters.ytdlp.WarmYtDlpServer by lazy {
+        com.laterbox.app.media.data.adapters.ytdlp.WarmYtDlpServer(
+            appContext = context.applicationContext,
+            userPreferencesRepository = userPreferencesRepository
+        )
+    }
+
     override val platformResolver: com.laterbox.app.media.domain.adapter.PlatformResolver by lazy {
         val directAdapter = com.laterbox.app.media.data.adapters.direct.DirectUrlAdapter(okhttp3.OkHttpClient())
         val spotifyDiscovery = com.laterbox.app.media.data.adapters.spotify.MusicDiscoveryProviderImpl(
@@ -93,7 +106,9 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         )
         val ytDlpAdapter = com.laterbox.app.media.data.adapters.ytdlp.YtDlpAdapter(
             appContext = context.applicationContext,
-            runtimeManager = ytDlpRuntimeManager
+            runtimeManager = ytDlpRuntimeManager,
+            diagnosticsBuffer = diagnosticsBuffer,
+            warmServer = warmYtDlpServer
         )
         val xAdapter = com.laterbox.app.media.data.adapters.x.XMediaAdapter(
             okHttpClient = okhttp3.OkHttpClient(),

@@ -332,6 +332,18 @@ fun LaterboxApp(
                         viewModel = downloadsViewModel,
                         onSettingsClick = {
                             navController.navigate(LaterboxDestination.Settings.route)
+                        },
+                        onOpenLinkDetail = { targetId ->
+                            coroutineScope.launch {
+                                val app = context.applicationContext as? LaterboxApplication
+                                try {
+                                    val link = app?.container?.linkRepository?.getLinkById(targetId)?.first()
+                                    if (link != null) {
+                                        savedItemDetailViewModel.setLink(link)
+                                        selectedLinkForDetails = link
+                                    }
+                                } catch (_: Exception) {}
+                            }
                         }
                     )
                 }
@@ -400,6 +412,8 @@ fun LaterboxApp(
                         onToggleExcludedPackage = settingsViewModel::toggleExcludedCapturePackage,
                         onMediaDownloadNetworkPolicyChange = settingsViewModel::setMediaDownloadNetworkPolicy,
                         onAutoInspectMediaOnSaveChange = settingsViewModel::setAutoInspectMediaOnSave,
+                        onFastEngineEnabledChange = settingsViewModel::setFastEngineEnabled,
+                        onGetDiagnosticReportText = settingsViewModel::getDiagnosticsReportText,
                         onSetCustomExportDirectory = settingsViewModel::setCustomExportDirectory,
                         onClearCustomExportDirectory = settingsViewModel::clearCustomExportDirectory,
                         onBackClick = { navController.popBackStack() }

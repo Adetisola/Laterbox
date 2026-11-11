@@ -2,7 +2,11 @@ package com.laterbox.app.media.ui.downloads
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laterbox.app.media.data.adapters.InspectionResultJsonAdapter
+import com.laterbox.app.media.data.db.dao.MediaInspectionDao
+import com.laterbox.app.media.domain.model.AcquisitionSource
 import com.laterbox.app.media.domain.model.DownloadTask
+import com.laterbox.app.media.domain.model.InspectionResult
 import com.laterbox.app.media.domain.model.MediaAsset
 import com.laterbox.app.media.domain.model.MediaType
 import com.laterbox.app.media.domain.repository.MediaRepository
@@ -12,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -20,6 +25,15 @@ enum class DownloadsTab {
     QUEUE,
     STORAGE
 }
+
+data class ReadyToDownloadItem(
+    val savedLinkId: Long,
+    val title: String,
+    val url: String,
+    val thumbnailUrl: String?,
+    val candidateCount: Int,
+    val mediaType: MediaType = MediaType.VIDEO
+)
 
 data class DownloadsUiState(
     val selectedTab: DownloadsTab = DownloadsTab.LIBRARY,
@@ -30,7 +44,8 @@ data class DownloadsUiState(
     val storageBreakdown: Map<MediaType, Long> = emptyMap(),
     val totalStorageBytes: Long = 0L,
     val selectedAssetIds: Set<String> = emptySet(),
-    val isSelectionMode: Boolean = false
+    val isSelectionMode: Boolean = false,
+    val readyToDownloadItems: List<ReadyToDownloadItem> = emptyList()
 )
 
 private data class ViewSelections(
@@ -43,7 +58,8 @@ private data class ViewSelections(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DownloadsViewModel(
-    private val mediaRepository: MediaRepository
+    private val mediaRepository: MediaRepository,
+    private val inspectionDao: MediaInspectionDao? = null
 ) : ViewModel() {
 
     private val _selectedTab = MutableStateFlow(DownloadsTab.LIBRARY)
@@ -70,13 +86,36 @@ class DownloadsViewModel(
 
     private val _queueTasks = mediaRepository.getQueueTasks()
     private val _storageBreakdown = mediaRepository.getStorageBreakdown()
+    private val _completedInspections = inspectionDao?.getCompletedInspections() ?: flowOf(emptyList())
 
     val uiState: StateFlow<DownloadsUiState> = combine(
         _selections,
         _assets,
         _queueTasks,
-        _storageBreakdown
-    ) { selections, assets, tasks, storage ->
+        _storageBreakdown,
+        _completedInspections
+    ) { selections, assets, tasks, storage, inspections ->
+        val downloadedLinkIds = assets.mapNotNull { it.savedLinkId }.toSet()
+        val readyItems = inspections.mapNotNull { entity ->
+            val result = entity.resultJson?.let { json ->
+                try {
+                    InspectionResultJsonAdapter.fromJson(json)
+                } catch (_: Exception) { null }
+            }
+            if (result is InspectionResult.Available && result.candidates.isNotEmpty()) {
+                val nonThumbCandidates = result.candidates.filter { !it.isThumbnail }
+                val thumb = result.thumbnailUrl ?: result.candidates.firstOrNull { it.isThumbnail }?.source?.let { (it as? AcquisitionSource.DirectHttp)?.url }
+                ReadyToDownloadItem(
+                    savedLinkId = entity.savedLinkId,
+                    title = result.title ?: entity.url,
+                    url = entity.url,
+                    thumbnailUrl = thumb,
+                    candidateCount = if (nonThumbCandidates.isNotEmpty()) nonThumbCandidates.size else result.candidates.size,
+                    mediaType = nonThumbCandidates.firstOrNull()?.mediaType ?: MediaType.VIDEO
+                )
+            } else null
+        }.filter { !downloadedLinkIds.contains(it.savedLinkId) }
+
         DownloadsUiState(
             selectedTab = selections.selectedTab,
             selectedMediaType = selections.selectedMediaType,
@@ -86,7 +125,8 @@ class DownloadsViewModel(
             storageBreakdown = storage,
             totalStorageBytes = storage.values.sum(),
             selectedAssetIds = selections.selectedAssetIds,
-            isSelectionMode = selections.isSelectionMode
+            isSelectionMode = selections.isSelectionMode,
+            readyToDownloadItems = readyItems
         )
     }.stateIn(
         scope = viewModelScope,

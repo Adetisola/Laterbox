@@ -160,6 +160,14 @@ fun SavedItemDetailSheet(
                     )
                     Spacer(modifier = Modifier.width(spacing.sm))
                     ContentTypeBadge(contentType = link.contentType)
+                    val isMediaReady = uiState.inspectionResult is com.laterbox.app.media.domain.model.InspectionResult.Available &&
+                        (uiState.inspectionResult as com.laterbox.app.media.domain.model.InspectionResult.Available).candidates.any {
+                            it.mediaType in listOf(com.laterbox.app.media.domain.model.MediaType.VIDEO, com.laterbox.app.media.domain.model.MediaType.AUDIO)
+                        }
+                    if (isMediaReady) {
+                        Spacer(modifier = Modifier.width(spacing.xs))
+                        com.laterbox.app.ui.components.MediaReadyBadge()
+                    }
                 }
 
                 // Action buttons: More Menu (⋮) & Close (×)

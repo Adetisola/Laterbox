@@ -157,6 +157,7 @@ object InspectionResultJsonAdapter {
                 root.put("spotifyTrackId", result.spotifyTrackId ?: JSONObject.NULL)
                 root.put("extractorVersion", result.extractorVersion ?: JSONObject.NULL)
 
+                root.put("isComplete", result.isComplete)
                 val failuresArr = JSONArray()
                 for (failure in result.partialFailures) {
                     failuresArr.put(failure)
@@ -196,11 +197,17 @@ object InspectionResultJsonAdapter {
             is InspectionResult.NeedsAuth -> {
                 root.put("type", "NeedsAuth")
                 root.put("reason", result.reason)
+                result.previewCandidate?.let {
+                    root.put("previewCandidate", candidateToJson(it))
+                }
             }
 
             is InspectionResult.Unsupported -> {
                 root.put("type", "Unsupported")
                 root.put("reason", result.reason)
+                result.previewCandidate?.let {
+                    root.put("previewCandidate", candidateToJson(it))
+                }
             }
 
             is InspectionResult.Failed -> {
@@ -208,6 +215,9 @@ object InspectionResultJsonAdapter {
                 root.put("code", result.code.name)
                 root.put("message", result.message ?: JSONObject.NULL)
                 root.put("retryable", result.retryable)
+                result.previewCandidate?.let {
+                    root.put("previewCandidate", candidateToJson(it))
+                }
             }
         }
         return root.toString()
@@ -276,6 +286,8 @@ object InspectionResultJsonAdapter {
                         )
                     }
 
+                    val isComplete = root.optBoolean("isComplete", true)
+
                     InspectionResult.Available(
                         platform = platform,
                         title = title,
@@ -286,7 +298,8 @@ object InspectionResultJsonAdapter {
                         musicMatches = matches,
                         spotifyTrackId = spotifyId,
                         partialFailures = partialFailures,
-                        extractorVersion = extractorVersion
+                        extractorVersion = extractorVersion,
+                        isComplete = isComplete
                     )
                 }
 
@@ -298,18 +311,32 @@ object InspectionResultJsonAdapter {
                 }
 
                 "NeedsAuth" -> {
-                    InspectionResult.NeedsAuth(reason = root.optString("reason"))
+                    val previewCandidate = root.optJSONObject("previewCandidate")?.let { candidateFromJson(it) }
+                    InspectionResult.NeedsAuth(
+                        reason = root.optString("reason"),
+                        previewCandidate = previewCandidate
+                    )
                 }
 
                 "Unsupported" -> {
-                    InspectionResult.Unsupported(reason = root.optString("reason"))
+                    val previewCandidate = root.optJSONObject("previewCandidate")?.let { candidateFromJson(it) }
+                    InspectionResult.Unsupported(
+                        reason = root.optString("reason"),
+                        previewCandidate = previewCandidate
+                    )
                 }
 
                 "Failed" -> {
                     val code = try { FailureCode.valueOf(root.optString("code")) } catch (_: Exception) { FailureCode.UNKNOWN }
                     val msg = if (root.isNull("message")) null else root.optString("message").takeIf { it.isNotBlank() }
                     val retryable = root.optBoolean("retryable", code.isRetryable)
-                    InspectionResult.Failed(code = code, message = msg, retryable = retryable)
+                    val previewCandidate = root.optJSONObject("previewCandidate")?.let { candidateFromJson(it) }
+                    InspectionResult.Failed(
+                        code = code,
+                        message = msg,
+                        retryable = retryable,
+                        previewCandidate = previewCandidate
+                    )
                 }
 
                 else -> null

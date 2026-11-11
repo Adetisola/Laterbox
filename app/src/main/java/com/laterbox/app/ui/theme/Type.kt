@@ -49,7 +49,10 @@ data class LaterboxTypography(
     val buttonLabel: TextStyle = uiLabel.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
     val uiMedium: TextStyle = uiLabel,
     val metaText: TextStyle = metadataMono,
-    val codeText: TextStyle = metadataMono
+    val codeText: TextStyle = metadataMono,
+    val badgeText: TextStyle = metadataMono.copy(fontSize = 10.sp, lineHeight = 12.sp),
+    val bodySmall: TextStyle = bodySecondary,
+    val labelMedium: TextStyle = uiLabel.copy(fontSize = 13.sp)
 )
 
 val DefaultLaterboxTypography = LaterboxTypography(

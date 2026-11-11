@@ -113,13 +113,14 @@ class MediaInspectionManager(
                 if (cached != null) return@withContext Result.success(cached)
             }
 
-            val inspectionProcessId = "inspect_$savedLinkId"
             val generation = System.currentTimeMillis()
+            val inspectionProcessId = "inspect_${savedLinkId}_g$generation"
             activeGenerations[savedLinkId] = generation
 
             // When force-refreshing, terminate any prior in-flight process for this link
             if (forceRefresh) {
                 try {
+                    YoutubeDL.getInstance().destroyProcessById("inspect_$savedLinkId")
                     YoutubeDL.getInstance().destroyProcessById(inspectionProcessId)
                 } catch (_: Throwable) {
                 }
@@ -137,6 +138,23 @@ class MediaInspectionManager(
                 updatedAt = now
             )
             inspectionDao.insert(inFlightEntity)
+
+            // Stage 0: Instant oEmbed / OpenGraph inspection (< 1s)
+            val stage0Fetcher = com.laterbox.app.media.data.adapters.ytdlp.Stage0OEmbedFetcher()
+            try {
+                val stage0Result = stage0Fetcher.fetch(url)?.let { stage0Fetcher.toInspectionResult(it) }
+                if (stage0Result != null && activeGenerations[savedLinkId] == generation) {
+                    val stage0Json = InspectionResultJsonAdapter.toJson(stage0Result)
+                    inspectionDao.insert(
+                        inFlightEntity.copy(
+                            status = "INSPECTING",
+                            resultJson = stage0Json,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            } catch (_: Throwable) {
+            }
 
             try {
                 var result = platformResolver.resolveAndInspect(url, inspectionProcessId)

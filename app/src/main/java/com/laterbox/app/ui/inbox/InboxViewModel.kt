@@ -29,7 +29,8 @@ import kotlinx.coroutines.flow.flowOf
 class InboxViewModel(
     private val linkRepository: LinkRepository,
     private val userPreferencesRepository: UserPreferencesRepository,
-    private val notificationHistoryRepository: NotificationHistoryRepository? = null
+    private val notificationHistoryRepository: NotificationHistoryRepository? = null,
+    private val inspectionDao: com.laterbox.app.media.data.db.dao.MediaInspectionDao? = null
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -56,6 +57,7 @@ class InboxViewModel(
     }
 
     private val unreadNotificationsFlow = notificationHistoryRepository?.unreadCount ?: flowOf(0)
+    private val mediaReadyFlow = inspectionDao?.getCompletedInspectionLinkIds() ?: flowOf<List<Long>>(emptyList())
 
     @Suppress("UNCHECKED_CAST")
     val uiState: StateFlow<InboxUiState> = combine(
@@ -66,7 +68,8 @@ class InboxViewModel(
         _isRefreshing,
         _clipboardSuggestion,
         userPreferencesRepository.userPreferences,
-        unreadNotificationsFlow
+        unreadNotificationsFlow,
+        mediaReadyFlow
     ) { args: Array<Any?> ->
         val rawLinks = args[0] as List<SavedLink>
         val query = args[1] as String
@@ -76,6 +79,7 @@ class InboxViewModel(
         val suggestion = args[5] as ClipboardSuggestion?
         val prefs = args[6] as UserPreferences
         val unreadNotifs = args[7] as Int
+        val mediaReadyIds = (args[8] as? List<Long>)?.toSet() ?: emptySet()
 
         // If searching, filter out archived links since searchLinks searches all
         val unarchived = rawLinks.filter { !it.isArchived }
@@ -107,7 +111,8 @@ class InboxViewModel(
             viewMode = prefs.inboxViewMode,
             hasCompletedOnboarding = prefs.hasCompletedOnboarding,
             clipboardSuggestion = suggestion,
-            unreadNotificationCount = unreadNotifs
+            unreadNotificationCount = unreadNotifs,
+            mediaReadyLinkIds = mediaReadyIds
         )
     }.stateIn(
         scope = viewModelScope,

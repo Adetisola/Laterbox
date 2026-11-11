@@ -34,7 +34,8 @@ class SettingsViewModel(
     private val linkRepository: LinkRepository? = null,
     private val appContext: Context? = null,
     private val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater? = null,
-    private val ytDlpRuntimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager? = null
+    private val ytDlpRuntimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager? = null,
+    private val diagnosticsBuffer: com.laterbox.app.media.data.diagnostics.InspectionDiagnosticsBuffer? = null
 ) : ViewModel() {
 
     private val runtimeManager: com.laterbox.app.media.data.adapters.ytdlp.YtDlpRuntimeManager? =
@@ -368,8 +369,28 @@ class SettingsViewModel(
         }
     }
 
+    fun setFastEngineEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setFastEngineEnabled(enabled)
+        }
+    }
+
     fun getDiagnosticReport(): com.laterbox.app.media.data.adapters.ytdlp.YtDlpDiagnosticReport? {
         return runtimeManager?.captureDiagnosticReport()
+    }
+
+    fun getDiagnosticsReportText(): String {
+        val runtimeText = runtimeManager?.captureDiagnosticReport()?.toFormattedString() ?: "No runtime diagnostic report available."
+        val inspectionsText = diagnosticsBuffer?.exportAsText() ?: "No inspection timings recorded yet."
+        return """
+            $runtimeText
+
+            ========================================
+            INSPECTION TIMING DIAGNOSTICS (LAST 50)
+            ========================================
+
+            $inspectionsText
+        """.trimIndent()
     }
 
     fun retryInitializeEngine(onResult: (String) -> Unit) {
