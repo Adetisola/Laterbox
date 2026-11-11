@@ -167,15 +167,18 @@ class LinkRepository(
             val inspectionMgr = app?.container?.mediaInspectionManager
             val userPrefsRepo = app?.container?.userPreferencesRepository
             scope.launch {
-                val shouldInspect = userPrefsRepo?.userPreferencesFlow?.first()?.autoInspectMediaOnSave ?: true
-                if (shouldInspect) {
-                    val existingEntity = savedLinkDao.getEntityById(linkId)
-                    inspectionMgr?.scheduleInspection(
-                        savedLinkId = linkId,
-                        url = trimmedUrl,
-                        previewImageUrl = existingEntity?.previewImageUrl,
-                        forceRefresh = false
-                    )
+                try {
+                    val shouldInspect = userPrefsRepo?.userPreferencesFlow?.first()?.autoInspectMediaOnSave ?: true
+                    if (shouldInspect) {
+                        val existingEntity = savedLinkDao.getEntityById(linkId)
+                        inspectionMgr?.scheduleInspection(
+                            savedLinkId = linkId,
+                            url = trimmedUrl,
+                            previewImageUrl = existingEntity?.previewImageUrl,
+                            forceRefresh = false
+                        )
+                    }
+                } catch (_: Throwable) {
                 }
             }
         }
