@@ -95,11 +95,15 @@ class TikTokUrlResolverTest {
             .readTimeout(500, TimeUnit.MILLISECONDS)
             .build()
 
-        val resolver = TikTokUrlResolver(client)
-        val shortLink = "https://vm.tiktok.com/invalid_nonexistent_12345/"
+        val deadServer = MockWebServer()
+        deadServer.start()
+        val deadUrl = deadServer.url("/t/network_failure/").toString()
+        deadServer.shutdown()
 
-        // Should not throw, gracefully fall back to input URL
-        val resolved = resolver.resolveCanonicalUrl(shortLink)
-        assertEquals(shortLink, resolved)
+        val resolver = TikTokUrlResolver(client)
+
+        // Should not throw, gracefully fall back to input URL on network failure
+        val resolved = resolver.resolveCanonicalUrl(deadUrl)
+        assertEquals(deadUrl, resolved)
     }
 }
