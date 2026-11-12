@@ -12,8 +12,38 @@ import org.json.JSONObject
 object YtDlpOutputParser {
 
     fun parse(originalUrl: String, jsonStr: String): InspectionResult {
+        val trimmed = jsonStr.trim()
+        if (trimmed.isEmpty()) {
+            return InspectionResult.Failed(
+                code = FailureCode.NETWORK_ERROR,
+                message = "Empty metadata output received from extractor",
+                retryable = true
+            )
+        }
+        if (trimmed.equals("null", ignoreCase = true)) {
+            return InspectionResult.Failed(
+                code = FailureCode.NETWORK_ERROR,
+                message = "Extractor returned null metadata",
+                retryable = true
+            )
+        }
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            return InspectionResult.Failed(
+                code = FailureCode.EXTRACTOR_BROKEN,
+                message = "Expected JSON object but received JSON array from extractor",
+                retryable = false
+            )
+        }
+        if (!trimmed.startsWith("{")) {
+            return InspectionResult.Failed(
+                code = FailureCode.EXTRACTOR_BROKEN,
+                message = "Invalid JSON format received from extractor",
+                retryable = false
+            )
+        }
+
         return try {
-            val root = JSONObject(jsonStr)
+            val root = JSONObject(trimmed)
 
             val platform = root.optString("extractor_key").ifBlank {
                 root.optString("extractor").ifBlank { "yt-dlp" }
@@ -182,10 +212,14 @@ object YtDlpOutputParser {
                 )
             }
         } catch (e: Exception) {
+            val rawMsg = e.localizedMessage ?: "Failed to parse yt-dlp metadata output"
+            val isTruncated = rawMsg.contains("Unterminated", ignoreCase = true) ||
+                rawMsg.contains("End of input", ignoreCase = true) ||
+                rawMsg.contains("expected", ignoreCase = true)
             InspectionResult.Failed(
-                code = FailureCode.EXTRACTOR_BROKEN,
-                message = e.localizedMessage ?: "Failed to parse yt-dlp metadata output",
-                retryable = false
+                code = if (isTruncated) FailureCode.NETWORK_ERROR else FailureCode.EXTRACTOR_BROKEN,
+                message = rawMsg,
+                retryable = isTruncated
             )
         }
     }

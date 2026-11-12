@@ -59,6 +59,9 @@ class InboxViewModel(
     private val unreadNotificationsFlow = notificationHistoryRepository?.unreadCount ?: flowOf(0)
     private val mediaReadyFlow = inspectionDao?.getCompletedInspectionLinkIds() ?: flowOf<List<Long>>(emptyList())
 
+    private val _selectedLinkIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedLinkIds: StateFlow<Set<Long>> = _selectedLinkIds
+
     @Suppress("UNCHECKED_CAST")
     val uiState: StateFlow<InboxUiState> = combine(
         baseLinksFlow,
@@ -69,7 +72,8 @@ class InboxViewModel(
         _clipboardSuggestion,
         userPreferencesRepository.userPreferences,
         unreadNotificationsFlow,
-        mediaReadyFlow
+        mediaReadyFlow,
+        _selectedLinkIds
     ) { args: Array<Any?> ->
         val rawLinks = args[0] as List<SavedLink>
         val query = args[1] as String
@@ -80,6 +84,7 @@ class InboxViewModel(
         val prefs = args[6] as UserPreferences
         val unreadNotifs = args[7] as Int
         val mediaReadyIds = (args[8] as? List<Long>)?.toSet() ?: emptySet()
+        val selectedIds = args[9] as Set<Long>
 
         // If searching, filter out archived links since searchLinks searches all
         val unarchived = rawLinks.filter { !it.isArchived }
@@ -112,7 +117,8 @@ class InboxViewModel(
             hasCompletedOnboarding = prefs.hasCompletedOnboarding,
             clipboardSuggestion = suggestion,
             unreadNotificationCount = unreadNotifs,
-            mediaReadyLinkIds = mediaReadyIds
+            mediaReadyLinkIds = mediaReadyIds,
+            selectedLinkIds = selectedIds
         )
     }.stateIn(
         scope = viewModelScope,
@@ -208,6 +214,49 @@ class InboxViewModel(
         viewModelScope.launch {
             linkRepository.deleteLink(linkId)
         }
+
+    fun onToggleSelectLink(linkId: Long) {
+        val current = _selectedLinkIds.value
+        _selectedLinkIds.value = if (current.contains(linkId)) {
+            current - linkId
+        } else {
+            current + linkId
+        }
+    }
+
+    fun onSelectAll(links: List<SavedLink>) {
+        _selectedLinkIds.value = links.map { it.id }.toSet()
+    }
+
+    fun onClearSelection() {
+        _selectedLinkIds.value = emptySet()
+    }
+
+    fun onArchiveSelected(): kotlinx.coroutines.Job = viewModelScope.launch {
+        val ids = _selectedLinkIds.value
+        if (ids.isNotEmpty()) {
+            linkRepository.setArchivedBatch(ids, true)
+            _selectedLinkIds.value = emptySet()
+        }
+    }
+
+    fun onToggleReadSelected(links: List<SavedLink>): kotlinx.coroutines.Job = viewModelScope.launch {
+        val ids = _selectedLinkIds.value
+        if (ids.isNotEmpty()) {
+            val selectedLinks = links.filter { ids.contains(it.id) }
+            val allRead = selectedLinks.isNotEmpty() && selectedLinks.all { it.isRead }
+            linkRepository.setReadBatch(ids, !allRead)
+            _selectedLinkIds.value = emptySet()
+        }
+    }
+
+    fun onDeleteSelected(): kotlinx.coroutines.Job = viewModelScope.launch {
+        val ids = _selectedLinkIds.value
+        if (ids.isNotEmpty()) {
+            linkRepository.deleteLinks(ids)
+            _selectedLinkIds.value = emptySet()
+        }
+    }
 
     fun onRestore(link: SavedLink) {
         viewModelScope.launch {

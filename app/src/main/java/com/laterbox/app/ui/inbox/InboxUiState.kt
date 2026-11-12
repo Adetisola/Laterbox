@@ -17,8 +17,15 @@ data class InboxUiState(
     val hasCompletedOnboarding: Boolean = true,
     val clipboardSuggestion: ClipboardSuggestion? = null,
     val unreadNotificationCount: Int = 0,
-    val mediaReadyLinkIds: Set<Long> = emptySet()
+    val mediaReadyLinkIds: Set<Long> = emptySet(),
+    val selectedLinkIds: Set<Long> = emptySet()
 ) {
+    val isSelectionMode: Boolean
+        get() = selectedLinkIds.isNotEmpty()
+
+    val selectedCount: Int
+        get() = selectedLinkIds.size
+
     val isEmpty: Boolean
         get() = !isLoading && links.isEmpty() && searchQuery.isBlank() && activeFilterType == null && activeDateRangeFilter == DateRangeFilter.ALL
 

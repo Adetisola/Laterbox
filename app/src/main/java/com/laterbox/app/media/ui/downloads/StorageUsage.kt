@@ -53,6 +53,8 @@ fun StorageTab(
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
     val sortedAssets = assets.sortedByDescending { it.fileSize }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -76,13 +78,13 @@ fun StorageTab(
                     ) {
                         Text(
                             text = "Storage Used",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = typography.labelMedium,
                             color = colors.textSecondary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = formatBytes(totalStorageBytes),
-                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                            style = typography.editorialTitle.copy(fontWeight = FontWeight.Bold),
                             color = colors.textPrimary
                         )
 
@@ -126,7 +128,7 @@ fun StorageTab(
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
                                             text = "${type.name.lowercase().replaceFirstChar { it.uppercase() }} (${formatBytes(bytes)})",
-                                            style = MaterialTheme.typography.labelSmall,
+                                            style = typography.caption,
                                             color = colors.textSecondary
                                         )
                                     }
@@ -146,20 +148,20 @@ fun StorageTab(
                 ) {
                     Text(
                         text = "Files by Size (${sortedAssets.size})",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = typography.cardTitle,
                         color = colors.textPrimary
                     )
 
                     if (isSelectionMode) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = onClearSelection) {
-                                Text("Cancel", color = colors.textSecondary)
+                                Text("Cancel", style = typography.uiMedium, color = colors.textSecondary)
                             }
                             Button(
                                 onClick = onDeleteSelectedAssets,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                colors = ButtonDefaults.buttonColors(containerColor = colors.statusDanger)
                             ) {
-                                Text("Delete (${selectedAssetIds.size})")
+                                Text("Delete (${selectedAssetIds.size})", style = typography.buttonLabel)
                             }
                         }
                     }
@@ -197,7 +199,7 @@ fun StorageTab(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = asset.title ?: asset.localPath.substringAfterLast('/'),
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                style = typography.titleSmall.copy(fontWeight = FontWeight.Medium),
                                 color = colors.textPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -205,14 +207,14 @@ fun StorageTab(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "${asset.mediaType.name} · ${asset.qualityLabel ?: "Standard"}",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = typography.bodySmall,
                                 color = colors.textSecondary
                             )
                         }
 
                         Text(
                             text = formatBytes(asset.fileSize),
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                            style = typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                             color = colors.textPrimary
                         )
                     }

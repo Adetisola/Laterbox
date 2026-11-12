@@ -311,6 +311,28 @@ fun LaterboxApp(
                                 }
                             }
                         },
+                        onToggleSelectLink = inboxViewModel::onToggleSelectLink,
+                        onSelectAll = { inboxViewModel.onSelectAll(uiState.links) },
+                        onClearSelection = inboxViewModel::onClearSelection,
+                        onArchiveSelected = {
+                            inboxViewModel.onArchiveSelected()
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    message = "Selected links archived",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
+                        },
+                        onToggleReadSelected = { inboxViewModel.onToggleReadSelected(uiState.links) },
+                        onDeleteSelected = {
+                            inboxViewModel.onDeleteSelected()
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    message = "Selected links deleted",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
+                        },
                         onCheckClipboard = inboxViewModel::checkClipboard,
                         onSaveClipboardSuggestion = { suggestion ->
                             inboxViewModel.saveClipboardSuggestion(
@@ -345,7 +367,10 @@ fun LaterboxApp(
                         onRenameCollection = collectionsViewModel::onRenameCollection,
                         onOpenDeleteDialog = collectionsViewModel::onOpenDeleteDialog,
                         onCloseDeleteDialog = collectionsViewModel::onCloseDeleteDialog,
-                        onDeleteCollection = collectionsViewModel::onDeleteCollection
+                        onDeleteCollection = collectionsViewModel::onDeleteCollection,
+                        onSettingsClick = {
+                            navController.navigate(LaterboxDestination.Settings.route)
+                        }
                     )
                 }
 
@@ -392,7 +417,10 @@ fun LaterboxApp(
                         onRestoreLink = archiveViewModel::onRestoreLink,
                         onOpenDeleteDialog = archiveViewModel::onOpenDeleteDialog,
                         onCloseDeleteDialog = archiveViewModel::onCloseDeleteDialog,
-                        onPermanentDelete = archiveViewModel::onPermanentDelete
+                        onPermanentDelete = archiveViewModel::onPermanentDelete,
+                        onSettingsClick = {
+                            navController.navigate(LaterboxDestination.Settings.route)
+                        }
                     )
                 }
 
@@ -418,46 +446,42 @@ fun LaterboxApp(
                     )
                 }
 
-                // Settings Screen
+                // Settings Screen (Landing Hub)
                 composable(LaterboxDestination.Settings.route) {
                     val preferences by settingsViewModel.preferences.collectAsState()
-                    val aiConnectionStatus by settingsViewModel.aiConnectionStatus.collectAsState()
-                    val isCheckingUpdate by settingsViewModel.isCheckingUpdate.collectAsState()
-                    val availableUpdateInfo by settingsViewModel.updateCheckResult.collectAsState()
-                    val isUpdatingYtDlp by settingsViewModel.isUpdatingYtDlp.collectAsState()
-                    val ytDlpState by settingsViewModel.ytDlpState.collectAsState()
-                    val ffmpegState by settingsViewModel.ffmpegState.collectAsState()
 
                     SettingsScreen(
                         preferences = preferences,
-                        isCheckingUpdate = isCheckingUpdate,
-                        availableUpdateInfo = availableUpdateInfo,
-                        isUpdatingYtDlp = isUpdatingYtDlp,
-                        ytDlpState = ytDlpState,
-                        ffmpegState = ffmpegState,
-                        onGetDiagnosticReport = settingsViewModel::getDiagnosticReport,
-                        onRetryInitializeEngine = {
-                            settingsViewModel.retryInitializeEngine { msg ->
-                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onUpdateYtDlpClick = {
-                            settingsViewModel.updateYtDlp { msg ->
-                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onCheckForUpdates = {
-                            settingsViewModel.checkForUpdates { msg ->
-                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onDismissUpdateDialog = settingsViewModel::dismissUpdateDialog,
-                        onPostponeUpdate = settingsViewModel::postponeUpdate,
                         onThemeModeChange = settingsViewModel::setThemeMode,
-                        onUserNameChange = settingsViewModel::setUserName,
-                        onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
-                        onAllowSystemBackupChange = settingsViewModel::setAllowSystemBackup,
+                        onNavigateToAppearanceProfile = { navController.navigate(LaterboxDestination.SettingsAppearanceProfile.route) },
+                        onNavigateToRemindersAi = { navController.navigate(LaterboxDestination.SettingsRemindersAi.route) },
+                        onNavigateToCaptureShortcuts = { navController.navigate(LaterboxDestination.SettingsCaptureShortcuts.route) },
+                        onNavigateToReadingBehavior = { navController.navigate(LaterboxDestination.SettingsReadingBehavior.route) },
+                        onNavigateToMediaDownloads = { navController.navigate(LaterboxDestination.SettingsMediaDownloads.route) },
+                        onNavigateToDataStorage = { navController.navigate(LaterboxDestination.SettingsDataStorage.route) },
+                        onNavigateToAboutPrivacy = { navController.navigate(LaterboxDestination.SettingsAboutPrivacy.route) },
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Settings: Appearance & Profile
+                composable(LaterboxDestination.SettingsAppearanceProfile.route) {
+                    val preferences by settingsViewModel.preferences.collectAsState()
+                    com.laterbox.app.ui.settings.AppearanceProfileSettingsScreen(
+                        preferences = preferences,
+                        onThemeModeChange = settingsViewModel::setThemeMode,
                         onFontSizeScaleChange = settingsViewModel::setFontSizeScale,
+                        onUserNameChange = settingsViewModel::setUserName,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Settings: Reminders & AI
+                composable(LaterboxDestination.SettingsRemindersAi.route) {
+                    val preferences by settingsViewModel.preferences.collectAsState()
+                    val aiConnectionStatus by settingsViewModel.aiConnectionStatus.collectAsState()
+                    com.laterbox.app.ui.settings.RemindersAiSettingsScreen(
+                        preferences = preferences,
                         onSmartRemindersEnabledChange = settingsViewModel::setSmartRemindersEnabled,
                         onMorningEveningEnabledChange = settingsViewModel::setMorningEveningEnabled,
                         onMorningTimeChange = settingsViewModel::setMorningTime,
@@ -475,17 +499,92 @@ fun LaterboxApp(
                         onGeminiApiKeyChange = settingsViewModel::setGeminiApiKey,
                         onTestAiConnection = settingsViewModel::testAiConnection,
                         onSendTestSmartDigest = settingsViewModel::sendTestSmartDigest,
-                        onExportBackup = settingsViewModel::exportBackup,
-                        onImportBackup = settingsViewModel::importBackup,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Settings: Capture & Shortcuts
+                composable(LaterboxDestination.SettingsCaptureShortcuts.route) {
+                    val preferences by settingsViewModel.preferences.collectAsState()
+                    com.laterbox.app.ui.settings.CaptureShortcutsSettingsScreen(
+                        preferences = preferences,
                         onAccessibilityCaptureEnabledChange = settingsViewModel::setAccessibilityCaptureEnabled,
                         onClipboardSuggestionEnabledChange = settingsViewModel::setClipboardSuggestionEnabled,
                         onToggleExcludedPackage = settingsViewModel::toggleExcludedCapturePackage,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Settings: Reading & Behaviour
+                composable(LaterboxDestination.SettingsReadingBehavior.route) {
+                    val preferences by settingsViewModel.preferences.collectAsState()
+                    com.laterbox.app.ui.settings.ReadingBehaviorSettingsScreen(
+                        preferences = preferences,
+                        onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Settings: Media & Downloads
+                composable(LaterboxDestination.SettingsMediaDownloads.route) {
+                    val preferences by settingsViewModel.preferences.collectAsState()
+                    val isUpdatingYtDlp by settingsViewModel.isUpdatingYtDlp.collectAsState()
+                    val ytDlpState by settingsViewModel.ytDlpState.collectAsState()
+                    val ffmpegState by settingsViewModel.ffmpegState.collectAsState()
+
+                    com.laterbox.app.ui.settings.MediaDownloadsSettingsScreen(
+                        preferences = preferences,
                         onMediaDownloadNetworkPolicyChange = settingsViewModel::setMediaDownloadNetworkPolicy,
                         onAutoInspectMediaOnSaveChange = settingsViewModel::setAutoInspectMediaOnSave,
                         onFastEngineEnabledChange = settingsViewModel::setFastEngineEnabled,
+                        isUpdatingYtDlp = isUpdatingYtDlp,
+                        onUpdateYtDlpClick = {
+                            settingsViewModel.updateYtDlp { msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        ytDlpState = ytDlpState,
+                        ffmpegState = ffmpegState,
+                        onGetDiagnosticReport = settingsViewModel::getDiagnosticReport,
                         onGetDiagnosticReportText = settingsViewModel::getDiagnosticsReportText,
+                        onRetryInitializeEngine = {
+                            settingsViewModel.retryInitializeEngine { msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         onSetCustomExportDirectory = settingsViewModel::setCustomExportDirectory,
                         onClearCustomExportDirectory = settingsViewModel::clearCustomExportDirectory,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Settings: Data & Storage
+                composable(LaterboxDestination.SettingsDataStorage.route) {
+                    val preferences by settingsViewModel.preferences.collectAsState()
+                    com.laterbox.app.ui.settings.DataStorageSettingsScreen(
+                        preferences = preferences,
+                        onAllowSystemBackupChange = settingsViewModel::setAllowSystemBackup,
+                        onExportBackup = settingsViewModel::exportBackup,
+                        onImportBackup = settingsViewModel::importBackup,
+                        onBackClick = { navController.popBackStack() }
+                    )
+                }
+
+                // Settings: About & Privacy
+                composable(LaterboxDestination.SettingsAboutPrivacy.route) {
+                    val isCheckingUpdate by settingsViewModel.isCheckingUpdate.collectAsState()
+                    val availableUpdateInfo by settingsViewModel.updateCheckResult.collectAsState()
+
+                    com.laterbox.app.ui.settings.AboutPrivacySettingsScreen(
+                        isCheckingUpdate = isCheckingUpdate,
+                        availableUpdateInfo = availableUpdateInfo,
+                        onCheckForUpdates = {
+                            settingsViewModel.checkForUpdates { msg ->
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        onDismissUpdateDialog = settingsViewModel::dismissUpdateDialog,
+                        onPostponeUpdate = settingsViewModel::postponeUpdate,
                         onBackClick = { navController.popBackStack() }
                     )
                 }
@@ -505,7 +604,7 @@ fun LaterboxApp(
                 }
             }
 
-            if (currentRoute != LaterboxDestination.Settings.route && currentRoute != LaterboxDestination.NotificationHistory.route) {
+            if (currentRoute?.startsWith("settings") != true && currentRoute != LaterboxDestination.NotificationHistory.route) {
                 LaterboxBottomBar(
                     currentDestination = currentBottomDestination,
                     onDestinationSelected = { destination ->

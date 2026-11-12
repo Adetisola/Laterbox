@@ -35,6 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.media.domain.model.DownloadTask
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.Surface
+import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
@@ -49,35 +55,112 @@ fun QueueTab(
     onCancelTask: (String) -> Unit,
     onRetryTask: (String) -> Unit,
     onDismissTask: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selectedTaskIds: Set<String> = emptySet(),
+    isSelectionMode: Boolean = false,
+    onToggleTaskSelection: (String) -> Unit = {},
+    onSelectAllTasks: () -> Unit = {},
+    onClearTaskSelection: () -> Unit = {},
+    onCancelSelectedTasks: () -> Unit = {},
+    onRetrySelectedTasks: () -> Unit = {},
+    onDismissSelectedTasks: () -> Unit = {}
 ) {
-    if (tasks.isEmpty()) {
-        EmptyStateView(
-            title = "No active downloads",
-            subtitle = "When you start downloading media from saved links, download progress will show here.",
-            modifier = modifier.fillMaxSize()
-        )
-    } else {
-        LazyColumn(
-            modifier = modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(tasks, key = { it.id }) { task ->
-                QueueTaskCard(
-                    task = task,
-                    onOverrideCellular = { onOverrideCellular(task.id) },
-                    onPauseTask = { onPauseTask(task.id) },
-                    onResumeTask = { onResumeTask(task.id) },
-                    onCancelTask = { onCancelTask(task.id) },
-                    onRetryTask = { onRetryTask(task.id) },
-                    onDismissTask = { onDismissTask(task.id) }
-                )
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
+
+    BackHandler(enabled = isSelectionMode) {
+        onClearTaskSelection()
+    }
+
+    Column(modifier = modifier.fillMaxSize()) {
+        if (isSelectionMode) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = colors.surfacePrimary,
+                tonalElevation = 2.dp,
+                border = BorderStroke(spacing.hairline, colors.borderSubtle)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = spacing.base, vertical = spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Close,
+                        contentDescription = "Cancel selection",
+                        onClick = onClearTaskSelection
+                    )
+                    Spacer(modifier = Modifier.width(spacing.sm))
+                    Text(
+                        text = "${selectedTaskIds.size} selected",
+                        style = typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onSelectAllTasks) {
+                        Text("Select all", style = typography.buttonLabel.copy(fontSize = 13.sp), color = colors.accentPrimary)
+                    }
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Close,
+                        contentDescription = "Cancel selected tasks",
+                        onClick = onCancelSelectedTasks
+                    )
+                    Spacer(modifier = Modifier.width(spacing.xs))
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Refresh,
+                        contentDescription = "Retry selected tasks",
+                        onClick = onRetrySelectedTasks
+                    )
+                    Spacer(modifier = Modifier.width(spacing.xs))
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Delete,
+                        contentDescription = "Dismiss selected tasks",
+                        onClick = onDismissSelectedTasks
+                    )
+                }
+            }
+        }
+
+        if (tasks.isEmpty()) {
+            EmptyStateView(
+                title = "No active downloads",
+                subtitle = "When you start downloading media from saved links, download progress will show here.",
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(tasks, key = { it.id }) { task ->
+                    val isSelected = selectedTaskIds.contains(task.id)
+                    QueueTaskCard(
+                        task = task,
+                        onOverrideCellular = { onOverrideCellular(task.id) },
+                        onPauseTask = { onPauseTask(task.id) },
+                        onResumeTask = { onResumeTask(task.id) },
+                        onCancelTask = { onCancelTask(task.id) },
+                        onRetryTask = { onRetryTask(task.id) },
+                        onDismissTask = { onDismissTask(task.id) },
+                        isSelected = isSelected,
+                        isInSelectionMode = isSelectionMode,
+                        onClick = {
+                            if (isSelectionMode) {
+                                onToggleTaskSelection(task.id)
+                            }
+                        },
+                        onLongClick = { onToggleTaskSelection(task.id) }
+                    )
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun QueueTaskCard(
     task: DownloadTask,
@@ -87,16 +170,31 @@ fun QueueTaskCard(
     onCancelTask: () -> Unit,
     onRetryTask: () -> Unit,
     onDismissTask: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isSelected: Boolean = false,
+    isInSelectionMode: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
     val isTerminal = task.status == DownloadState.FAILED || task.status == DownloadState.CANCELLED
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onClick?.invoke() },
+                onLongClick = { onLongClick?.invoke() }
+            ),
         shape = LaterboxShapeTokens.Card,
         colors = CardDefaults.cardColors(
-            containerColor = colors.surfacePrimary
+            containerColor = if (isSelected) colors.accentContainer.copy(alpha = 0.45f) else colors.surfacePrimary
+        ),
+        border = BorderStroke(
+            width = if (isSelected) 1.5.dp else spacing.hairline,
+            color = if (isSelected) colors.accentPrimary else colors.borderSubtle
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
@@ -112,7 +210,7 @@ fun QueueTaskCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = task.title ?: task.sourceUrl,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        style = typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -120,23 +218,25 @@ fun QueueTaskCard(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "${task.mediaType.name} · ${task.qualityLabel ?: "Standard"}",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                 }
 
-                IconButton(
-                    onClick = {
-                        if (isTerminal) onDismissTask() else onCancelTask()
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(LaterboxIcons.Close),
-                        contentDescription = if (isTerminal) "Dismiss" else "Cancel",
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(18.dp)
-                    )
+                if (!isInSelectionMode) {
+                    IconButton(
+                        onClick = {
+                            if (isTerminal) onDismissTask() else onCancelTask()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(LaterboxIcons.Close),
+                            contentDescription = if (isTerminal) "Dismiss" else "Cancel",
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
 
@@ -179,7 +279,7 @@ fun QueueTaskCard(
                         }
                         Text(
                             text = progressText,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = typography.caption,
                             color = colors.textSecondary
                         )
                         TextButton(onClick = onPauseTask) {
@@ -191,7 +291,7 @@ fun QueueTaskCard(
                 DownloadState.WAITING_FOR_WIFI -> {
                     Text(
                         text = "Waiting for Wi-Fi (over 20 MB threshold)",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -202,7 +302,7 @@ fun QueueTaskCard(
                     ) {
                         Text(
                             text = "Download anyway (use cellular)",
-                            style = MaterialTheme.typography.labelMedium,
+                            style = typography.uiMedium,
                             color = colors.accentPrimary
                         )
                     }
@@ -211,7 +311,7 @@ fun QueueTaskCard(
                 DownloadState.PAUSED -> {
                     Text(
                         text = "Paused (${task.progress}%)",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -227,8 +327,8 @@ fun QueueTaskCard(
                     val errorMsg = task.errorMessage ?: task.errorCode?.userMessage ?: "Download error"
                     Text(
                         text = "Failed: $errorMsg",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
+                        style = typography.bodySmall,
+                        color = colors.statusDanger
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -254,7 +354,7 @@ fun QueueTaskCard(
                 DownloadState.CANCELLED -> {
                     Text(
                         text = "Download cancelled",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -281,7 +381,7 @@ fun QueueTaskCard(
                 DownloadState.QUEUED, DownloadState.INSPECTING, DownloadState.READY -> {
                     Text(
                         text = task.stage?.label ?: "Queued...",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                 }

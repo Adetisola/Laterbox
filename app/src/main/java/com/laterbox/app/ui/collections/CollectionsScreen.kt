@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -64,6 +65,7 @@ fun CollectionsScreen(
     onOpenDeleteDialog: (Collection) -> Unit,
     onCloseDeleteDialog: () -> Unit,
     onDeleteCollection: (Long) -> Unit,
+    onSettingsClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
@@ -97,25 +99,35 @@ fun CollectionsScreen(
                     )
                 }
 
-                // + New collection button
-                Box(
-                    modifier = Modifier
-                        .sizeIn(minHeight = spacing.minTouchTarget, minWidth = spacing.minTouchTarget)
-                        .clip(LaterboxShapeTokens.Button)
-                        .background(colors.surfaceSecondary)
-                        .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Button)
-                        .clickable(
-                            role = Role.Button,
-                            onClickLabel = "New collection",
-                            onClick = onOpenCreateDialog
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // + New collection button
+                    Box(
+                        modifier = Modifier
+                            .sizeIn(minHeight = spacing.minTouchTarget, minWidth = spacing.minTouchTarget)
+                            .clip(LaterboxShapeTokens.Button)
+                            .background(colors.surfaceSecondary)
+                            .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Button)
+                            .clickable(
+                                role = Role.Button,
+                                onClickLabel = "New collection",
+                                onClick = onOpenCreateDialog
+                            )
+                            .padding(horizontal = spacing.md, vertical = spacing.xs),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "+ New collection",
+                            style = typography.uiMedium.copy(fontSize = 13.sp),
+                            color = colors.accentPrimary
                         )
-                        .padding(horizontal = spacing.md, vertical = spacing.xs),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "+ New collection",
-                        style = typography.uiMedium.copy(fontSize = 13.sp),
-                        color = colors.accentPrimary
+                    }
+
+                    Spacer(modifier = Modifier.width(spacing.xs))
+
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Settings,
+                        contentDescription = "Settings",
+                        onClick = onSettingsClick
                     )
                 }
             }

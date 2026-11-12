@@ -69,6 +69,7 @@ fun ArchiveScreen(
     onOpenDeleteDialog: (SavedLink) -> Unit,
     onCloseDeleteDialog: () -> Unit,
     onPermanentDelete: (Long) -> Unit,
+    onSettingsClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
@@ -104,6 +105,12 @@ fun ArchiveScreen(
                         color = colors.textSecondary
                     )
                 }
+
+                LaterboxIconButton(
+                    iconRes = LaterboxIcons.Settings,
+                    contentDescription = "Settings",
+                    onClick = onSettingsClick
+                )
             }
 
             // Search Bar

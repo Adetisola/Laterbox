@@ -63,11 +63,23 @@ fun SavedLinkCard(
     onToggleRead: (() -> Unit)? = null,
     onArchive: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
-    isMediaReady: Boolean = false
+    isMediaReady: Boolean = false,
+    isSelected: Boolean = false,
+    isInSelectionMode: Boolean = false,
+    onLongClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val haptics = rememberLaterboxHaptics()
     var showMenu by remember { mutableStateOf(false) }
+
+    val handleLongClick: () -> Unit = {
+        haptics.dragHandle()
+        if (onLongClick != null) {
+            onLongClick()
+        } else {
+            showMenu = true
+        }
+    }
 
     val imageUrl = link.previewImageUrl?.takeIf {
         it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)
@@ -105,18 +117,15 @@ fun SavedLinkCard(
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = {
-                    haptics.dragHandle()
-                    showMenu = true
-                }
+                onLongClick = handleLongClick
             ),
         shape = shape,
         colors = CardDefaults.cardColors(
-            containerColor = LaterboxTheme.colors.surfacePrimary
+            containerColor = if (isSelected) LaterboxTheme.colors.accentContainer.copy(alpha = 0.45f) else LaterboxTheme.colors.surfacePrimary
         ),
         border = BorderStroke(
-            width = LaterboxTheme.spacing.hairline,
-            color = LaterboxTheme.colors.borderSubtle
+            width = if (isSelected) 1.5.dp else LaterboxTheme.spacing.hairline,
+            color = if (isSelected) LaterboxTheme.colors.accentPrimary else LaterboxTheme.colors.borderSubtle
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -369,37 +378,63 @@ fun SavedLinkCard(
                         }
                     }
 
-                    // More (⋮) button with 12dp backdrop and dropdown menu
-                    Box {
-                        LaterboxIconButton(
-                            iconRes = LaterboxIcons.MoreVertical,
-                            contentDescription = "More actions for ${link.title.ifBlank { link.domain }}",
-                            onClick = { showMenu = true },
-                            containerColor = LaterboxTheme.colors.surfaceSecondary.copy(alpha = 0.8f),
-                            modifier = Modifier.size(34.dp)
-                        )
+                    // More (⋮) button with 12dp backdrop and dropdown menu (or checkmark in selection mode)
+                    if (!isInSelectionMode) {
+                        Box {
+                            LaterboxIconButton(
+                                iconRes = LaterboxIcons.MoreVertical,
+                                contentDescription = "More actions for ${link.title.ifBlank { link.domain }}",
+                                onClick = { showMenu = true },
+                                containerColor = LaterboxTheme.colors.surfaceSecondary.copy(alpha = 0.8f),
+                                modifier = Modifier.size(34.dp)
+                            )
 
-                        LinkQuickActionsMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                            link = link,
-                            onToggleRead = { onToggleRead?.invoke() },
-                            onCopyLink = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("URL", link.originalUrl))
-                                Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
-                            },
-                            onShareLink = {
-                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                    putExtra(Intent.EXTRA_TEXT, link.originalUrl)
-                                    type = "text/plain"
-                                }
-                                val shareIntent = Intent.createChooser(sendIntent, "Share link")
-                                context.startActivity(shareIntent)
-                            },
-                            onArchive = { onArchive?.invoke() },
-                            onDelete = { onDelete?.invoke() }
-                        )
+                            LinkQuickActionsMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false },
+                                link = link,
+                                onToggleRead = { onToggleRead?.invoke() },
+                                onCopyLink = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("URL", link.originalUrl))
+                                    Toast.makeText(context, "Link copied", Toast.LENGTH_SHORT).show()
+                                },
+                                onShareLink = {
+                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                        putExtra(Intent.EXTRA_TEXT, link.originalUrl)
+                                        type = "text/plain"
+                                    }
+                                    val shareIntent = Intent.createChooser(sendIntent, "Share link")
+                                    context.startActivity(shareIntent)
+                                },
+                                onArchive = { onArchive?.invoke() },
+                                onDelete = { onDelete?.invoke() }
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(if (isSelected) LaterboxTheme.colors.accentPrimary else LaterboxTheme.colors.surfaceSecondary.copy(alpha = 0.8f))
+                                .border(
+                                    BorderStroke(
+                                        LaterboxTheme.spacing.hairline,
+                                        if (isSelected) LaterboxTheme.colors.accentPrimary else LaterboxTheme.colors.borderSubtle
+                                    ),
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(
+                                    painter = painterResource(id = LaterboxIcons.Check),
+                                    contentDescription = "Selected",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = LaterboxTheme.colors.onAccentPrimary
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -726,4 +726,94 @@ class YtDlpOutputParserTest {
         assertTrue(merged.candidates.any { it.formatId == "format_720" })
         assertTrue(merged.candidates.any { it.formatId == "format_1080" })
     }
+
+    @Test
+    fun parse_literalJsonNull_returnsRetryableNetworkError() {
+        val result = YtDlpOutputParser.parse("https://www.tiktok.com/@user/video/123456", "null")
+        assertTrue(result is InspectionResult.Failed)
+        val failed = result as InspectionResult.Failed
+        assertEquals(FailureCode.NETWORK_ERROR, failed.code)
+        assertTrue("Null extraction result should be retryable", failed.retryable)
+    }
+
+    @Test
+    fun parse_emptyOrBlankOutput_returnsRetryableNetworkError() {
+        val resultEmpty = YtDlpOutputParser.parse("https://www.tiktok.com/@user/video/123456", "")
+        assertTrue(resultEmpty is InspectionResult.Failed)
+        assertEquals(FailureCode.NETWORK_ERROR, (resultEmpty as InspectionResult.Failed).code)
+        assertTrue(resultEmpty.retryable)
+
+        val resultBlank = YtDlpOutputParser.parse("https://www.tiktok.com/@user/video/123456", "   \n\t  ")
+        assertTrue(resultBlank is InspectionResult.Failed)
+        assertEquals(FailureCode.NETWORK_ERROR, (resultBlank as InspectionResult.Failed).code)
+        assertTrue(resultBlank.retryable)
+    }
+
+    @Test
+    fun parse_jsonArrayInsteadOfObject_returnsExtractorBroken() {
+        val jsonArray = """[{"id": "item1"}, {"id": "item2"}]"""
+        val result = YtDlpOutputParser.parse("https://www.tiktok.com/@user/video/123456", jsonArray)
+        assertTrue(result is InspectionResult.Failed)
+        val failed = result as InspectionResult.Failed
+        assertEquals(FailureCode.EXTRACTOR_BROKEN, failed.code)
+        assertFalse("Array output is a structural extractor mismatch, not transient network error", failed.retryable)
+    }
+
+    @Test
+    fun parse_truncatedJson_returnsRetryableNetworkError() {
+        val truncatedJson = """{"id": "tiktok_123", "title": "Sample TikTok", "duration": 15.0, "formats": [{"format_id": "1080""""
+        val result = YtDlpOutputParser.parse("https://www.tiktok.com/@user/video/123456", truncatedJson)
+        assertTrue(result is InspectionResult.Failed)
+        val failed = result as InspectionResult.Failed
+        assertEquals(FailureCode.NETWORK_ERROR, failed.code)
+        assertTrue("Truncated JSON output from interrupted stream must be retryable", failed.retryable)
+    }
+
+    @Test
+    fun parse_validTikTokResponse_extractsCandidatesSuccessfully() {
+        val validTikTokJson = """
+            {
+              "id": "7123456789012345678",
+              "title": "Inspiring architecture and interior design",
+              "extractor_key": "TikTok",
+              "thumbnail": "https://p16.tiktokcdn.com/thumb.jpg",
+              "duration": 45.0,
+              "formats": [
+                {
+                  "format_id": "download_addr",
+                  "ext": "mp4",
+                  "vcodec": "h264",
+                  "acodec": "aac",
+                  "width": 1080,
+                  "height": 1920,
+                  "filesize": 15000000,
+                  "tbr": 2600.0,
+                  "url": "https://v16.tiktokcdn.com/video.mp4?signature=secret_token"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val result = YtDlpOutputParser.parse("https://www.tiktok.com/@creator/video/7123456789012345678", validTikTokJson)
+        assertTrue(result is InspectionResult.Available)
+        val available = result as InspectionResult.Available
+        assertEquals("TikTok", available.platform)
+        assertEquals("Inspiring architecture and interior design", available.title)
+        assertEquals("https://p16.tiktokcdn.com/thumb.jpg", available.thumbnailUrl)
+        assertTrue(available.candidates.isNotEmpty())
+
+        val videoCandidate = available.candidates.first { it.mediaType == MediaType.VIDEO }
+        assertEquals(1920, videoCandidate.height)
+        assertEquals(1080, videoCandidate.width)
+    }
+
+    @Test
+    fun parse_tiktokRetryableExtractionFailure() {
+        val errorText = "ERROR: [TikTok] 7123456789: Unable to download webpage: <urlopen error [Errno 7] No address associated with hostname>"
+        val result = YtDlpOutputParser.parseError(errorText)
+        assertTrue(result is InspectionResult.Failed)
+        val failed = result as InspectionResult.Failed
+        assertEquals(FailureCode.NETWORK_ERROR, failed.code)
+        assertTrue("Transient network error should be retryable", failed.retryable)
+    }
 }

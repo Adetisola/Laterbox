@@ -21,6 +21,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -110,12 +111,58 @@ class YtDlpAdapter(
     ): InspectionResult = withContext(Dispatchers.IO) {
         val inspectionId = processId ?: "inspect_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         val startTotal = System.currentTimeMillis()
+        val effectiveTimeoutMs = timeoutMs ?: inspectionTimeoutMs
+        val monotonicDeadline = android.os.SystemClock.elapsedRealtime() + effectiveTimeoutMs
 
-        // Resolve TikTok short link if applicable
+        fun remainingBudget(): Long {
+            return (monotonicDeadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+        }
+
+        if (remainingBudget() <= 0L) {
+            diagnosticsBuffer?.record(
+                InspectionDiagnosticEntry(
+                    id = inspectionId,
+                    url = url,
+                    adapterId = id,
+                    stage = stage,
+                    totalMs = System.currentTimeMillis() - startTotal,
+                    success = false,
+                    error = "EXTRACTION_TIMEOUT"
+                )
+            )
+            return@withContext InspectionResult.Failed(
+                code = FailureCode.EXTRACTION_TIMEOUT,
+                message = "Media inspection timed out after ${effectiveTimeoutMs / 1000} seconds.",
+                retryable = true
+            )
+        }
+
+        // Resolve TikTok short link if applicable within remaining budget
         val canonicalUrl = if (TikTokUrlResolver.isTikTokUrl(url)) {
-            tikTokResolver.resolveCanonicalUrl(url)
+            withTimeoutOrNull(remainingBudget().coerceAtLeast(1000L)) {
+                tikTokResolver.resolveCanonicalUrl(url)
+            } ?: url
         } else {
             url
+        }
+
+        if (remainingBudget() <= 0L) {
+            diagnosticsBuffer?.record(
+                InspectionDiagnosticEntry(
+                    id = inspectionId,
+                    url = canonicalUrl,
+                    adapterId = id,
+                    stage = stage,
+                    totalMs = System.currentTimeMillis() - startTotal,
+                    success = false,
+                    error = "EXTRACTION_TIMEOUT"
+                )
+            )
+            return@withContext InspectionResult.Failed(
+                code = FailureCode.EXTRACTION_TIMEOUT,
+                message = "Media inspection timed out after ${effectiveTimeoutMs / 1000} seconds.",
+                retryable = true
+            )
         }
 
         try {
@@ -145,6 +192,26 @@ class YtDlpAdapter(
                         retryable = true
                     )
                 }
+            }
+
+            if (remainingBudget() <= 0L) {
+                diagnosticsBuffer?.record(
+                    InspectionDiagnosticEntry(
+                        id = inspectionId,
+                        url = canonicalUrl,
+                        adapterId = id,
+                        stage = stage,
+                        runtimeReadyMs = runtimeReadyMs,
+                        totalMs = System.currentTimeMillis() - startTotal,
+                        success = false,
+                        error = "EXTRACTION_TIMEOUT"
+                    )
+                )
+                return@withContext InspectionResult.Failed(
+                    code = FailureCode.EXTRACTION_TIMEOUT,
+                    message = "Media inspection timed out after ${effectiveTimeoutMs / 1000} seconds.",
+                    retryable = true
+                )
             }
 
             val host = try { URI(canonicalUrl).host?.lowercase() ?: "" } catch (_: Exception) { "" }
@@ -190,7 +257,7 @@ class YtDlpAdapter(
                         url = canonicalUrl,
                         options = options,
                         processId = inspectionId,
-                        timeoutMs = timeoutMs ?: inspectionTimeoutMs
+                        timeoutMs = remainingBudget()
                     )
                     if (warmResp != null) {
                         jsonOutput = warmResp.output
@@ -216,7 +283,7 @@ class YtDlpAdapter(
                     )
                     return@withContext InspectionResult.Failed(
                         code = FailureCode.EXTRACTION_TIMEOUT,
-                        message = "Media inspection timed out after ${(timeoutMs ?: inspectionTimeoutMs) / 1000} seconds.",
+                        message = "Media inspection timed out after ${effectiveTimeoutMs / 1000} seconds.",
                         retryable = true
                     )
                 } catch (te: TimeoutCancellationException) {
@@ -236,7 +303,7 @@ class YtDlpAdapter(
                     )
                     return@withContext InspectionResult.Failed(
                         code = FailureCode.EXTRACTION_TIMEOUT,
-                        message = "Media inspection timed out after ${(timeoutMs ?: inspectionTimeoutMs) / 1000} seconds.",
+                        message = "Media inspection timed out after ${effectiveTimeoutMs / 1000} seconds.",
                         retryable = true
                     )
                 } catch (ce: CancellationException) {
@@ -264,7 +331,7 @@ class YtDlpAdapter(
                 }
 
                 val response = try {
-                    executeCancellable(request, inspectionId, timeoutMs = timeoutMs)
+                    executeCancellable(request, inspectionId, timeoutMs = remainingBudget())
                 } catch (te: TimeoutCancellationException) {
                     diagnosticsBuffer?.record(
                         InspectionDiagnosticEntry(
@@ -282,7 +349,7 @@ class YtDlpAdapter(
                     )
                     return@withContext InspectionResult.Failed(
                         code = FailureCode.EXTRACTION_TIMEOUT,
-                        message = "Media inspection timed out after ${(timeoutMs ?: inspectionTimeoutMs) / 1000} seconds.",
+                        message = "Media inspection timed out after ${effectiveTimeoutMs / 1000} seconds.",
                         retryable = true
                     )
                 }
@@ -293,8 +360,8 @@ class YtDlpAdapter(
 
             val ytdlpElapsedMs = System.currentTimeMillis() - execStart
 
-            if (jsonOutput.isNullOrBlank()) {
-                val err = errorOutput ?: "No metadata returned from yt-dlp"
+            if (jsonOutput.isNullOrBlank() || jsonOutput.trim().equals("null", ignoreCase = true)) {
+                val err = errorOutput ?: if (jsonOutput?.trim() == "null") "Extractor returned null metadata" else "No metadata returned from yt-dlp"
                 diagnosticsBuffer?.record(
                     InspectionDiagnosticEntry(
                         id = inspectionId,
@@ -308,7 +375,7 @@ class YtDlpAdapter(
                         isWarmProcess = usedWarm,
                         success = false,
                         error = err,
-                        warnings = InspectionDiagnosticEntry.sanitizeWarnings(errorOutput)
+                        warnings = InspectionDiagnosticEntry.sanitizeWarnings(warmWarnings ?: errorOutput)
                     )
                 )
                 return@withContext YtDlpOutputParser.parseError(err)

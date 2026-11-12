@@ -12,7 +12,10 @@ import com.laterbox.app.data.repository.NotificationHistoryRepository
 import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -364,6 +367,160 @@ class InboxViewModelTest {
             assertEquals(0, state.unreadNotificationCount)
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun inboxViewModel_multiSelection_toggle_and_clear() = runTest {
+        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state.isLoading) {
+                state = awaitItem()
+            }
+            assertFalse(state.isSelectionMode)
+            assertEquals(0, state.selectedCount)
+
+            viewModel.onToggleSelectLink(101L)
+            state = awaitItem()
+            while (!state.isSelectionMode) {
+                state = awaitItem()
+            }
+            assertEquals(1, state.selectedCount)
+            assertTrue(state.selectedLinkIds.contains(101L))
+
+            viewModel.onToggleSelectLink(102L)
+            state = awaitItem()
+            while (state.selectedCount != 2) {
+                state = awaitItem()
+            }
+            assertEquals(2, state.selectedCount)
+
+            viewModel.onToggleSelectLink(101L)
+            state = awaitItem()
+            while (state.selectedCount != 1) {
+                state = awaitItem()
+            }
+            assertEquals(1, state.selectedCount)
+            assertFalse(state.selectedLinkIds.contains(101L))
+            assertTrue(state.selectedLinkIds.contains(102L))
+
+            viewModel.onClearSelection()
+            state = awaitItem()
+            while (state.isSelectionMode) {
+                state = awaitItem()
+            }
+            assertFalse(state.isSelectionMode)
+            assertEquals(0, state.selectedCount)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun inboxViewModel_multiSelection_selectAll_and_batchArchive() = runTest {
+        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+
+        val id1 = linkRepository.saveLink(
+            originalUrl = "https://example.com/item1",
+            title = "Item 1",
+            contentType = ContentType.ARTICLE
+        )
+        val id2 = linkRepository.saveLink(
+            originalUrl = "https://example.com/item2",
+            title = "Item 2",
+            contentType = ContentType.ARTICLE
+        )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state.isLoading || state.links.size < 2) {
+                state = awaitItem()
+            }
+
+            viewModel.onSelectAll(state.links)
+            state = awaitItem()
+            while (!state.isSelectionMode) {
+                state = awaitItem()
+            }
+            assertTrue(state.isSelectionMode)
+            assertEquals(2, state.selectedCount)
+
+            val archiveJob = viewModel.onArchiveSelected()
+            archiveJob.join()
+
+            state = awaitItem()
+            while (state.isSelectionMode || state.links.isNotEmpty()) {
+                state = awaitItem()
+            }
+            assertFalse(state.isSelectionMode)
+            assertTrue(state.links.isEmpty())
+
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val remaining = linkRepository.inboxLinks.first()
+        assertTrue("Archived links should no longer appear in inbox", remaining.isEmpty())
+    }
+
+    @Test
+    fun inboxViewModel_multiSelection_batchToggleRead_and_batchDelete() = runTest {
+        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+
+        val id1 = linkRepository.saveLink(
+            originalUrl = "https://example.com/read1",
+            title = "Read 1",
+            contentType = ContentType.ARTICLE
+        )
+        val id2 = linkRepository.saveLink(
+            originalUrl = "https://example.com/read2",
+            title = "Read 2",
+            contentType = ContentType.ARTICLE
+        )
+
+        viewModel.uiState.test {
+            var state = awaitItem()
+            while (state.isLoading || state.links.size < 2) {
+                state = awaitItem()
+            }
+
+            viewModel.onSelectAll(state.links)
+            state = awaitItem()
+            while (!state.isSelectionMode) {
+                state = awaitItem()
+            }
+
+            // Batch toggle read: both are unread, so they should become read
+            val toggleJob = viewModel.onToggleReadSelected(state.links)
+            toggleJob.join()
+
+            state = awaitItem()
+            while (state.links.any { !it.isRead }) {
+                state = awaitItem()
+            }
+            assertTrue(state.links.all { it.isRead })
+
+            // Select all and batch delete
+            viewModel.onSelectAll(state.links)
+            state = awaitItem()
+            while (!state.isSelectionMode) {
+                state = awaitItem()
+            }
+
+            val deleteJob = viewModel.onDeleteSelected()
+            deleteJob.join()
+
+            state = awaitItem()
+            while (state.isSelectionMode || state.links.isNotEmpty()) {
+                state = awaitItem()
+            }
+            assertFalse(state.isSelectionMode)
+            assertTrue(state.links.isEmpty())
+
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val afterDelete = linkRepository.inboxLinks.first()
+        assertTrue("Deleted links should be empty", afterDelete.isEmpty())
     }
 }
 

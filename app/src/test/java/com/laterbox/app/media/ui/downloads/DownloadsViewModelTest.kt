@@ -16,9 +16,13 @@ import com.laterbox.app.util.MainDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -154,5 +158,96 @@ class DownloadsViewModelTest {
             val filtered = awaitItem()
             assertTrue("Already downloaded asset should be filtered out from readyToDownloadItems", filtered.readyToDownloadItems.isEmpty())
         }
+    }
+
+    @Test
+    fun assetMultiSelection_toggle_selectAll_and_clear() = runTest {
+        val inspectionDao = FakeMediaInspectionDao()
+        val mediaRepository = FakeMediaRepository()
+        val viewModel = DownloadsViewModel(mediaRepository, inspectionDao)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect()
+        }
+
+        val asset1 = MediaAsset(
+            id = "asset_1",
+            savedLinkId = 1L,
+            sourcePlatform = "YouTube",
+            originalSourceUrl = "https://youtube.com/watch?v=1",
+            title = "Video 1",
+            mimeType = "video/mp4",
+            mediaType = MediaType.VIDEO,
+            localPath = "video_1.mp4",
+            exportedUri = null,
+            fileSize = 1000L,
+            durationMs = 10000L,
+            width = 1280,
+            height = 720,
+            qualityLabel = "720p",
+            checksum = "a1",
+            createdAt = System.currentTimeMillis()
+        )
+        val asset2 = asset1.copy(id = "asset_2", savedLinkId = 2L, title = "Video 2")
+        val assets = listOf(asset1, asset2)
+
+        assertFalse(viewModel.uiState.value.isSelectionMode)
+        assertEquals(0, viewModel.uiState.value.selectedAssetIds.size)
+
+        viewModel.onToggleAssetSelection("asset_1")
+        assertTrue(viewModel.uiState.value.isSelectionMode)
+        assertEquals(setOf("asset_1"), viewModel.uiState.value.selectedAssetIds)
+
+        viewModel.onSelectAllAssets(assets)
+        assertEquals(setOf("asset_1", "asset_2"), viewModel.uiState.value.selectedAssetIds)
+
+        viewModel.onClearSelection()
+        assertFalse(viewModel.uiState.value.isSelectionMode)
+        assertTrue(viewModel.uiState.value.selectedAssetIds.isEmpty())
+    }
+
+    @Test
+    fun queueTaskMultiSelection_toggle_selectAll_and_actions() = runTest {
+        val inspectionDao = FakeMediaInspectionDao()
+        val mediaRepository = FakeMediaRepository()
+        val viewModel = DownloadsViewModel(mediaRepository, inspectionDao)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.uiState.collect()
+        }
+
+        val task1 = DownloadTask(
+            id = "task_1",
+            savedLinkId = 1L,
+            sourceUrl = "https://youtube.com/watch?v=1",
+            sourcePlatform = "YouTube",
+            candidateId = "c1",
+            formatSelector = "best",
+            mediaType = MediaType.VIDEO,
+            qualityLabel = "1080p",
+            title = "Task 1",
+            assetId = null,
+            status = com.laterbox.app.media.domain.model.DownloadState.FAILED,
+            progress = 0,
+            downloadedBytes = 0L,
+            totalBytes = 1000L,
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+        val task2 = task1.copy(id = "task_2", title = "Task 2")
+        val tasks = listOf(task1, task2)
+
+        assertFalse(viewModel.uiState.value.isQueueSelectionMode)
+        assertEquals(0, viewModel.uiState.value.selectedTaskIds.size)
+
+        viewModel.onToggleTaskSelection("task_1")
+        assertTrue(viewModel.uiState.value.isQueueSelectionMode)
+        assertEquals(setOf("task_1"), viewModel.uiState.value.selectedTaskIds)
+
+        viewModel.onSelectAllTasks(tasks)
+        assertEquals(setOf("task_1", "task_2"), viewModel.uiState.value.selectedTaskIds)
+
+        viewModel.onRetrySelectedTasks()
+        testScheduler.advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.isQueueSelectionMode)
+        assertTrue(viewModel.uiState.value.selectedTaskIds.isEmpty())
     }
 }

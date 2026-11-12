@@ -45,7 +45,9 @@ data class DownloadsUiState(
     val totalStorageBytes: Long = 0L,
     val selectedAssetIds: Set<String> = emptySet(),
     val isSelectionMode: Boolean = false,
-    val readyToDownloadItems: List<ReadyToDownloadItem> = emptyList()
+    val readyToDownloadItems: List<ReadyToDownloadItem> = emptyList(),
+    val selectedTaskIds: Set<String> = emptySet(),
+    val isQueueSelectionMode: Boolean = false
 )
 
 private data class ViewSelections(
@@ -53,7 +55,9 @@ private data class ViewSelections(
     val selectedMediaType: MediaType?,
     val searchQuery: String,
     val selectedAssetIds: Set<String>,
-    val isSelectionMode: Boolean
+    val isSelectionMode: Boolean,
+    val selectedTaskIds: Set<String>,
+    val isQueueSelectionMode: Boolean
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -67,15 +71,27 @@ class DownloadsViewModel(
     private val _searchQuery = MutableStateFlow("")
     private val _selectedAssetIds = MutableStateFlow<Set<String>>(emptySet())
     private val _isSelectionMode = MutableStateFlow(false)
+    private val _selectedTaskIds = MutableStateFlow<Set<String>>(emptySet())
+    private val _isQueueSelectionMode = MutableStateFlow(false)
 
     private val _selections = combine(
         _selectedTab,
         _selectedMediaType,
         _searchQuery,
         _selectedAssetIds,
-        _isSelectionMode
-    ) { tab, type, query, ids, mode ->
-        ViewSelections(tab, type, query, ids, mode)
+        _isSelectionMode,
+        _selectedTaskIds,
+        _isQueueSelectionMode
+    ) { args: Array<Any?> ->
+        ViewSelections(
+            selectedTab = args[0] as DownloadsTab,
+            selectedMediaType = args[1] as MediaType?,
+            searchQuery = args[2] as String,
+            selectedAssetIds = args[3] as Set<String>,
+            isSelectionMode = args[4] as Boolean,
+            selectedTaskIds = args[5] as Set<String>,
+            isQueueSelectionMode = args[6] as Boolean
+        )
     }
 
     private val _assets = combine(_selectedMediaType, _searchQuery) { type, query ->
@@ -126,7 +142,9 @@ class DownloadsViewModel(
             totalStorageBytes = storage.values.sum(),
             selectedAssetIds = selections.selectedAssetIds,
             isSelectionMode = selections.isSelectionMode,
-            readyToDownloadItems = readyItems
+            readyToDownloadItems = readyItems,
+            selectedTaskIds = selections.selectedTaskIds,
+            isQueueSelectionMode = selections.isQueueSelectionMode
         )
     }.stateIn(
         scope = viewModelScope,
@@ -157,6 +175,11 @@ class DownloadsViewModel(
         _isSelectionMode.value = current.isNotEmpty()
     }
 
+    fun onSelectAllAssets(assets: List<MediaAsset>) {
+        _selectedAssetIds.value = assets.map { it.id }.toSet()
+        _isSelectionMode.value = true
+    }
+
     fun onClearSelection() {
         _selectedAssetIds.value = emptySet()
         _isSelectionMode.value = false
@@ -169,6 +192,70 @@ class DownloadsViewModel(
                 mediaRepository.deleteAsset(id)
             }
             onClearSelection()
+        }
+    }
+
+    fun onExportSelectedAssets(onResult: (Int, Int) -> Unit = { _, _ -> }) {
+        val ids = _selectedAssetIds.value.toList()
+        viewModelScope.launch {
+            var successCount = 0
+            for (id in ids) {
+                val res = mediaRepository.exportAsset(id)
+                if (res.isSuccess) successCount++
+            }
+            onClearSelection()
+            onResult(successCount, ids.size)
+        }
+    }
+
+    fun onToggleTaskSelection(taskId: String) {
+        val current = _selectedTaskIds.value.toMutableSet()
+        if (current.contains(taskId)) {
+            current.remove(taskId)
+        } else {
+            current.add(taskId)
+        }
+        _selectedTaskIds.value = current
+        _isQueueSelectionMode.value = current.isNotEmpty()
+    }
+
+    fun onSelectAllTasks(tasks: List<DownloadTask>) {
+        _selectedTaskIds.value = tasks.map { it.id }.toSet()
+        _isQueueSelectionMode.value = true
+    }
+
+    fun onClearTaskSelection() {
+        _selectedTaskIds.value = emptySet()
+        _isQueueSelectionMode.value = false
+    }
+
+    fun onCancelSelectedTasks() {
+        val ids = _selectedTaskIds.value.toList()
+        viewModelScope.launch {
+            for (id in ids) {
+                mediaRepository.cancelDownload(id)
+            }
+            onClearTaskSelection()
+        }
+    }
+
+    fun onRetrySelectedTasks() {
+        val ids = _selectedTaskIds.value.toList()
+        viewModelScope.launch {
+            for (id in ids) {
+                mediaRepository.retryDownload(id)
+            }
+            onClearTaskSelection()
+        }
+    }
+
+    fun onDismissSelectedTasks() {
+        val ids = _selectedTaskIds.value.toList()
+        viewModelScope.launch {
+            for (id in ids) {
+                mediaRepository.dismissTask(id)
+            }
+            onClearTaskSelection()
         }
     }
 

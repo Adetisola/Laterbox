@@ -86,11 +86,20 @@ interface SavedLinkDao {
     @Query("DELETE FROM saved_links WHERE id = :id")
     suspend fun deleteLink(id: Long)
 
+    @Query("DELETE FROM saved_links WHERE id IN (:ids)")
+    suspend fun deleteLinks(ids: List<Long>)
+
     @Query("UPDATE saved_links SET is_archived = :isArchived, updated_at = :updatedAt WHERE id = :id")
     suspend fun setArchived(id: Long, isArchived: Boolean, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE saved_links SET is_archived = :isArchived, updated_at = :updatedAt WHERE id IN (:ids)")
+    suspend fun setArchivedBatch(ids: List<Long>, isArchived: Boolean, updatedAt: Long = System.currentTimeMillis())
+
     @Query("UPDATE saved_links SET is_read = :isRead, updated_at = :updatedAt WHERE id = :id")
     suspend fun setRead(id: Long, isRead: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE saved_links SET is_read = :isRead, updated_at = :updatedAt WHERE id IN (:ids)")
+    suspend fun setReadBatch(ids: List<Long>, isRead: Boolean, updatedAt: Long = System.currentTimeMillis())
 
     @Query("UPDATE saved_links SET metadata_status = :status, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateMetadataStatus(id: Long, status: MetadataStatus, updatedAt: Long = System.currentTimeMillis())

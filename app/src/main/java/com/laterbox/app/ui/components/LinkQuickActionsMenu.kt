@@ -136,7 +136,7 @@ fun LinkQuickActionsMenu(
                     text = "Delete",
                     style = LaterboxTheme.typography.bodyPrimary,
                     fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.error
+                    color = LaterboxTheme.colors.statusDanger
                 )
             },
             leadingIcon = {
@@ -144,7 +144,7 @@ fun LinkQuickActionsMenu(
                     painter = painterResource(id = LaterboxIcons.Delete),
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.error
+                    tint = LaterboxTheme.colors.statusDanger
                 )
             },
             onClick = {

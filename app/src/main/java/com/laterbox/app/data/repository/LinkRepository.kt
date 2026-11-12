@@ -171,6 +171,14 @@ class LinkRepository(
                     val shouldInspect = userPrefsRepo?.userPreferencesFlow?.first()?.autoInspectMediaOnSave ?: true
                     if (shouldInspect) {
                         val existingEntity = savedLinkDao.getEntityById(linkId)
+                        // Immediate in-process start for prompt foreground discovery & instant UI inspection status
+                        inspectionMgr?.startInspection(
+                            savedLinkId = linkId,
+                            url = trimmedUrl,
+                            previewImageUrl = existingEntity?.previewImageUrl,
+                            forceRefresh = false
+                        )
+                        // Durable background WorkManager backup
                         inspectionMgr?.scheduleInspection(
                             savedLinkId = linkId,
                             url = trimmedUrl,
@@ -566,6 +574,11 @@ class LinkRepository(
         savedLinkDao.deleteLink(id)
     }
 
+    suspend fun deleteLinks(ids: Collection<Long>) {
+        if (ids.isEmpty()) return
+        savedLinkDao.deleteLinks(ids.toList())
+    }
+
     suspend fun restoreLink(link: SavedLink) {
         val existing = savedLinkDao.getEntityById(link.id)
         if (existing == null) {
@@ -627,8 +640,18 @@ class LinkRepository(
         savedLinkDao.setArchived(id, isArchived)
     }
 
+    suspend fun setArchivedBatch(ids: Collection<Long>, isArchived: Boolean) {
+        if (ids.isEmpty()) return
+        savedLinkDao.setArchivedBatch(ids.toList(), isArchived)
+    }
+
     suspend fun setRead(id: Long, isRead: Boolean) {
         savedLinkDao.setRead(id, isRead)
+    }
+
+    suspend fun setReadBatch(ids: Collection<Long>, isRead: Boolean) {
+        if (ids.isEmpty()) return
+        savedLinkDao.setReadBatch(ids.toList(), isRead)
     }
 
     private fun SavedLinkWithCollection.toDomain(): SavedLink {

@@ -120,8 +120,27 @@ def run_extraction(req_id, url, options):
         target_url = all_urls[0] if all_urls else url
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(target_url, download=False)
-            sanitized = ydl.sanitize_info(info)
             elapsed_ms = int((time.time() - start) * 1000)
+            if info is None or not isinstance(info, dict):
+                err_msg = "yt-dlp returned no metadata or null info for URL"
+                if logger.errors:
+                    err_msg = "\n".join(logger.errors)
+                return {
+                    "id": req_id,
+                    "success": False,
+                    "error": err_msg,
+                    "warnings": "\n".join(logger.warnings) if logger.warnings else None,
+                    "elapsed_ms": elapsed_ms
+                }
+            sanitized = ydl.sanitize_info(info)
+            if sanitized is None or not isinstance(sanitized, dict):
+                return {
+                    "id": req_id,
+                    "success": False,
+                    "error": "Failed to sanitize extractor metadata",
+                    "warnings": "\n".join(logger.warnings) if logger.warnings else None,
+                    "elapsed_ms": elapsed_ms
+                }
             return {
                 "id": req_id,
                 "success": True,
@@ -398,6 +417,10 @@ while running:
                 val success = respObj.optBoolean("success", false)
                 if (success) {
                     val out = respObj.optString("output")
+                    if (out.isBlank() || out.trim() == "null") {
+                        val warn = respObj.optString("warnings").takeIf { it.isNotBlank() }
+                        throw YoutubeDLException("Warm extractor returned empty or null metadata")
+                    }
                     val warn = respObj.optString("warnings").takeIf { it.isNotBlank() }
                     WarmExecutionResult(output = out, warnings = warn)
                 } else {

@@ -237,6 +237,21 @@ fun DownloadsScreen(
                         onMediaTypeSelected = viewModel::onMediaTypeSelected,
                         readyToDownloadItems = uiState.readyToDownloadItems,
                         onOpenLinkDetail = onOpenLinkDetail,
+                        selectedAssetIds = uiState.selectedAssetIds,
+                        isSelectionMode = uiState.isSelectionMode,
+                        onToggleAssetSelection = viewModel::onToggleAssetSelection,
+                        onSelectAllAssets = { viewModel.onSelectAllAssets(uiState.assets) },
+                        onClearSelection = viewModel::onClearSelection,
+                        onDeleteSelectedAssets = viewModel::onDeleteSelectedAssets,
+                        onExportSelectedAssets = {
+                            viewModel.onExportSelectedAssets { succeeded, total ->
+                                Toast.makeText(
+                                    context,
+                                    if (succeeded > 0) "Exported $succeeded of $total file${if (total == 1) "" else "s"}" else "Export failed",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
                         onOpenAsset = { asset ->
                             when (asset.mediaType) {
                                 MediaType.IMAGE -> activeViewerAsset = asset
@@ -262,6 +277,14 @@ fun DownloadsScreen(
                 DownloadsTab.QUEUE -> {
                     QueueTab(
                         tasks = uiState.queueTasks,
+                        selectedTaskIds = uiState.selectedTaskIds,
+                        isSelectionMode = uiState.isQueueSelectionMode,
+                        onToggleTaskSelection = viewModel::onToggleTaskSelection,
+                        onSelectAllTasks = { viewModel.onSelectAllTasks(uiState.queueTasks) },
+                        onClearTaskSelection = viewModel::onClearTaskSelection,
+                        onCancelSelectedTasks = viewModel::onCancelSelectedTasks,
+                        onRetrySelectedTasks = viewModel::onRetrySelectedTasks,
+                        onDismissSelectedTasks = viewModel::onDismissSelectedTasks,
                         onOverrideCellular = viewModel::onOverrideCellular,
                         onPauseTask = viewModel::onPauseTask,
                         onResumeTask = viewModel::onResumeTask,

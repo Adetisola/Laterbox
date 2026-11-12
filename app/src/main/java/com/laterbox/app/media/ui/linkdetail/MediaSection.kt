@@ -97,6 +97,8 @@ fun MediaSection(
 ) {
     val context = LocalContext.current
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
 
     var pendingCandidateToDownload by remember { mutableStateOf<MediaCandidate?>(null) }
 
@@ -137,7 +139,7 @@ fun MediaSection(
     ) {
         Text(
             text = "Media Library",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+            style = typography.titleLarge,
             color = colors.textPrimary
         )
 
@@ -147,7 +149,7 @@ fun MediaSection(
         if (assets.isNotEmpty()) {
             Text(
                 text = "Downloaded (${assets.size})",
-                style = MaterialTheme.typography.labelMedium,
+                style = typography.labelMedium,
                 color = colors.textSecondary
             )
             Spacer(modifier = Modifier.height(6.dp))
@@ -168,7 +170,7 @@ fun MediaSection(
         if (activeTasks.isNotEmpty()) {
             Text(
                 text = "Active Downloads",
-                style = MaterialTheme.typography.labelMedium,
+                style = typography.labelMedium,
                 color = colors.textSecondary
             )
             Spacer(modifier = Modifier.height(6.dp))
@@ -186,53 +188,75 @@ fun MediaSection(
         }
 
         // 3. Inspection State & Candidates
-        if (isInspecting) {
-            val isYouTube = remember(linkUrl) {
-                try {
-                    val host = java.net.URI(linkUrl).host?.lowercase() ?: ""
-                    host.contains("youtube.com") || host.contains("youtu.be")
-                } catch (_: Exception) {
-                    false
-                }
+        val isYouTube = remember(linkUrl) {
+            try {
+                val host = java.net.URI(linkUrl).host?.lowercase() ?: ""
+                host.contains("youtube.com") || host.contains("youtu.be")
+            } catch (_: Exception) {
+                false
             }
-            Row(
+        }
+
+        if (isInspecting) {
+            val hasCandidates = inspectionResult is InspectionResult.Available && inspectionResult.candidates.isNotEmpty()
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(vertical = 4.dp),
+                shape = LaterboxShapeTokens.Card,
+                color = colors.surfaceSecondary
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                    color = colors.accentPrimary
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = if (inspectionResult != null) "Retrying inspection..." else "Checking media availability...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.textPrimary
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = colors.accentPrimary
                     )
-                    if (isYouTube) {
-                        Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "YouTube extraction may take up to a minute",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.textSecondary
+                            text = if (hasCandidates) "Discovering additional formats..." else if (inspectionResult != null) "Retrying inspection..." else "Checking media availability...",
+                            style = typography.bodyPrimary.copy(fontWeight = FontWeight.Medium),
+                            color = colors.textPrimary
+                        )
+                        if (isYouTube) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (hasCandidates) "Discovered formats ready below. Extracting complete formats..." else "YouTube extraction may take up to 90 seconds",
+                                style = typography.bodySmall,
+                                color = colors.textSecondary
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(
+                        onClick = onCancelInspection,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "Cancel",
+                            style = typography.labelMedium,
+                            color = colors.accentPrimary
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                TextButton(
-                    onClick = onCancelInspection,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = "Cancel",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = colors.accentPrimary
-                    )
-                }
+            }
+
+            if (inspectionResult is InspectionResult.Available && inspectionResult.candidates.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                AvailableFormatsContent(
+                    inspectionResult = inspectionResult,
+                    colors = colors,
+                    typography = typography,
+                    onDownloadCandidate = handleStartDownload,
+                    onRetryClick = onRetryClick,
+                    isInspecting = true
+                )
             }
         } else if (inspectionResult == null) {
             LaterboxSecondaryButton(
@@ -244,110 +268,13 @@ fun MediaSection(
         } else {
             when (inspectionResult) {
                 is InspectionResult.Available -> {
-                    if (inspectionResult.musicMatches.isNotEmpty()) {
-                        MusicMatchCard(
-                            available = inspectionResult,
-                            onDownloadCandidate = handleStartDownload
-                        )
-                    } else {
-                        if (inspectionResult.partialFailures.isNotEmpty()) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = LaterboxShapeTokens.Card,
-                                color = colors.statusDanger.copy(alpha = 0.12f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        painter = painterResource(LaterboxIcons.Refresh),
-                                        contentDescription = null,
-                                        tint = colors.statusDanger,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Some media could not be extracted (${inspectionResult.partialFailures.size} issue(s))",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = colors.statusDanger
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-
-                        Text(
-                            text = "Available Formats",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = colors.textSecondary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        // More formats loading banner if not complete
-                        if (!inspectionResult.isComplete) {
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
-                                shape = LaterboxShapeTokens.Chip,
-                                color = colors.surfaceSecondary
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 1.5.dp,
-                                        color = colors.accentPrimary
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "Discovering additional formats...",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = colors.textSecondary
-                                    )
-                                }
-                            }
-                        }
-
-                        // Bulk image download button when multiple images exist
-                        val imageCandidates = inspectionResult.candidates.filter { it.mediaType == MediaType.IMAGE }
-                        if (imageCandidates.size > 1) {
-                            OutlinedButton(
-                                onClick = { imageCandidates.forEach { handleStartDownload(it) } },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = LaterboxShapeTokens.PillNav
-                            ) {
-                                Icon(
-                                    painter = painterResource(LaterboxIcons.Download),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = colors.accentPrimary
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Download all images (${imageCandidates.size})", color = colors.accentPrimary)
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            inspectionResult.candidates.forEach { candidate ->
-                                CandidateCard(
-                                    candidate = candidate,
-                                    onDownload = { handleStartDownload(candidate) }
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    LaterboxSecondaryButton(
-                        text = "Retry inspection",
-                        leadingIcon = LaterboxIcons.Refresh,
-                        onClick = onRetryClick,
-                        modifier = Modifier.fillMaxWidth()
+                    AvailableFormatsContent(
+                        inspectionResult = inspectionResult,
+                        colors = colors,
+                        typography = typography,
+                        onDownloadCandidate = handleStartDownload,
+                        onRetryClick = onRetryClick,
+                        isInspecting = false
                     )
                 }
 
@@ -360,13 +287,13 @@ fun MediaSection(
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
                                 text = "Metadata-only link",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                style = typography.titleSmall.copy(fontWeight = FontWeight.Medium),
                                 color = colors.textPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "This platform does not permit direct file downloads.",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = typography.bodySmall,
                                 color = colors.textSecondary
                             )
                             if (inspectionResult.title != null) {
@@ -402,13 +329,13 @@ fun MediaSection(
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(
                                 text = "Login Required",
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                style = typography.titleSmall.copy(fontWeight = FontWeight.Medium),
                                 color = colors.textPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = inspectionResult.reason,
-                                style = MaterialTheme.typography.bodySmall,
+                                style = typography.bodySmall,
                                 color = colors.textSecondary
                             )
 
@@ -417,7 +344,7 @@ fun MediaSection(
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = "Preview image only (no video/audio found):",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = typography.badgeLabel,
                                     color = colors.textSecondary
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -455,14 +382,14 @@ fun MediaSection(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "No downloadable media detected",
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                    style = typography.titleSmall.copy(fontWeight = FontWeight.Medium),
                                     color = colors.textPrimary
                                 )
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "No media formats were discovered on this webpage.",
-                                style = MaterialTheme.typography.bodySmall,
+                                style = typography.bodySmall,
                                 color = colors.textSecondary
                             )
 
@@ -471,7 +398,7 @@ fun MediaSection(
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = "Preview image only (no video/audio found):",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = typography.badgeLabel,
                                     color = colors.textSecondary
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -511,7 +438,7 @@ fun MediaSection(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = headerTitle,
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                    style = typography.titleSmall.copy(fontWeight = FontWeight.Medium),
                                     color = if (isWaitingConnection) colors.textPrimary else colors.statusDanger
                                 )
                             }
@@ -524,7 +451,7 @@ fun MediaSection(
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = failureMessage,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = typography.bodySmall,
                                     color = colors.textSecondary,
                                     maxLines = 4,
                                     overflow = TextOverflow.Ellipsis
@@ -536,7 +463,7 @@ fun MediaSection(
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
                                     text = "Preview image only (no video/audio found):",
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = typography.badgeLabel,
                                     color = colors.textSecondary
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -562,6 +489,132 @@ fun MediaSection(
 }
 
 @Composable
+private fun AvailableFormatsContent(
+    inspectionResult: InspectionResult.Available,
+    colors: com.laterbox.app.ui.theme.LaterboxColors,
+    typography: com.laterbox.app.ui.theme.LaterboxTypography,
+    onDownloadCandidate: (MediaCandidate) -> Unit,
+    onRetryClick: () -> Unit,
+    isInspecting: Boolean
+) {
+    if (inspectionResult.musicMatches.isNotEmpty()) {
+        MusicMatchCard(
+            available = inspectionResult,
+            onDownloadCandidate = onDownloadCandidate
+        )
+    } else {
+        if (inspectionResult.partialFailures.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = LaterboxShapeTokens.Card,
+                color = colors.statusDanger.copy(alpha = 0.12f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(LaterboxIcons.Refresh),
+                        contentDescription = null,
+                        tint = colors.statusDanger,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Some media could not be extracted (${inspectionResult.partialFailures.size} issue(s))",
+                        style = typography.bodySmall,
+                        color = colors.statusDanger
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        // Partial extraction notice when complete extraction has finished or timed out
+        if (!inspectionResult.isComplete && !isInspecting) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                shape = LaterboxShapeTokens.Card,
+                color = colors.surfaceSecondary
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(LaterboxIcons.Refresh),
+                        contentDescription = null,
+                        tint = colors.accentPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Partial extraction",
+                            style = typography.uiLabel.copy(fontWeight = FontWeight.SemiBold),
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = "Discovered formats are ready below. Complete extraction timed out or was interrupted.",
+                            style = typography.bodySmall,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = if (isInspecting) "Discovered Formats (extraction in progress)" else "Available Formats",
+            style = typography.labelMedium,
+            color = colors.textSecondary
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Bulk image download button when multiple images exist
+        val imageCandidates = inspectionResult.candidates.filter { it.mediaType == MediaType.IMAGE }
+        if (imageCandidates.size > 1) {
+            OutlinedButton(
+                onClick = { imageCandidates.forEach { onDownloadCandidate(it) } },
+                modifier = Modifier.fillMaxWidth(),
+                shape = LaterboxShapeTokens.PillNav
+            ) {
+                Icon(
+                    painter = painterResource(LaterboxIcons.Download),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = colors.accentPrimary
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Download all images (${imageCandidates.size})", color = colors.accentPrimary)
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            inspectionResult.candidates.forEach { candidate ->
+                CandidateCard(
+                    candidate = candidate,
+                    onDownload = { onDownloadCandidate(candidate) }
+                )
+            }
+        }
+    }
+
+    if (!isInspecting) {
+        Spacer(modifier = Modifier.height(12.dp))
+        LaterboxSecondaryButton(
+            text = if (!inspectionResult.isComplete) "Retry / Find More Formats" else "Retry inspection",
+            leadingIcon = LaterboxIcons.Refresh,
+            onClick = onRetryClick,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
 private fun DownloadedAssetRow(
     asset: MediaAsset,
     onOpen: () -> Unit,
@@ -569,6 +622,7 @@ private fun DownloadedAssetRow(
     onDelete: () -> Unit
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
 
     Surface(
         modifier = Modifier
@@ -602,14 +656,14 @@ private fun DownloadedAssetRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = asset.title ?: asset.localPath.substringAfterLast('/'),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    style = typography.bodyPrimary.copy(fontWeight = FontWeight.Medium),
                     color = colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = "${asset.mediaType.name} · ${formatBytes(asset.fileSize)}",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = typography.caption,
                     color = colors.textSecondary
                 )
             }
@@ -643,6 +697,7 @@ private fun ActiveTaskRow(
     onDismiss: () -> Unit
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
     val isTerminal = task.status == DownloadState.CANCELLED || task.status == DownloadState.FAILED
 
     Surface(
@@ -659,7 +714,7 @@ private fun ActiveTaskRow(
             ) {
                 Text(
                     text = "${task.mediaType.name} (${task.qualityLabel ?: "Standard"})",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    style = typography.bodyPrimary.copy(fontWeight = FontWeight.Medium),
                     color = colors.textPrimary
                 )
                 IconButton(onClick = if (isTerminal) onDismiss else onCancel, modifier = Modifier.size(24.dp)) {
@@ -710,7 +765,7 @@ private fun ActiveTaskRow(
                     }
                     Text(
                         text = progressLabel,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = typography.caption,
                         color = colors.textSecondary
                     )
                 }
@@ -718,13 +773,13 @@ private fun ActiveTaskRow(
                 DownloadState.WAITING_FOR_WIFI -> {
                     Text(
                         text = "Waiting for Wi-Fi (>20 MB)",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Download anyway",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                        style = typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                         color = colors.accentPrimary,
                         modifier = Modifier.clickable(onClick = onOverrideCellular)
                     )
@@ -738,12 +793,12 @@ private fun ActiveTaskRow(
                     ) {
                         Text(
                             text = "Download cancelled",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = typography.bodySmall,
                             color = colors.textSecondary
                         )
                         Text(
                             text = "Dismiss",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            style = typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                             color = colors.accentPrimary,
                             modifier = Modifier.clickable(onClick = onDismiss)
                         )
@@ -758,14 +813,14 @@ private fun ActiveTaskRow(
                     ) {
                         Text(
                             text = "Failed: ${task.errorMessage ?: task.errorCode?.userMessage ?: "Download error"}",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = typography.bodySmall,
                             color = colors.statusDanger,
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Dismiss",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            style = typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                             color = colors.accentPrimary,
                             modifier = Modifier.clickable(onClick = onDismiss)
                         )
@@ -775,7 +830,7 @@ private fun ActiveTaskRow(
                 else -> {
                     Text(
                         text = task.stage?.label ?: task.status.name.lowercase().replaceFirstChar { it.uppercase() },
-                        style = MaterialTheme.typography.labelSmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                 }
@@ -884,6 +939,7 @@ private fun MusicMatchCard(
     onDownloadCandidate: (MediaCandidate) -> Unit
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
     val topMatch = available.musicMatches.firstOrNull() ?: return
     var showAlternatives by remember { mutableStateOf(false) }
 
@@ -928,7 +984,7 @@ private fun MusicMatchCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = available.title ?: "Music Track",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        style = typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -941,7 +997,7 @@ private fun MusicMatchCard(
                                 append(" • ${available.album}")
                             }
                         },
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -990,7 +1046,7 @@ private fun MusicMatchCard(
                 ) {
                     Text(
                         text = if (showAlternatives) "Hide Alternative Matches" else "Review Alternative Matches (${available.musicMatches.size - 1})",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = typography.labelMedium,
                         color = colors.accentPrimary
                     )
                 }
@@ -1046,6 +1102,7 @@ private fun AlternativeMatchRow(
     onDownload: () -> Unit
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1059,14 +1116,14 @@ private fun AlternativeMatchRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = match.title,
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                    style = typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = "${match.artist} · ${match.sourceDescription}",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = typography.caption,
                     color = colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis

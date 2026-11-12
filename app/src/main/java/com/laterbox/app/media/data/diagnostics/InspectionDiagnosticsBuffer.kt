@@ -39,7 +39,7 @@ data class InspectionDiagnosticEntry(
         val sdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
         val timeStr = sdf.format(Date(timestamp))
         val engineStr = if (isWarmProcess) "Warm" else "Spawn"
-        val statusStr = if (success) "SUCCESS" else "FAILED: $error"
+        val statusStr = if (success) "SUCCESS" else "FAILED: ${sanitizeErrorMessage(error)}"
         val warningsStr = if (warnings.isNotEmpty()) "\n  Warnings:\n" + warnings.joinToString("\n") { "    - $it" } else ""
         val extraInfoList = listOfNotNull(
             linkId?.let { "LinkId: $it" },
@@ -72,9 +72,10 @@ data class InspectionDiagnosticEntry(
             return try {
                 val uri = URI(url)
                 val cleanQuery = uri.query?.split("&")?.mapNotNull { param ->
-                    val key = param.substringBefore("=")
-                    if (key in listOf("sig", "token", "signature", "key", "auth", "expire", "expires")) {
-                        "$key=[REDACTED]"
+                    val key = param.substringBefore("=").lowercase()
+                    if (key in listOf("sig", "token", "signature", "key", "auth", "expire", "expires", "cookie", "session", "pass", "pwd", "password", "ticket", "access_token") ||
+                        key.startsWith("x-amz-") || key.startsWith("x-goog-")) {
+                        "${param.substringBefore("=")}=[REDACTED]"
                     } else {
                         param
                     }
@@ -85,14 +86,28 @@ data class InspectionDiagnosticEntry(
             }
         }
 
+        fun sanitizeErrorMessage(error: String?): String {
+            if (error.isNullOrBlank()) return ""
+            return error
+                .replace(Regex("""(https?://[^\s\?]+)\?[^\s]+""")) { matchResult ->
+                    sanitizeUrl(matchResult.value)
+                }
+                .replace(Regex("""(token|sig|signature|key|auth|cookie|session|x-amz-[a-zA-Z0-9_\-]+)=[a-zA-Z0-9_\-\.%]+""", RegexOption.IGNORE_CASE), "$1=[REDACTED]")
+                .replace(Regex("""(Bearer|Basic|Token)\s+[a-zA-Z0-9_\-\.]+""", RegexOption.IGNORE_CASE), "$1 [REDACTED]")
+                .take(400)
+        }
+
         fun sanitizeWarnings(stderr: String?): List<String> {
             if (stderr.isNullOrBlank()) return emptyList()
             return stderr.lines()
-                .filter { it.contains("WARNING", ignoreCase = true) || it.contains("WARN", ignoreCase = true) }
+                .filter { it.contains("WARNING", ignoreCase = true) || it.contains("WARN", ignoreCase = true) || it.contains("ERROR", ignoreCase = true) }
                 .map { line ->
-                    // Redact query tokens or long hex strings
-                    line.replace(Regex("""(token|sig|signature|key)=[a-zA-Z0-9_\-\.]+""", RegexOption.IGNORE_CASE), "$1=[REDACTED]")
-                        .take(300)
+                    line.replace(Regex("""(https?://[^\s\?]+)\?[^\s]+""")) { matchResult ->
+                        sanitizeUrl(matchResult.value)
+                    }
+                    .replace(Regex("""(token|sig|signature|key|auth|cookie|session|x-amz-[a-zA-Z0-9_\-]+)=[a-zA-Z0-9_\-\.%]+""", RegexOption.IGNORE_CASE), "$1=[REDACTED]")
+                    .replace(Regex("""(Bearer|Basic|Token)\s+[a-zA-Z0-9_\-\.]+""", RegexOption.IGNORE_CASE), "$1 [REDACTED]")
+                    .take(300)
                 }
                 .take(10)
         }

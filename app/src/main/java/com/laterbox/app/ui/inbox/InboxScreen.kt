@@ -87,6 +87,19 @@ import com.laterbox.app.ui.onboarding.OnboardingSheet
 import com.laterbox.app.ui.theme.LaterboxTheme
 import kotlinx.coroutines.launch
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.material3.TextButton
+import com.laterbox.app.ui.components.LaterboxConfirmDialog
+import kotlin.math.roundToInt
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun InboxScreen(
@@ -106,6 +119,12 @@ fun InboxScreen(
     onToggleRead: (SavedLink) -> Unit,
     onArchive: (SavedLink) -> Unit,
     onDelete: (SavedLink) -> Unit,
+    onToggleSelectLink: (Long) -> Unit = {},
+    onSelectAll: () -> Unit = {},
+    onClearSelection: () -> Unit = {},
+    onArchiveSelected: () -> Unit = {},
+    onToggleReadSelected: () -> Unit = {},
+    onDeleteSelected: () -> Unit = {},
     onCheckClipboard: (ClipboardManager?) -> Unit = {},
     onSaveClipboardSuggestion: (ClipboardSuggestion) -> Unit = {},
     onDismissClipboardSuggestion: (ClipboardSuggestion) -> Unit = {},
@@ -119,6 +138,12 @@ fun InboxScreen(
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    BackHandler(enabled = uiState.isSelectionMode) {
+        onClearSelection()
+    }
+
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
     LifecycleResumeEffect(Unit) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         onCheckClipboard(clipboard)
@@ -129,6 +154,47 @@ fun InboxScreen(
     var collapsedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     var scrollJob by remember { mutableStateOf<Job?>(null) }
+    var headerHeightPx by remember { mutableFloatStateOf(0f) }
+    var headerOffsetPx by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+            headerOffsetPx = 0f
+        }
+    }
+
+    val isScrolled by remember {
+        derivedStateOf {
+            headerOffsetPx <= -headerHeightPx + 10f && headerHeightPx > 0f
+        }
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < 0f && headerHeightPx > 0f) {
+                    val newOffset = (headerOffsetPx + delta).coerceIn(-headerHeightPx, 0f)
+                    val consumed = newOffset - headerOffsetPx
+                    headerOffsetPx = newOffset
+                    return Offset(0f, consumed)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta > 0f && headerHeightPx > 0f) {
+                    val newOffset = (headerOffsetPx + delta).coerceIn(-headerHeightPx, 0f)
+                    val consumedY = newOffset - headerOffsetPx
+                    headerOffsetPx = newOffset
+                    return Offset(0f, consumedY)
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     val showJumpToTop by remember {
         derivedStateOf {
             (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) && listState.firstVisibleItemIndex >= 3
@@ -140,253 +206,374 @@ fun InboxScreen(
         }
     }
 
+    if (showDeleteConfirmDialog) {
+        LaterboxConfirmDialog(
+            title = "Delete ${uiState.selectedCount} ${if (uiState.selectedCount == 1) "link" else "links"}?",
+            message = "This permanently removes the selected links and any downloaded media from your device.",
+            confirmText = "Delete",
+            onConfirm = {
+                showDeleteConfirmDialog = false
+                onDeleteSelected()
+            },
+            onDismiss = { showDeleteConfirmDialog = false }
+        )
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(colors.backgroundPrimary)
+            .nestedScroll(nestedScrollConnection)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header: Brand / Title on left; Notification Bell & Settings buttons on right
+            if (uiState.isSelectionMode) {
+                // Contextual Selection Toolbar
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = colors.surfaceElevated,
+                    shadowElevation = 3.dp,
+                    border = BorderStroke(spacing.hairline, colors.borderSubtle)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = spacing.base, vertical = spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.Close,
+                            contentDescription = "Cancel selection",
+                            onClick = onClearSelection
+                        )
+                        Spacer(modifier = Modifier.width(spacing.xs))
+                        Text(
+                            text = "${uiState.selectedCount} selected",
+                            style = typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = colors.textPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = onSelectAll,
+                            contentPadding = PaddingValues(horizontal = spacing.xs)
+                        ) {
+                            Text(
+                                text = "Select all",
+                                style = typography.buttonLabel.copy(color = colors.accentPrimary)
+                            )
+                        }
+
+                        val selectedLinks = remember(uiState.links, uiState.selectedLinkIds) {
+                            uiState.links.filter { it.id in uiState.selectedLinkIds }
+                        }
+                        val readCount = selectedLinks.count { it.isRead }
+                        val allRead = selectedLinks.isNotEmpty() && readCount == selectedLinks.size
+
+                        LaterboxIconButton(
+                            iconRes = if (allRead) LaterboxIcons.ViewList else LaterboxIcons.Check,
+                            contentDescription = if (allRead) "Mark as unread" else "Mark as read",
+                            onClick = onToggleReadSelected
+                        )
+                        Spacer(modifier = Modifier.width(spacing.xs))
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.Archive,
+                            contentDescription = "Archive selected",
+                            onClick = onArchiveSelected
+                        )
+                        Spacer(modifier = Modifier.width(spacing.xs))
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.Delete,
+                            contentDescription = "Delete selected",
+                            onClick = { showDeleteConfirmDialog = true }
+                        )
+                    }
+                }
+            } else {
+                // Collapsible Header: scrolls away cleanly as user scrolls down
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { headerHeightPx = it.height.toFloat() }
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            val currentHeight = (placeable.height + headerOffsetPx.roundToInt()).coerceAtLeast(0)
+                            layout(placeable.width, currentHeight) {
+                                placeable.place(0, headerOffsetPx.roundToInt())
+                            }
+                        }
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Header: Brand / Title on left; Notification Bell & Settings buttons on right
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = spacing.base, vertical = spacing.sm),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Laterbox",
+                                    style = typography.displayLarge,
+                                    color = colors.textPrimary
+                                )
+                                Text(
+                                    text = "For later, whenever you're ready",
+                                    style = typography.metaText,
+                                    color = colors.textSecondary
+                                )
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box {
+                                    LaterboxIconButton(
+                                        iconRes = LaterboxIcons.Bell,
+                                        contentDescription = "Notification History",
+                                        onClick = onNotificationHistoryClick
+                                    )
+                                    if (uiState.unreadNotificationCount > 0) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(top = 6.dp, end = 6.dp)
+                                                .size(7.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(colors.accentPrimary)
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(spacing.xs))
+
+                                LaterboxIconButton(
+                                    iconRes = LaterboxIcons.Settings,
+                                    contentDescription = "Settings",
+                                    onClick = onSettingsClick
+                                )
+                            }
+                        }
+
+                        // Search Row: [Search Field (weight 1f)] [Date Filter Button] [View Toggle Button]
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = spacing.base, vertical = spacing.xs),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Search Input Field
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(44.dp)
+                                    .clip(LaterboxShapeTokens.InputField)
+                                    .background(colors.surfacePrimary)
+                                    .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.InputField)
+                                    .padding(horizontal = spacing.md),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = LaterboxIcons.Search),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = colors.textSecondary
+                                    )
+                                    Spacer(modifier = Modifier.width(spacing.sm))
+
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        if (uiState.searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "Search links, titles, notes...",
+                                                style = typography.bodySecondary,
+                                                color = colors.textSecondary.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                        BasicTextField(
+                                            value = uiState.searchQuery,
+                                            onValueChange = onSearchQueryChange,
+                                            singleLine = true,
+                                            textStyle = typography.bodyPrimary.copy(color = colors.textPrimary),
+                                            cursorBrush = SolidColor(colors.accentPrimary),
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+
+                                    if (uiState.searchQuery.isNotEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(LaterboxShapeTokens.IconButton)
+                                                .clickable(
+                                                    role = Role.Button,
+                                                    onClickLabel = "Clear search",
+                                                    onClick = onClearSearch
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(id = LaterboxIcons.Close),
+                                                contentDescription = "Clear search",
+                                                modifier = Modifier.size(16.dp),
+                                                tint = colors.textSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(spacing.xs))
+
+                            // Date Filter Toggle Button
+                            LaterboxIconButton(
+                                iconRes = LaterboxIcons.Filter,
+                                contentDescription = "Filter by date",
+                                selected = uiState.activeDateRangeFilter != DateRangeFilter.ALL,
+                                onClick = { showDateFilterRow = !showDateFilterRow }
+                            )
+
+                            Spacer(modifier = Modifier.width(spacing.xs))
+
+                            // View Mode Toggle button (Hero vs List) right beside search
+                            LaterboxIconButton(
+                                iconRes = if (uiState.viewMode == InboxViewMode.HERO) LaterboxIcons.ViewList else LaterboxIcons.ViewCard,
+                                contentDescription = if (uiState.viewMode == InboxViewMode.HERO) "Switch to compact view" else "Switch to hero view",
+                                onClick = onToggleViewMode
+                            )
+                        }
+
+                        // Expandable Date Filter Chips Row
+                        AnimatedVisibility(
+                            visible = showDateFilterRow || uiState.activeDateRangeFilter != DateRangeFilter.ALL,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = spacing.base, vertical = spacing.xxs),
+                                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                            ) {
+                                DateRangeFilter.entries.forEach { filter ->
+                                    FilterChip(
+                                        text = filter.label,
+                                        isSelected = uiState.activeDateRangeFilter == filter,
+                                        onClick = { onFilterDateRange(filter) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Background Metadata Sync Banner (Quiet editorial bar)
+                        if (uiState.pendingMetadataCount > 0) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(colors.accentContainer.copy(alpha = 0.5f))
+                                    .padding(horizontal = spacing.base, vertical = spacing.xxs),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(10.dp),
+                                    strokeWidth = 1.5.dp,
+                                    color = colors.accentPrimary
+                                )
+                                Spacer(modifier = Modifier.width(spacing.xs))
+                                Text(
+                                    text = "Enriching ${uiState.pendingMetadataCount} ${if (uiState.pendingMetadataCount == 1) "link" else "links"} in the background…",
+                                    style = typography.metaText,
+                                    color = colors.textSecondary
+                                )
+                            }
+                        }
+
+                        // Foreground Clipboard Suggestion Banner
+                        AnimatedVisibility(
+                            visible = uiState.clipboardSuggestion != null,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            uiState.clipboardSuggestion?.let { suggestion ->
+                                ClipboardSuggestionBanner(
+                                    suggestion = suggestion,
+                                    onSave = { onSaveClipboardSuggestion(suggestion) },
+                                    onDismiss = { onDismissClipboardSuggestion(suggestion) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sticky Content Type Filter Chips Row (pinned at top below status bar when header scrolls away)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = spacing.base, vertical = spacing.sm),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .background(colors.backgroundPrimary)
+                    .padding(horizontal = spacing.base, vertical = spacing.xs),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "Laterbox",
-                        style = typography.displayLarge,
-                        color = colors.textPrimary
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                ) {
+                    FilterChip(
+                        text = "All",
+                        isSelected = uiState.activeFilterType == null,
+                        onClick = { onFilterContentType(null) }
                     )
-                    Text(
-                        text = "For later, whenever you're ready",
-                        style = typography.metaText,
-                        color = colors.textSecondary
+                    FilterChip(
+                        text = "Articles",
+                        isSelected = uiState.activeFilterType == ContentType.ARTICLE,
+                        onClick = { onFilterContentType(ContentType.ARTICLE) }
+                    )
+                    FilterChip(
+                        text = "Videos",
+                        isSelected = uiState.activeFilterType == ContentType.VIDEO,
+                        onClick = { onFilterContentType(ContentType.VIDEO) }
+                    )
+                    FilterChip(
+                        text = "Discussions",
+                        isSelected = uiState.activeFilterType == ContentType.DISCUSSION,
+                        onClick = { onFilterContentType(ContentType.DISCUSSION) }
+                    )
+                    FilterChip(
+                        text = "Products",
+                        isSelected = uiState.activeFilterType == ContentType.PRODUCT,
+                        onClick = { onFilterContentType(ContentType.PRODUCT) }
+                    )
+                    FilterChip(
+                        text = "Websites",
+                        isSelected = uiState.activeFilterType == ContentType.WEBSITE,
+                        onClick = { onFilterContentType(ContentType.WEBSITE) }
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        LaterboxIconButton(
-                            iconRes = LaterboxIcons.Bell,
-                            contentDescription = "Notification History",
-                            onClick = onNotificationHistoryClick
-                        )
-                        if (uiState.unreadNotificationCount > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 6.dp, end = 6.dp)
-                                    .size(7.dp)
-                                    .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(colors.accentPrimary)
-                            )
-                        }
-                    }
-
+                if (isScrolled && !uiState.isSelectionMode) {
                     Spacer(modifier = Modifier.width(spacing.xs))
-
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Search,
+                        contentDescription = "Search",
+                        onClick = {
+                            scrollJob?.cancel()
+                            scrollJob = coroutineScope.launch {
+                                headerOffsetPx = 0f
+                                listState.animateScrollToItem(0)
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(spacing.xs))
                     LaterboxIconButton(
                         iconRes = LaterboxIcons.Settings,
                         contentDescription = "Settings",
                         onClick = onSettingsClick
-                    )
-                }
-            }
-
-            // Search Row: [Search Field (weight 1f)] [Date Filter Button] [View Toggle Button]
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = spacing.base, vertical = spacing.xs),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Search Input Field
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(44.dp)
-                        .clip(LaterboxShapeTokens.InputField)
-                        .background(colors.surfacePrimary)
-                        .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.InputField)
-                        .padding(horizontal = spacing.md),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            painter = painterResource(id = LaterboxIcons.Search),
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = colors.textSecondary
-                        )
-                        Spacer(modifier = Modifier.width(spacing.sm))
-
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (uiState.searchQuery.isEmpty()) {
-                                Text(
-                                    text = "Search links, titles, notes...",
-                                    style = typography.bodySecondary,
-                                    color = colors.textSecondary.copy(alpha = 0.7f)
-                                )
-                            }
-                            BasicTextField(
-                                value = uiState.searchQuery,
-                                onValueChange = onSearchQueryChange,
-                                singleLine = true,
-                                textStyle = typography.bodyPrimary.copy(color = colors.textPrimary),
-                                cursorBrush = SolidColor(colors.accentPrimary),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        if (uiState.searchQuery.isNotEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(LaterboxShapeTokens.IconButton)
-                                    .clickable(
-                                        role = Role.Button,
-                                        onClickLabel = "Clear search",
-                                        onClick = onClearSearch
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = LaterboxIcons.Close),
-                                    contentDescription = "Clear search",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = colors.textSecondary
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(spacing.xs))
-
-                // Date Filter Toggle Button
-                LaterboxIconButton(
-                    iconRes = LaterboxIcons.Filter,
-                    contentDescription = "Filter by date",
-                    selected = uiState.activeDateRangeFilter != DateRangeFilter.ALL,
-                    onClick = { showDateFilterRow = !showDateFilterRow }
-                )
-
-                Spacer(modifier = Modifier.width(spacing.xs))
-
-                // View Mode Toggle button (Hero vs List) right beside search
-                LaterboxIconButton(
-                    iconRes = if (uiState.viewMode == InboxViewMode.HERO) LaterboxIcons.ViewList else LaterboxIcons.ViewCard,
-                    contentDescription = if (uiState.viewMode == InboxViewMode.HERO) "Switch to compact view" else "Switch to hero view",
-                    onClick = onToggleViewMode
-                )
-            }
-
-            // Expandable Date Filter Chips Row
-            AnimatedVisibility(
-                visible = showDateFilterRow || uiState.activeDateRangeFilter != DateRangeFilter.ALL,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = spacing.base, vertical = spacing.xxs),
-                    horizontalArrangement = Arrangement.spacedBy(spacing.xs)
-                ) {
-                    DateRangeFilter.entries.forEach { filter ->
-                        FilterChip(
-                            text = filter.label,
-                            isSelected = uiState.activeDateRangeFilter == filter,
-                            onClick = { onFilterDateRange(filter) }
-                        )
-                    }
-                }
-            }
-
-            // Content Type Filter Chips Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = spacing.base, vertical = spacing.xs),
-                horizontalArrangement = Arrangement.spacedBy(spacing.xs)
-            ) {
-                FilterChip(
-                    text = "All",
-                    isSelected = uiState.activeFilterType == null,
-                    onClick = { onFilterContentType(null) }
-                )
-                FilterChip(
-                    text = "Articles",
-                    isSelected = uiState.activeFilterType == ContentType.ARTICLE,
-                    onClick = { onFilterContentType(ContentType.ARTICLE) }
-                )
-                FilterChip(
-                    text = "Videos",
-                    isSelected = uiState.activeFilterType == ContentType.VIDEO,
-                    onClick = { onFilterContentType(ContentType.VIDEO) }
-                )
-                FilterChip(
-                    text = "Discussions",
-                    isSelected = uiState.activeFilterType == ContentType.DISCUSSION,
-                    onClick = { onFilterContentType(ContentType.DISCUSSION) }
-                )
-                FilterChip(
-                    text = "Products",
-                    isSelected = uiState.activeFilterType == ContentType.PRODUCT,
-                    onClick = { onFilterContentType(ContentType.PRODUCT) }
-                )
-                FilterChip(
-                    text = "Websites",
-                    isSelected = uiState.activeFilterType == ContentType.WEBSITE,
-                    onClick = { onFilterContentType(ContentType.WEBSITE) }
-                )
-            }
-
-            // Background Metadata Sync Banner (Quiet editorial bar)
-            if (uiState.pendingMetadataCount > 0) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(colors.accentContainer.copy(alpha = 0.5f))
-                        .padding(horizontal = spacing.base, vertical = spacing.xxs),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(10.dp),
-                        strokeWidth = 1.5.dp,
-                        color = colors.accentPrimary
-                    )
-                    Spacer(modifier = Modifier.width(spacing.xs))
-                    Text(
-                        text = "Enriching ${uiState.pendingMetadataCount} ${if (uiState.pendingMetadataCount == 1) "link" else "links"} in the background…",
-                        style = typography.metaText,
-                        color = colors.textSecondary
-                    )
-                }
-            }
-
-            // Foreground Clipboard Suggestion Banner
-            AnimatedVisibility(
-                visible = uiState.clipboardSuggestion != null,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                uiState.clipboardSuggestion?.let { suggestion ->
-                    ClipboardSuggestionBanner(
-                        suggestion = suggestion,
-                        onSave = { onSaveClipboardSuggestion(suggestion) },
-                        onDismiss = { onDismissClipboardSuggestion(suggestion) }
                     )
                 }
             }
@@ -513,7 +700,13 @@ fun InboxScreen(
                                         }
                                         SavedLinkCard(
                                             link = link,
-                                            onClick = { onLinkClick(link) },
+                                            onClick = {
+                                                if (uiState.isSelectionMode) {
+                                                    onToggleSelectLink(link.id)
+                                                } else {
+                                                    onLinkClick(link)
+                                                }
+                                            },
                                             onQuickOpenClick = { onQuickOpenClick(link) },
                                             viewMode = uiState.viewMode,
                                             shape = cardShape,
@@ -521,7 +714,10 @@ fun InboxScreen(
                                             onToggleRead = { onToggleRead(link) },
                                             onArchive = { onArchive(link) },
                                             onDelete = { onDelete(link) },
-                                            isMediaReady = link.id in uiState.mediaReadyLinkIds
+                                            isMediaReady = link.id in uiState.mediaReadyLinkIds,
+                                            isSelected = link.id in uiState.selectedLinkIds,
+                                            isInSelectionMode = uiState.isSelectionMode,
+                                            onLongClick = { onToggleSelectLink(link.id) }
                                         )
                                     }
                                 }
@@ -533,63 +729,64 @@ fun InboxScreen(
         }
 
         // Floating Action Buttons (Jump to Top stacked directly above Add Link FAB)
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 96.dp),
-            horizontalAlignment = Alignment.End
-        ) {
-            // Jump to top floating action button (stacked directly above FAB)
-            AnimatedVisibility(
-                visible = showJumpToTop,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.padding(bottom = 12.dp)
+        if (!uiState.isSelectionMode) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = 96.dp),
+                horizontalAlignment = Alignment.End
             ) {
-                Surface(
-                    onClick = {
-                        scrollJob?.cancel()
-                        scrollJob = coroutineScope.launch {
-                            if (listState.firstVisibleItemIndex > 2) {
-                                listState.scrollToItem(2)
-                            }
-                            listState.animateScrollToItem(0)
-                        }
-                    },
-                    shape = CircleShape,
-                    color = colors.surfaceElevated,
-                    contentColor = colors.accentPrimary,
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(spacing.hairline, colors.borderSubtle),
-                    modifier = Modifier.size(44.dp)
+                // Jump to top floating action button (stacked directly above FAB)
+                AnimatedVisibility(
+                    visible = showJumpToTop,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.padding(bottom = 12.dp)
                 ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
+                    Surface(
+                        onClick = {
+                            scrollJob?.cancel()
+                            scrollJob = coroutineScope.launch {
+                                if (listState.firstVisibleItemIndex > 2) {
+                                    listState.scrollToItem(2)
+                                }
+                                listState.animateScrollToItem(0)
+                            }
+                        },
+                        shape = CircleShape,
+                        color = colors.surfaceElevated,
+                        contentColor = colors.accentPrimary,
+                        shadowElevation = 4.dp,
+                        border = BorderStroke(spacing.hairline, colors.borderSubtle),
+                        modifier = Modifier.size(44.dp)
                     ) {
-                        Icon(
-                            painter = painterResource(id = LaterboxIcons.ChevronDown),
-                            contentDescription = "Jump to top",
-                            modifier = Modifier
-                                .size(20.dp)
-                                .graphicsLayer(rotationZ = 180f),
-                            tint = colors.accentPrimary
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = LaterboxIcons.ChevronDown),
+                                contentDescription = "Jump to top",
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .graphicsLayer(rotationZ = 180f),
+                                tint = colors.accentPrimary
+                            )
+                        }
                     }
                 }
-            }
 
-            // Floating Bottom-Right Action Button (+ Add Link) [UX15, UX17]
-            Surface(
-                onClick = onAddLinkClick,
-                shape = LaterboxTheme.shapes.Fab,
-                color = colors.accentPrimary,
-                contentColor = colors.onAccentPrimary,
-                shadowElevation = LaterboxTheme.elevations.floating,
-                modifier = Modifier
-                    .height(spacing.fabHeight)
-                    .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-            ) {
+                // Floating Bottom-Right Action Button (+ Add Link) [UX15, UX17]
+                Surface(
+                    onClick = onAddLinkClick,
+                    shape = LaterboxTheme.shapes.Fab,
+                    color = colors.accentPrimary,
+                    contentColor = colors.onAccentPrimary,
+                    shadowElevation = LaterboxTheme.elevations.floating,
+                    modifier = Modifier
+                        .height(spacing.fabHeight)
+                        .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                ) {
                 Row(
                     modifier = Modifier
                         .padding(horizontal = if (isFabExpanded) spacing.lg else spacing.base),
@@ -620,6 +817,7 @@ fun InboxScreen(
                 }
             }
         }
+    }
 
         // Onboarding Sheet on First Launch
         if (!uiState.hasCompletedOnboarding) {

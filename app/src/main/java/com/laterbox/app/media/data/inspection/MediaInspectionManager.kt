@@ -52,7 +52,7 @@ class MediaInspectionManager(
                 "COMPLETED" -> {
                     entity.resultJson?.let { InspectionResultJsonAdapter.fromJson(it) }
                 }
-                "PARTIAL" -> {
+                "PARTIAL", "INSPECTING", "PROCESSING", "PREPARING" -> {
                     val fromJson = entity.resultJson?.let { InspectionResultJsonAdapter.fromJson(it) }
                     if (fromJson is InspectionResult.Available) {
                         fromJson.copy(isComplete = false)
@@ -191,7 +191,7 @@ class MediaInspectionManager(
                     val stage0Json = InspectionResultJsonAdapter.toJson(stage0Result)
                     inspectionDao.insert(
                         inFlightEntity.copy(
-                            status = "PARTIAL",
+                            status = "INSPECTING",
                             resultJson = stage0Json,
                             updatedAt = System.currentTimeMillis()
                         )
@@ -209,32 +209,88 @@ class MediaInspectionManager(
                 .firstOrNull()
 
             try {
+                val overallBudgetMs = 90_000L
+                val overallStart = android.os.SystemClock.elapsedRealtime()
+                val overallDeadline = overallStart + overallBudgetMs
+
+                fun remainingBudget(): Long = (overallDeadline - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+
                 var result: InspectionResult
                 if (isYouTube && ytdlpAdapter != null) {
                     // Staged execution for YouTube:
-                    // Stage 1: Fast inspection (visionos client)
-                    val stage1Result = ytdlpAdapter.inspectFast(url, inspectionProcessId)
+                    // Stage 1: Fast format discovery (up to 15 seconds from overall budget)
+                    val stage1Budget = minOf(15_000L, remainingBudget())
+                    var stage1Result: InspectionResult? = null
+
+                    if (stage1Budget > 1_000L) {
+                        try {
+                            stage1Result = ytdlpAdapter.inspectFast(url, inspectionProcessId, timeoutMs = stage1Budget)
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            throw ce
+                        } catch (t: Throwable) {
+                            Log.w(tag, "Stage 1 fast format discovery failed: ${t.message}", t)
+                        }
+                    }
+
                     if (stage1Result is InspectionResult.Available && activeGenerations[savedLinkId] == generation) {
                         val currentCheck = inspectionDao.getEntityForLink(savedLinkId)
                         if (currentCheck == null || currentCheck.status != "CANCELLED" || currentCheck.generation < generation) {
                             val stage1WithPreview = YtDlpOutputParser.attachPreviewImageFallback(stage1Result, resolvedPreviewImageUrl)
                             inspectionDao.insert(
                                 inFlightEntity.copy(
-                                    status = "PARTIAL",
+                                    status = "INSPECTING",
                                     resultJson = InspectionResultJsonAdapter.toJson(stage1WithPreview),
                                     updatedAt = System.currentTimeMillis()
                                 )
                             )
                         }
-                        // Stage 2: Complete inspection with QuickJS
-                        val completeResult = ytdlpAdapter.inspectComplete(url, inspectionProcessId, stage1Result = stage1Result)
-                        result = if (completeResult is InspectionResult.Available) {
-                            completeResult
-                        } else {
-                            stage1Result.copy(isComplete = true)
+                    }
+
+                    // Stage 2: Complete extraction using remaining overall time
+                    val remainingForStage2 = remainingBudget()
+                    if (remainingForStage2 > 1_000L) {
+                        try {
+                            val stage2Result = ytdlpAdapter.inspectComplete(
+                                url = url,
+                                processId = inspectionProcessId,
+                                timeoutMs = remainingForStage2,
+                                stage1Result = if (stage1Result is InspectionResult.Available) stage1Result else null
+                            )
+                            if (stage2Result is InspectionResult.Available) {
+                                result = stage2Result
+                            } else {
+                                if (stage1Result is InspectionResult.Available) {
+                                    // Retain Stage 1 candidates as genuinely partial results
+                                    result = stage1Result.copy(isComplete = false)
+                                } else {
+                                    result = stage2Result
+                                }
+                            }
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            throw ce
+                        } catch (t: Throwable) {
+                            Log.w(tag, "Stage 2 complete extraction failed: ${t.message}", t)
+                            if (stage1Result is InspectionResult.Available) {
+                                result = stage1Result.copy(isComplete = false)
+                            } else {
+                                result = InspectionResult.Failed(
+                                    code = FailureCode.EXTRACTION_TIMEOUT,
+                                    message = "YouTube media extraction timed out after 90 seconds",
+                                    retryable = true
+                                )
+                            }
                         }
                     } else {
-                        result = stage1Result
+                        // Overall deadline expired
+                        if (stage1Result is InspectionResult.Available) {
+                            result = stage1Result.copy(isComplete = false)
+                        } else {
+                            result = InspectionResult.Failed(
+                                code = FailureCode.EXTRACTION_TIMEOUT,
+                                message = "YouTube media extraction timed out after 90 seconds",
+                                retryable = true
+                            )
+                        }
                     }
                 } else {
                     result = platformResolver.resolveAndInspect(url, inspectionProcessId)
@@ -258,6 +314,13 @@ class MediaInspectionManager(
                     is InspectionResult.Failed -> Triple("FAILED", result.code.name, result.message)
                     is InspectionResult.NeedsAuth -> Triple("NEEDS_AUTH", null, result.reason)
                     is InspectionResult.Unsupported -> Triple("UNSUPPORTED", null, result.reason)
+                    is InspectionResult.Available -> {
+                        if (!result.isComplete) {
+                            Triple("PARTIAL", null, null)
+                        } else {
+                            Triple("COMPLETED", null, null)
+                        }
+                    }
                     else -> Triple("COMPLETED", null, null)
                 }
 

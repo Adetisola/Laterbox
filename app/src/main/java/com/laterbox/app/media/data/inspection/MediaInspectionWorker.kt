@@ -123,7 +123,7 @@ class MediaInspectionWorker(
                 val res = inspectionManager.executeInspection(savedLinkId, url, previewImageUrl, forceRefresh)
                 if (res.isSuccess) {
                     val result = res.getOrNull()
-                    if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 5) {
+                    if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 5 && !isStopped) {
                         android.util.Log.i("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after retryable failure (${result.code}: ${result.message}): attempt $runAttemptCount of 5 -> returning Result.retry()")
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
@@ -131,8 +131,12 @@ class MediaInspectionWorker(
                         Result.success()
                     }
                 } else {
-                    if (runAttemptCount < 5) {
-                        android.util.Log.w("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after unhandled inspection error (${res.exceptionOrNull()?.message}): attempt $runAttemptCount of 5 -> returning Result.retry()")
+                    val ex = res.exceptionOrNull()
+                    if (ex is kotlinx.coroutines.CancellationException || isStopped) {
+                        return Result.failure()
+                    }
+                    if (runAttemptCount < 5 && !isStopped) {
+                        android.util.Log.w("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after unhandled inspection error (${ex?.message}): attempt $runAttemptCount of 5 -> returning Result.retry()")
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
@@ -140,9 +144,14 @@ class MediaInspectionWorker(
                     }
                 }
             }
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            cleanupProcess(inspectionProcessId)
+            Result.failure()
         } catch (e: Throwable) {
             cleanupProcess(inspectionProcessId)
-            if (runAttemptCount < 5) {
+            if (isStopped || e is kotlinx.coroutines.CancellationException) {
+                Result.failure()
+            } else if (runAttemptCount < 5) {
                 android.util.Log.w("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after exception (${e.message}): attempt $runAttemptCount of 5 -> returning Result.retry()", e)
                 inspectionManager.markInspectionPending(savedLinkId, url)
                 Result.retry()
@@ -155,7 +164,10 @@ class MediaInspectionWorker(
     private fun cleanupProcess(processId: String) {
         try {
             YoutubeDL.getInstance().destroyProcessById(processId)
-        } catch (_: Throwable) {
-        }
+        } catch (_: Throwable) {}
+        try {
+            val app = appContext as? LaterboxApplication
+            app?.container?.warmYtDlpServer?.cancel(processId)
+        } catch (_: Throwable) {}
     }
 }
