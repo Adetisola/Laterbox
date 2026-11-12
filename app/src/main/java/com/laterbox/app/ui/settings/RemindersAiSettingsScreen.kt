@@ -77,7 +77,16 @@ fun RemindersAiSettingsScreen(
     onTestAiConnection: () -> Unit,
     onSendTestSmartDigest: suspend () -> Boolean,
     onBackClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onAssistantEnabledChange: (Boolean) -> Unit = {},
+    onResetAiDisclosureConsent: () -> Unit = {},
+    onSmartNotificationsExtractionFailureChange: (Boolean) -> Unit = {},
+    onSmartNotificationsDownloadFailureChange: (Boolean) -> Unit = {},
+    onSmartNotificationsAppHealthChange: (Boolean) -> Unit = {},
+    onSmartNotificationsSummariesChange: (Boolean) -> Unit = {},
+    onSmartNotificationsTipsChange: (Boolean) -> Unit = {},
+    onQuietHoursEnabledChange: (Boolean) -> Unit = {},
+    onQuietHoursWindowChange: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
@@ -485,6 +494,156 @@ fun RemindersAiSettingsScreen(
                             },
                             modifier = Modifier.fillMaxWidth()
                         )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.md))
+
+            SettingsSectionHeader(title = "Hybrid AI Assistant")
+            SettingsCard {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Laterbox AI Assistant",
+                                style = typography.uiMedium,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = "Show the floating Message bar in Inbox and enable Gemini chat",
+                                style = typography.bodySecondary.copy(fontSize = 12.sp),
+                                color = colors.textSecondary
+                            )
+                        }
+                        Switch(
+                            checked = preferences.assistantEnabled,
+                            onCheckedChange = onAssistantEnabledChange,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.surfaceElevated,
+                                checkedTrackColor = colors.accentPrimary
+                            )
+                        )
+                    }
+
+                    SettingsDivider()
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Remote AI Privacy Consent",
+                                style = typography.uiMedium,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = if (preferences.assistantAiDisclosureAccepted) {
+                                    "Accepted — prompts & bounded link context are sent to Google AI Studio"
+                                } else {
+                                    "Pending — consent prompt will appear before your first remote message"
+                                },
+                                style = typography.metaText,
+                                color = colors.textSecondary
+                            )
+                        }
+                        if (preferences.assistantAiDisclosureAccepted) {
+                            TextButton(onClick = onResetAiDisclosureConsent) {
+                                Text(
+                                    text = "Reset",
+                                    style = typography.buttonLabel,
+                                    color = colors.accentPrimary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(spacing.md))
+
+            SettingsSectionHeader(title = "Contextual Alerts & Quiet Hours")
+            SettingsCard {
+                Column(verticalArrangement = Arrangement.spacedBy(spacing.md)) {
+                    ScheduleRow(
+                        title = "Extraction Failure Alerts",
+                        description = "Notify when background media inspection exhausts retries",
+                        enabled = preferences.smartNotificationsExtractionFailure,
+                        onEnabledChange = onSmartNotificationsExtractionFailureChange,
+                        content = {}
+                    )
+                    SettingsDivider()
+                    ScheduleRow(
+                        title = "Download Failure Alerts",
+                        description = "Notify when a queued media download fails permanently",
+                        enabled = preferences.smartNotificationsDownloadFailure,
+                        onEnabledChange = onSmartNotificationsDownloadFailureChange,
+                        content = {}
+                    )
+                    SettingsDivider()
+                    ScheduleRow(
+                        title = "App Health Warnings",
+                        description = "Alert on extractor, FFmpeg, permission, or low-storage issues",
+                        enabled = preferences.smartNotificationsAppHealth,
+                        onEnabledChange = onSmartNotificationsAppHealthChange,
+                        content = {}
+                    )
+                    SettingsDivider()
+                    ScheduleRow(
+                        title = "Contextual Reading Summaries",
+                        description = "Gentle summary alerts for older unread items & downloads",
+                        enabled = preferences.smartNotificationsSummaries,
+                        onEnabledChange = onSmartNotificationsSummariesChange,
+                        content = {}
+                    )
+                    SettingsDivider()
+                    ScheduleRow(
+                        title = "Non-Repeating Tips & Tricks",
+                        description = "Occasional discovery tips for Laterbox shortcuts & media features",
+                        enabled = preferences.smartNotificationsTips,
+                        onEnabledChange = onSmartNotificationsTipsChange,
+                        content = {}
+                    )
+                    SettingsDivider()
+                    ScheduleRow(
+                        title = "Quiet Hours",
+                        description = "Silence contextual summaries, tips, and health alerts between ${formatTime(preferences.quietHoursStartHour, 0)} and ${formatTime(preferences.quietHoursEndHour, 0)}",
+                        enabled = preferences.quietHoursEnabled,
+                        onEnabledChange = onQuietHoursEnabledChange
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(spacing.xs)
+                        ) {
+                            ThemeOptionChip(
+                                label = "Night (10 PM – 8 AM)",
+                                isSelected = preferences.quietHoursStartHour == 22 && preferences.quietHoursEndHour == 8,
+                                onClick = { onQuietHoursWindowChange(22, 8) }
+                            )
+                            ThemeOptionChip(
+                                label = "Late (11 PM – 7 AM)",
+                                isSelected = preferences.quietHoursStartHour == 23 && preferences.quietHoursEndHour == 7,
+                                onClick = { onQuietHoursWindowChange(23, 7) }
+                            )
+                            ThemeOptionChip(
+                                label = "Workday (9 AM – 5 PM)",
+                                isSelected = preferences.quietHoursStartHour == 9 && preferences.quietHoursEndHour == 17,
+                                onClick = { onQuietHoursWindowChange(9, 17) }
+                            )
+                            ThemeOptionChip(
+                                label = "Early Evening (8 PM – 7 AM)",
+                                isSelected = preferences.quietHoursStartHour == 20 && preferences.quietHoursEndHour == 7,
+                                onClick = { onQuietHoursWindowChange(20, 7) }
+                            )
+                        }
                     }
                 }
             }

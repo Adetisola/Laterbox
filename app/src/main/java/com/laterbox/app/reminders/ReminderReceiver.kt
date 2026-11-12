@@ -156,11 +156,19 @@ class ReminderReceiver : BroadcastReceiver() {
                                     userPreferencesRepository.recordDeliveredSlot(slotKey)
                                     Log.d(TAG, "Successfully delivered smart reminder for slot $slotKey")
                                 }
+                                try {
+                                    appContainer.contextualNotificationEngine.evaluateAndNotifyAppHealthIfNeeded()
+                                    appContainer.contextualNotificationEngine.maybeSendContextualSummaryOrTip()
+                                } catch (_: Throwable) {}
                                 scheduler.scheduleNext(type)
                             }
 
                             is AiCopyResult.Failure -> {
                                 Log.w(TAG, "AI reminder generation failed for slot $slotKey: ${result.reason.userMessage}")
+                                try {
+                                    appContainer.contextualNotificationEngine.evaluateAndNotifyAppHealthIfNeeded()
+                                    appContainer.contextualNotificationEngine.maybeSendContextualSummaryOrTip()
+                                } catch (_: Throwable) {}
                                 // Never record failed delivery as successfully delivered!
                                 // Advance to next occurrence
                                 scheduler.scheduleNext(type)

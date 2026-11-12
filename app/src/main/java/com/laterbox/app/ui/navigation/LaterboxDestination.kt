@@ -21,4 +21,13 @@ sealed class LaterboxDestination(val route: String) {
             return "collection/$collectionId/$encodedName"
         }
     }
+
+    object Chat : LaterboxDestination("chat?conversationId={conversationId}&initialPrompt={initialPrompt}") {
+        const val BASE_ROUTE = "chat"
+        fun createRoute(conversationId: String? = null, initialPrompt: String? = null): String {
+            val encodedConv = java.net.URLEncoder.encode(conversationId.orEmpty(), "UTF-8")
+            val encodedPrompt = java.net.URLEncoder.encode(initialPrompt.orEmpty(), "UTF-8")
+            return "chat?conversationId=$encodedConv&initialPrompt=$encodedPrompt"
+        }
+    }
 }

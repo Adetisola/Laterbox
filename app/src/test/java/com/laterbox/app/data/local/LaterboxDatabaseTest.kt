@@ -1391,5 +1391,112 @@ class LaterboxDatabaseTest {
 
         helper.close()
     }
+
+    @Test
+    fun migration9To10CreatesChatAndActivityTablesAndPreservesExistingLinks() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(9) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `saved_links` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `original_url` TEXT NOT NULL,
+                            `normalized_url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `domain` TEXT NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+        sqliteDb.execSQL("INSERT INTO `saved_links` (`id`, `original_url`, `normalized_url`, `title`, `domain`) VALUES (1, 'https://laterbox.app', 'https://laterbox.app', 'Preserved Link', 'laterbox.app')")
+
+        LaterboxDatabase.MIGRATION_9_10.migrate(sqliteDb)
+
+        val linkCursor = sqliteDb.query("SELECT title FROM saved_links WHERE id = 1")
+        assertTrue(linkCursor.moveToFirst())
+        assertEquals("Preserved Link", linkCursor.getString(0))
+        linkCursor.close()
+
+        sqliteDb.execSQL("INSERT INTO `chat_conversations` (`id`, `title`, `created_at`, `updated_at`, `is_pinned`) VALUES ('c1', 'Test', 1000, 1000, 0)")
+        sqliteDb.execSQL("INSERT INTO `chat_messages` (`id`, `conversation_id`, `role`, `content`, `status`, `created_at`) VALUES ('m1', 'c1', 'USER', 'Hi', 'COMPLETE', 1000)")
+        sqliteDb.execSQL("INSERT INTO `activity_events` (`event_type`, `title`, `created_at`) VALUES ('LINK_SAVED', 'Saved link', 1000)")
+
+        val msgCursor = sqliteDb.query("SELECT content FROM chat_messages WHERE conversation_id = 'c1'")
+        assertTrue(msgCursor.moveToFirst())
+        assertEquals("Hi", msgCursor.getString(0))
+        msgCursor.close()
+
+        val evCursor = sqliteDb.query("SELECT event_type FROM activity_events")
+        assertTrue(evCursor.moveToFirst())
+        assertEquals("LINK_SAVED", evCursor.getString(0))
+        evCursor.close()
+
+        helper.close()
+    }
+
+    @Test
+    fun chatDao_andActivityEventDao_crudAndCascade() = runTest {
+        val chatDao = db.chatDao()
+        val now = System.currentTimeMillis()
+        val conv = com.laterbox.app.data.local.entity.ChatConversationEntity(
+            id = "conv-1",
+            title = "Test Chat",
+            createdAt = now,
+            updatedAt = now,
+            lastMessagePreview = "Hello",
+            isPinned = false
+        )
+        chatDao.upsertConversation(conv)
+        chatDao.upsertMessage(
+            com.laterbox.app.data.local.entity.ChatMessageEntity(
+                id = "msg-1",
+                conversationId = "conv-1",
+                role = "USER",
+                content = "Hello",
+                actionsJson = null,
+                status = "COMPLETE",
+                errorMessage = null,
+                createdAt = now
+            )
+        )
+
+        assertEquals(1, chatDao.getMessagesSnapshot("conv-1").size)
+        chatDao.deleteConversationById("conv-1")
+        assertTrue(chatDao.getMessagesSnapshot("conv-1").isEmpty())
+    }
+
+    @Test
+    fun activityEventRepository_prunesAt200AndRedactsSecrets() = runTest {
+        val repo = com.laterbox.app.data.repository.ActivityEventRepository(db.activityEventDao())
+        for (i in 1..205) {
+            repo.recordEvent(
+                type = com.laterbox.app.data.repository.ActivityEventType.LINK_SAVED,
+                title = "Event $i with AIzaSySecretKey12345678901234567890",
+                detail = "authorization: Bearer secretToken /data/user/0/com.laterbox.app/cache/x",
+                createdAt = i.toLong()
+            )
+        }
+
+        val allEvents = repo.getRecentEvents(300)
+        assertEquals(200, allEvents.size)
+        assertEquals(205L, allEvents.first().createdAt)
+        assertFalse(allEvents.first().title.contains("AIzaSy"))
+        assertFalse(allEvents.first().detail.orEmpty().contains("secretToken"))
+        assertFalse(allEvents.first().detail.orEmpty().contains("/data/user/0/"))
+    }
 }
 

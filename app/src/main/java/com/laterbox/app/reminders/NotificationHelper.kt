@@ -27,12 +27,46 @@ import kotlinx.coroutines.withTimeoutOrNull
 object NotificationHelper {
 
     const val CHANNEL_ID_REMINDERS = "channel_link_reminders"
+    const val CHANNEL_ID_RECOVERY = "channel_recovery_alerts"
+    const val CHANNEL_ID_HEALTH = "channel_app_health"
+    const val CHANNEL_ID_TIPS_SUMMARIES = "channel_tips_summaries"
+
     private const val CHANNEL_NAME = "Link Reminders"
     private const val CHANNEL_DESCRIPTION = "Quiet reminders for links you saved to revisit later"
+    private const val DEDUP_PREFS_NAME = "laterbox_notif_dedup"
+    private const val MAX_DEDUP_ENTRIES = 80
+
+    fun isWithinQuietHours(hourOfDay: Int, startHour: Int, endHour: Int): Boolean {
+        val h = hourOfDay.coerceIn(0, 23)
+        val s = startHour.coerceIn(0, 23)
+        val e = endHour.coerceIn(0, 23)
+        if (s == e) return false
+        return if (s > e) {
+            h >= s || h < e
+        } else {
+            h in s until e
+        }
+    }
+
+    internal fun claimDedupKey(context: Context, dedupKey: String): Boolean {
+        if (dedupKey.isBlank()) return true
+        val prefs = context.applicationContext.getSharedPreferences(DEDUP_PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.contains(dedupKey)) return false
+        val editor = prefs.edit()
+        if (prefs.all.size >= MAX_DEDUP_ENTRIES) {
+            val oldest = prefs.all.entries.sortedBy { (it.value as? Long) ?: 0L }.take(20)
+            oldest.forEach { editor.remove(it.key) }
+        }
+        editor.putLong(dedupKey, System.currentTimeMillis()).apply()
+        return true
+    }
 
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return
+
+            val remindersChannel = NotificationChannel(
                 CHANNEL_ID_REMINDERS,
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
@@ -42,8 +76,37 @@ object NotificationHelper {
                 enableVibration(true)
                 setShowBadge(true)
             }
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            notificationManager?.createNotificationChannel(channel)
+
+            val recoveryChannel = NotificationChannel(
+                CHANNEL_ID_RECOVERY,
+                "Media & Download Recovery",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Alerts when a background media inspection or download fails terminally"
+                setShowBadge(true)
+            }
+
+            val healthChannel = NotificationChannel(
+                CHANNEL_ID_HEALTH,
+                "App Health Alerts",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Actionable alerts for media engine, storage, or permission issues"
+                setShowBadge(true)
+            }
+
+            val tipsChannel = NotificationChannel(
+                CHANNEL_ID_TIPS_SUMMARIES,
+                "Summaries & Helpful Tips",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Contextual catch-up summaries and non-repeating Laterbox feature tips"
+                setShowBadge(false)
+            }
+
+            notificationManager.createNotificationChannels(
+                listOf(remindersChannel, recoveryChannel, healthChannel, tipsChannel)
+            )
         }
     }
 
@@ -234,6 +297,287 @@ object NotificationHelper {
             origin = copy.origin,
             copy = copy
         )
+    }
+
+    private fun hasNotificationPermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) return false
+        }
+        return androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    suspend fun showExtractionFailedNotification(
+        context: Context,
+        savedLinkId: Long,
+        url: String,
+        linkTitle: String,
+        errorMessage: String,
+        dedupKey: String
+    ): Boolean {
+        createNotificationChannels(context)
+        if (!hasNotificationPermission(context)) return false
+        if (!claimDedupKey(context, dedupKey)) return false
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return false
+
+        val domain = try {
+            Uri.parse(url).host?.removePrefix("www.") ?: "laterbox.app"
+        } catch (_: Throwable) {
+            "laterbox.app"
+        }
+        val title = "Media inspection failed"
+        val body = "$linkTitle: $errorMessage"
+        val notificationId = (800_000L + savedLinkId).toInt()
+
+        val app = context.applicationContext as? com.laterbox.app.LaterboxApplication
+        val recordId = app?.container?.notificationHistoryRepository?.recordNotification(
+            linkId = savedLinkId,
+            url = url,
+            title = title,
+            body = body,
+            origin = "EXTRACTION_FAILED",
+            domain = domain,
+            siteName = null,
+            previewImageUrl = null,
+            faviconUrl = null,
+            isRead = false,
+            createdAt = System.currentTimeMillis()
+        ) ?: -1L
+
+        val openDetailIntent = NotificationOpenActivity.createIntent(
+            context = context,
+            linkId = savedLinkId,
+            url = url,
+            notificationRecordId = recordId,
+            notificationId = notificationId,
+            mode = NotificationOpenActivity.MODE_OPEN_LINK_DETAIL
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            openDetailIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val askAiIntent = NotificationOpenActivity.createIntent(
+            context = context,
+            linkId = savedLinkId,
+            url = url,
+            notificationRecordId = recordId,
+            notificationId = notificationId,
+            mode = NotificationOpenActivity.MODE_OPEN_DESTINATION,
+            destination = "chat",
+            chatInitialPrompt = "Why did media inspection fail for \"$linkTitle\" (linkId=$savedLinkId)?"
+        )
+        val askAiPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId + 50_000,
+            askAiIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID_RECOVERY)
+            .setSmallIcon(R.drawable.ic_stat_laterbox)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .addAction(R.drawable.ic_huge_arrow_up_right, "Open link", pendingIntent)
+            .addAction(R.drawable.ic_huge_sparkles, "Ask assistant", askAiPendingIntent)
+            .build()
+
+        notificationManager.notify(notificationId, notification)
+        return true
+    }
+
+    suspend fun showDownloadFailedNotification(
+        context: Context,
+        taskId: String,
+        savedLinkId: Long,
+        title: String,
+        errorMessage: String,
+        dedupKey: String
+    ): Boolean {
+        createNotificationChannels(context)
+        if (!hasNotificationPermission(context)) return false
+        if (!claimDedupKey(context, dedupKey)) return false
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return false
+
+        val notifTitle = "Download failed"
+        val body = "$title: $errorMessage"
+        val notificationId = 850_000 + (taskId.hashCode() and 0x7FFF)
+
+        val app = context.applicationContext as? com.laterbox.app.LaterboxApplication
+        val recordId = app?.container?.notificationHistoryRepository?.recordNotification(
+            linkId = savedLinkId.takeIf { it > 0 },
+            url = "laterbox://downloads",
+            title = notifTitle,
+            body = body,
+            origin = "DOWNLOAD_FAILED",
+            domain = "downloads",
+            siteName = null,
+            previewImageUrl = null,
+            faviconUrl = null,
+            isRead = false,
+            createdAt = System.currentTimeMillis()
+        ) ?: -1L
+
+        val openDownloadsIntent = NotificationOpenActivity.createIntent(
+            context = context,
+            linkId = savedLinkId,
+            url = "laterbox://downloads",
+            notificationRecordId = recordId,
+            notificationId = notificationId,
+            mode = NotificationOpenActivity.MODE_OPEN_DESTINATION,
+            destination = "downloads"
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            openDownloadsIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID_RECOVERY)
+            .setSmallIcon(R.drawable.ic_stat_laterbox)
+            .setContentTitle(notifTitle)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .addAction(R.drawable.ic_huge_download, "View queue", pendingIntent)
+            .build()
+
+        notificationManager.notify(notificationId, notification)
+        return true
+    }
+
+    suspend fun showAppHealthNotification(
+        context: Context,
+        title: String,
+        body: String
+    ): Boolean {
+        createNotificationChannels(context)
+        if (!hasNotificationPermission(context)) return false
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return false
+
+        val notificationId = 890_100
+        val app = context.applicationContext as? com.laterbox.app.LaterboxApplication
+        val recordId = app?.container?.notificationHistoryRepository?.recordNotification(
+            linkId = null,
+            url = "laterbox://chat",
+            title = title,
+            body = body,
+            origin = "APP_HEALTH",
+            domain = "laterbox.app",
+            siteName = null,
+            previewImageUrl = null,
+            faviconUrl = null,
+            isRead = false,
+            createdAt = System.currentTimeMillis()
+        ) ?: -1L
+
+        val openHealthChatIntent = NotificationOpenActivity.createIntent(
+            context = context,
+            linkId = -1L,
+            url = "laterbox://chat",
+            notificationRecordId = recordId,
+            notificationId = notificationId,
+            mode = NotificationOpenActivity.MODE_OPEN_DESTINATION,
+            destination = "chat",
+            chatInitialPrompt = "Run an app health check and explain how to fix any issues"
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            openHealthChatIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID_HEALTH)
+            .setSmallIcon(R.drawable.ic_stat_laterbox)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+
+        notificationManager.notify(notificationId, notification)
+        return true
+    }
+
+    suspend fun showContextualSummaryOrTipNotification(
+        context: Context,
+        notificationId: Int,
+        title: String,
+        body: String,
+        destination: String,
+        initialPrompt: String?
+    ): Boolean {
+        createNotificationChannels(context)
+        if (!hasNotificationPermission(context)) return false
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return false
+
+        val app = context.applicationContext as? com.laterbox.app.LaterboxApplication
+        val recordId = app?.container?.notificationHistoryRepository?.recordNotification(
+            linkId = null,
+            url = "laterbox://$destination",
+            title = title,
+            body = body,
+            origin = if (initialPrompt != null) "CONTEXTUAL_SUMMARY" else "HELPFUL_TIP",
+            domain = "laterbox.app",
+            siteName = null,
+            previewImageUrl = null,
+            faviconUrl = null,
+            isRead = false,
+            createdAt = System.currentTimeMillis()
+        ) ?: -1L
+
+        val openIntent = NotificationOpenActivity.createIntent(
+            context = context,
+            linkId = -1L,
+            url = "laterbox://$destination",
+            notificationRecordId = recordId,
+            notificationId = notificationId,
+            mode = NotificationOpenActivity.MODE_OPEN_DESTINATION,
+            destination = destination,
+            chatInitialPrompt = initialPrompt
+        )
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID_TIPS_SUMMARIES)
+            .setSmallIcon(R.drawable.ic_stat_laterbox)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        notificationManager.notify(notificationId, notification)
+        return true
     }
 
     @DrawableRes

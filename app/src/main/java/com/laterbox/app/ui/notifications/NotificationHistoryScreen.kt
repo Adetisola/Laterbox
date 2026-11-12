@@ -51,6 +51,7 @@ fun NotificationHistoryScreen(
     viewModel: NotificationHistoryViewModel,
     onNavigateBack: () -> Unit,
     onOpenUrl: (String, Long?) -> Unit,
+    onMenuClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -72,11 +73,19 @@ fun NotificationHistoryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                LaterboxIconButton(
-                    iconRes = LaterboxIcons.ArrowLeft,
-                    contentDescription = "Back",
-                    onClick = onNavigateBack
-                )
+                if (onMenuClick != null) {
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.Menu,
+                        contentDescription = "Open navigation menu",
+                        onClick = onMenuClick
+                    )
+                } else {
+                    LaterboxIconButton(
+                        iconRes = LaterboxIcons.ArrowLeft,
+                        contentDescription = "Back",
+                        onClick = onNavigateBack
+                    )
+                }
                 Spacer(modifier = Modifier.width(spacing.sm))
                 Column {
                     Text(

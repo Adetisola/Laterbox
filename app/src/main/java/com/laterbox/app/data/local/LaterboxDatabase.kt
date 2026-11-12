@@ -7,9 +7,14 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.laterbox.app.data.local.dao.ActivityEventDao
+import com.laterbox.app.data.local.dao.ChatDao
 import com.laterbox.app.data.local.dao.CollectionDao
 import com.laterbox.app.data.local.dao.NotificationHistoryDao
 import com.laterbox.app.data.local.dao.SavedLinkDao
+import com.laterbox.app.data.local.entity.ActivityEventEntity
+import com.laterbox.app.data.local.entity.ChatConversationEntity
+import com.laterbox.app.data.local.entity.ChatMessageEntity
 import com.laterbox.app.data.local.entity.CollectionEntity
 import com.laterbox.app.data.local.entity.NotificationHistoryEntity
 import com.laterbox.app.data.local.entity.SavedLinkEntity
@@ -28,9 +33,12 @@ import com.laterbox.app.media.data.db.entity.MediaInspectionEntity
         NotificationHistoryEntity::class,
         DownloadedAssetEntity::class,
         DownloadTaskEntity::class,
-        MediaInspectionEntity::class
+        MediaInspectionEntity::class,
+        ChatConversationEntity::class,
+        ChatMessageEntity::class,
+        ActivityEventEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -42,6 +50,8 @@ abstract class LaterboxDatabase : RoomDatabase() {
     abstract fun downloadedAssetDao(): DownloadedAssetDao
     abstract fun downloadTaskDao(): DownloadTaskDao
     abstract fun mediaInspectionDao(): MediaInspectionDao
+    abstract fun chatDao(): ChatDao
+    abstract fun activityEventDao(): ActivityEventDao
 
     companion object {
         private const val DATABASE_NAME = "laterbox.db"
@@ -444,6 +454,63 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Non-destructive migration from version 9 to version 10:
+         * Creates persistent chat_conversations, chat_messages, and activity_events tables and indices.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `chat_conversations` (
+                        `id` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        `updated_at` INTEGER NOT NULL,
+                        `last_message_preview` TEXT,
+                        `is_pinned` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_conversations_updated_at` ON `chat_conversations` (`updated_at`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `chat_messages` (
+                        `id` TEXT NOT NULL,
+                        `conversation_id` TEXT NOT NULL,
+                        `role` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `actions_json` TEXT,
+                        `status` TEXT NOT NULL,
+                        `error_message` TEXT,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`conversation_id`) REFERENCES `chat_conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_messages_conversation_id` ON `chat_messages` (`conversation_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_messages_created_at` ON `chat_messages` (`created_at`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `activity_events` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `event_type` TEXT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `detail` TEXT,
+                        `link_id` INTEGER,
+                        `created_at` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_activity_events_created_at` ON `activity_events` (`created_at`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_activity_events_event_type` ON `activity_events` (`event_type`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -454,7 +521,17 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7,
+                        MIGRATION_7_8,
+                        MIGRATION_8_9,
+                        MIGRATION_9_10
+                    )
                     .build()
                     .also { INSTANCE = it }
             }

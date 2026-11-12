@@ -55,6 +55,19 @@ object InfoJsonCache {
         return null
     }
 
+    fun invalidate(context: Context, url: String, linkId: Long? = null) {
+        try {
+            val dir = getCacheDir(context)
+            if (linkId != null && linkId > 0) {
+                val fileByLinkId = File(dir, "link_${linkId}.json")
+                if (fileByLinkId.exists()) fileByLinkId.delete()
+            }
+            val hash = urlHash(url)
+            val fileByHash = File(dir, "$hash.json")
+            if (fileByHash.exists()) fileByHash.delete()
+        } catch (_: Throwable) {}
+    }
+
     fun clearExpired(context: Context) {
         try {
             val dir = getCacheDir(context)

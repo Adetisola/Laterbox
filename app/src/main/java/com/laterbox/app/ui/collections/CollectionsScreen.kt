@@ -66,6 +66,7 @@ fun CollectionsScreen(
     onCloseDeleteDialog: () -> Unit,
     onDeleteCollection: (Long) -> Unit,
     onSettingsClick: () -> Unit = {},
+    onMenuClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
@@ -86,17 +87,30 @@ fun CollectionsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "Collections",
-                        style = typography.displayLarge,
-                        color = colors.textPrimary
-                    )
-                    Text(
-                        text = "Themed shelves for your library",
-                        style = typography.metaText,
-                        color = colors.textSecondary
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (onMenuClick != null) {
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.Menu,
+                            contentDescription = "Open navigation menu",
+                            onClick = onMenuClick
+                        )
+                        Spacer(modifier = Modifier.width(spacing.sm))
+                    }
+                    Column {
+                        Text(
+                            text = "Collections",
+                            style = typography.displayLarge,
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = "Themed shelves for your library",
+                            style = typography.metaText,
+                            color = colors.textSecondary
+                        )
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -158,7 +172,7 @@ fun CollectionsScreen(
                             start = spacing.base,
                             end = spacing.base,
                             top = spacing.sm,
-                            bottom = 148.dp // Leave clear space for floating navigation pill
+                            bottom = 32.dp
                         ),
                         horizontalArrangement = Arrangement.spacedBy(spacing.sm),
                         verticalArrangement = Arrangement.spacedBy(spacing.sm),

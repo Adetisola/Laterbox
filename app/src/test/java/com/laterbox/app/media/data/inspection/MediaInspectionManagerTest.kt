@@ -443,5 +443,53 @@ class MediaInspectionManagerTest {
         val finalEntity = inspectionDao.getEntityForLink(linkId)
         assertEquals("CANCELLED", finalEntity?.status)
     }
+
+    @Test
+    fun executeInspection_usesExplicitProcessId_andInvalidatesInfoJsonCacheOnForceRefresh() = testScope.runTest {
+        val url = "https://example.com/worker_video"
+        val link = SavedLinkEntity(
+            originalUrl = url,
+            normalizedUrl = url,
+            title = "Worker Video",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.save(context, url, """{"id":"stale"}""", linkId)
+        assertNotNull(com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.getValidInfoJson(context, url, linkId))
+
+        var observedProcessId: String? = null
+        val recordingAdapter = object : MediaPlatformAdapter {
+            override val id = "Recorder"
+            override fun canHandle(u: String) = true
+            override suspend fun inspect(u: String): InspectionResult = inspect(u, null)
+            override suspend fun inspect(u: String, processId: String?): InspectionResult {
+                observedProcessId = processId
+                return InspectionResult.Available("Recorder", "Fresh", null, emptyList())
+            }
+        }
+
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = PlatformResolver(AdapterRegistry(listOf(recordingAdapter))),
+            scope = this
+        )
+
+        val expectedPid = MediaInspectionWorker.buildProcessId(linkId, 2)
+        val result = manager.executeInspection(
+            savedLinkId = linkId,
+            url = url,
+            forceRefresh = true,
+            explicitProcessId = expectedPid
+        )
+
+        assertTrue(result.isSuccess)
+        assertEquals(expectedPid, observedProcessId)
+        assertEquals(
+            null,
+            com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.getValidInfoJson(context, url, linkId)
+        )
+    }
 }
 

@@ -18,9 +18,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class MainActivity : ComponentActivity() {
 
     private val openLinkIdState = MutableStateFlow<Long?>(null)
+    private val openDestinationState = MutableStateFlow<Pair<String, String?>?>(null)
 
     companion object {
         const val EXTRA_OPEN_LINK_ID = "com.laterbox.app.extra.OPEN_LINK_ID"
+        const val EXTRA_OPEN_DESTINATION = "com.laterbox.app.extra.OPEN_DESTINATION"
+        const val EXTRA_CHAT_INITIAL_PROMPT = "com.laterbox.app.extra.CHAT_INITIAL_PROMPT"
         private var hasShownColdSplash = false
     }
 
@@ -50,6 +53,7 @@ class MainActivity : ComponentActivity() {
                 initial = UserPreferences()
             )
             val openLinkId by openLinkIdState.collectAsState()
+            val openDestination by openDestinationState.collectAsState()
 
             val darkTheme = when (preferences.themeMode) {
                 ThemeMode.LIGHT -> false
@@ -62,7 +66,9 @@ class MainActivity : ComponentActivity() {
             LaterboxTheme(darkTheme = darkTheme, fontScale = fontScale) {
                 LaterboxApp(
                     initialOpenLinkId = openLinkId,
-                    onClearOpenLinkId = { openLinkIdState.value = null }
+                    onClearOpenLinkId = { openLinkIdState.value = null },
+                    initialOpenDestination = openDestination,
+                    onClearOpenDestination = { openDestinationState.value = null }
                 )
             }
         }
@@ -79,6 +85,13 @@ class MainActivity : ComponentActivity() {
         if (linkId > 0) {
             openLinkIdState.value = linkId
             intent?.removeExtra(EXTRA_OPEN_LINK_ID)
+        }
+        val dest = intent?.getStringExtra(EXTRA_OPEN_DESTINATION)
+        if (!dest.isNullOrBlank()) {
+            val prompt = intent.getStringExtra(EXTRA_CHAT_INITIAL_PROMPT)
+            openDestinationState.value = dest to prompt
+            intent.removeExtra(EXTRA_OPEN_DESTINATION)
+            intent.removeExtra(EXTRA_CHAT_INITIAL_PROMPT)
         }
     }
 }

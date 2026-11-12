@@ -70,6 +70,7 @@ fun ArchiveScreen(
     onCloseDeleteDialog: () -> Unit,
     onPermanentDelete: (Long) -> Unit,
     onSettingsClick: () -> Unit = {},
+    onMenuClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
@@ -93,17 +94,30 @@ fun ArchiveScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "Archive",
-                        style = typography.displayLarge,
-                        color = colors.textPrimary
-                    )
-                    Text(
-                        text = "Finished reading & stored records",
-                        style = typography.metaText,
-                        color = colors.textSecondary
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (onMenuClick != null) {
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.Menu,
+                            contentDescription = "Open navigation menu",
+                            onClick = onMenuClick
+                        )
+                        Spacer(modifier = Modifier.width(spacing.sm))
+                    }
+                    Column {
+                        Text(
+                            text = "Archive",
+                            style = typography.displayLarge,
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = "Finished reading & stored records",
+                            style = typography.metaText,
+                            color = colors.textSecondary
+                        )
+                    }
                 }
 
                 LaterboxIconButton(
@@ -161,7 +175,7 @@ fun ArchiveScreen(
                             start = spacing.base,
                             end = spacing.base,
                             top = 0.dp,
-                            bottom = 148.dp // Leave clear space for floating navigation pill
+                            bottom = 32.dp
                         ),
                         modifier = Modifier
                             .fillMaxWidth()

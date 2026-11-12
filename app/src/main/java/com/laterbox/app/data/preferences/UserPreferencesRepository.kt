@@ -107,7 +107,22 @@ data class UserPreferences(
     val ytDlpVersion: String = "",
     val lastYtDlpUpdateCheck: Long = 0L,
     val customExportDirectoryUri: String? = null,
-    val customExportDirectoryName: String? = null
+    val customExportDirectoryName: String? = null,
+    // Hybrid AI Assistant & Contextual Notifications
+    val assistantEnabled: Boolean = true,
+    val assistantAiDisclosureAccepted: Boolean = false,
+    val smartNotificationsExtractionFailure: Boolean = true,
+    val smartNotificationsDownloadFailure: Boolean = true,
+    val smartNotificationsAppHealth: Boolean = true,
+    val smartNotificationsSummaries: Boolean = true,
+    val smartNotificationsTips: Boolean = false,
+    val quietHoursEnabled: Boolean = true,
+    val quietHoursStartHour: Int = 22,
+    val quietHoursEndHour: Int = 8,
+    val shownTipIds: Set<String> = emptySet(),
+    val lastAppHealthAlertAt: Long = 0L,
+    val lastTipNotificationAt: Long = 0L,
+    val lastSummaryNotificationAt: Long = 0L
 ) {
     val allowSystemBackup: Boolean get() = includeInBackup
 
@@ -205,6 +220,21 @@ class UserPreferencesRepository(private val context: Context) {
         val LAST_YTDLP_UPDATE_CHECK = longPreferencesKey("last_ytdlp_update_check")
         val CUSTOM_EXPORT_DIRECTORY_URI = stringPreferencesKey("custom_export_directory_uri")
         val CUSTOM_EXPORT_DIRECTORY_NAME = stringPreferencesKey("custom_export_directory_name")
+
+        val ASSISTANT_ENABLED = booleanPreferencesKey("assistant_enabled")
+        val ASSISTANT_AI_DISCLOSURE_ACCEPTED = booleanPreferencesKey("assistant_ai_disclosure_accepted")
+        val SMART_NOTIF_EXTRACTION_FAILURE = booleanPreferencesKey("smart_notif_extraction_failure")
+        val SMART_NOTIF_DOWNLOAD_FAILURE = booleanPreferencesKey("smart_notif_download_failure")
+        val SMART_NOTIF_APP_HEALTH = booleanPreferencesKey("smart_notif_app_health")
+        val SMART_NOTIF_SUMMARIES = booleanPreferencesKey("smart_notif_summaries")
+        val SMART_NOTIF_TIPS = booleanPreferencesKey("smart_notif_tips")
+        val QUIET_HOURS_ENABLED = booleanPreferencesKey("quiet_hours_enabled")
+        val QUIET_HOURS_START_HOUR = intPreferencesKey("quiet_hours_start_hour")
+        val QUIET_HOURS_END_HOUR = intPreferencesKey("quiet_hours_end_hour")
+        val SHOWN_TIP_IDS = stringSetPreferencesKey("shown_tip_ids")
+        val LAST_APP_HEALTH_ALERT_AT = longPreferencesKey("last_app_health_alert_at")
+        val LAST_TIP_NOTIFICATION_AT = longPreferencesKey("last_tip_notification_at")
+        val LAST_SUMMARY_NOTIFICATION_AT = longPreferencesKey("last_summary_notification_at")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.userDataStore.data.map { preferences ->
@@ -371,7 +401,21 @@ class UserPreferencesRepository(private val context: Context) {
             ytDlpVersion = ytDlpVersion,
             lastYtDlpUpdateCheck = lastYtDlpUpdateCheck,
             customExportDirectoryUri = preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_URI],
-            customExportDirectoryName = preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME]
+            customExportDirectoryName = preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME],
+            assistantEnabled = preferences[PreferencesKeys.ASSISTANT_ENABLED] ?: true,
+            assistantAiDisclosureAccepted = preferences[PreferencesKeys.ASSISTANT_AI_DISCLOSURE_ACCEPTED] ?: false,
+            smartNotificationsExtractionFailure = preferences[PreferencesKeys.SMART_NOTIF_EXTRACTION_FAILURE] ?: true,
+            smartNotificationsDownloadFailure = preferences[PreferencesKeys.SMART_NOTIF_DOWNLOAD_FAILURE] ?: true,
+            smartNotificationsAppHealth = preferences[PreferencesKeys.SMART_NOTIF_APP_HEALTH] ?: true,
+            smartNotificationsSummaries = preferences[PreferencesKeys.SMART_NOTIF_SUMMARIES] ?: true,
+            smartNotificationsTips = preferences[PreferencesKeys.SMART_NOTIF_TIPS] ?: false,
+            quietHoursEnabled = preferences[PreferencesKeys.QUIET_HOURS_ENABLED] ?: true,
+            quietHoursStartHour = (preferences[PreferencesKeys.QUIET_HOURS_START_HOUR] ?: 22).coerceIn(0, 23),
+            quietHoursEndHour = (preferences[PreferencesKeys.QUIET_HOURS_END_HOUR] ?: 8).coerceIn(0, 23),
+            shownTipIds = preferences[PreferencesKeys.SHOWN_TIP_IDS] ?: emptySet(),
+            lastAppHealthAlertAt = preferences[PreferencesKeys.LAST_APP_HEALTH_ALERT_AT] ?: 0L,
+            lastTipNotificationAt = preferences[PreferencesKeys.LAST_TIP_NOTIFICATION_AT] ?: 0L,
+            lastSummaryNotificationAt = preferences[PreferencesKeys.LAST_SUMMARY_NOTIFICATION_AT] ?: 0L
         )
     }
 
@@ -649,6 +693,87 @@ class UserPreferencesRepository(private val context: Context) {
         context.userDataStore.edit { preferences ->
             preferences.remove(PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_URI)
             preferences.remove(PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME)
+        }
+    }
+
+    suspend fun setAssistantEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.ASSISTANT_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setAssistantAiDisclosureAccepted(accepted: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.ASSISTANT_AI_DISCLOSURE_ACCEPTED] = accepted
+        }
+    }
+
+    suspend fun setSmartNotificationsExtractionFailure(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_NOTIF_EXTRACTION_FAILURE] = enabled
+        }
+    }
+
+    suspend fun setSmartNotificationsDownloadFailure(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_NOTIF_DOWNLOAD_FAILURE] = enabled
+        }
+    }
+
+    suspend fun setSmartNotificationsAppHealth(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_NOTIF_APP_HEALTH] = enabled
+        }
+    }
+
+    suspend fun setSmartNotificationsSummaries(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_NOTIF_SUMMARIES] = enabled
+        }
+    }
+
+    suspend fun setSmartNotificationsTips(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.SMART_NOTIF_TIPS] = enabled
+        }
+    }
+
+    suspend fun setQuietHoursEnabled(enabled: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.QUIET_HOURS_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setQuietHoursWindow(startHour: Int, endHour: Int) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.QUIET_HOURS_START_HOUR] = startHour.coerceIn(0, 23)
+            preferences[PreferencesKeys.QUIET_HOURS_END_HOUR] = endHour.coerceIn(0, 23)
+        }
+    }
+
+    suspend fun recordShownTip(tipId: String, timestamp: Long = System.currentTimeMillis()) {
+        context.userDataStore.edit { preferences ->
+            val current = preferences[PreferencesKeys.SHOWN_TIP_IDS] ?: emptySet()
+            preferences[PreferencesKeys.SHOWN_TIP_IDS] = current + tipId
+            preferences[PreferencesKeys.LAST_TIP_NOTIFICATION_AT] = timestamp
+        }
+    }
+
+    suspend fun resetShownTips() {
+        context.userDataStore.edit { preferences ->
+            preferences.remove(PreferencesKeys.SHOWN_TIP_IDS)
+        }
+    }
+
+    suspend fun recordAppHealthAlertPosted(timestamp: Long = System.currentTimeMillis()) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.LAST_APP_HEALTH_ALERT_AT] = timestamp
+        }
+    }
+
+    suspend fun recordSummaryNotificationPosted(timestamp: Long = System.currentTimeMillis()) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.LAST_SUMMARY_NOTIFICATION_AT] = timestamp
         }
     }
 }

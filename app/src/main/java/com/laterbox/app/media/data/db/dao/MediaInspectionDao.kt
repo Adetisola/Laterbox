@@ -40,4 +40,10 @@ interface MediaInspectionDao {
 
     @Query("DELETE FROM media_inspection WHERE id = :id")
     suspend fun deleteById(id: String)
+
+    @Query("SELECT COUNT(*) FROM media_inspection WHERE status IN ('FAILED', 'NEEDS_AUTH')")
+    suspend fun countFailedOrNeedsAuth(): Int
+
+    @Query("SELECT * FROM media_inspection ORDER BY updatedAt DESC LIMIT :limit")
+    suspend fun getRecentInspectionsSnapshot(limit: Int = 20): List<MediaInspectionEntity>
 }

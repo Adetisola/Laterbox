@@ -120,7 +120,8 @@ class MediaInspectionManager(
         previewImageUrl: String? = null,
         forceRefresh: Boolean = false,
         explicitGeneration: Long? = null,
-        explicitProcessId: String? = null
+        explicitProcessId: String? = null,
+        notifyOnTerminalFailure: Boolean = false
     ): Result<InspectionResult> = withContext(Dispatchers.IO) {
         val generation = explicitGeneration ?: System.currentTimeMillis()
         val inspectionProcessId = explicitProcessId ?: "inspect_${savedLinkId}_g$generation"
@@ -145,10 +146,14 @@ class MediaInspectionManager(
         val existing = inspectionDao.getEntityForLink(savedLinkId)
         val now = System.currentTimeMillis()
 
-        // Invalidate cache if saved link URL has changed
+        // Invalidate cache if saved link URL has changed or forceRefresh is requested
         if (existing != null && existing.url != url) {
+            com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.invalidate(appContext, existing.url, savedLinkId)
+            com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.invalidate(appContext, url, savedLinkId)
             inspectionDao.deleteForLink(savedLinkId)
-        } else if (!forceRefresh && existing != null && existing.status == "COMPLETED" && (now - existing.updatedAt < 2 * 3600 * 1000L)) {
+        } else if (forceRefresh) {
+            com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.invalidate(appContext, url, savedLinkId)
+        } else if (existing != null && existing.status == "COMPLETED" && (now - existing.updatedAt < 2 * 3600 * 1000L)) {
             val cached = existing.resultJson?.let { InspectionResultJsonAdapter.fromJson(it) }
             if (cached != null) return@withContext Result.success(cached)
         }
@@ -337,6 +342,34 @@ class MediaInspectionManager(
                     updatedAt = System.currentTimeMillis()
                 )
                 inspectionDao.insert(completedEntity)
+                val app = appContext as? LaterboxApplication
+                if (status == "COMPLETED") {
+                    try {
+                        app?.container?.activityEventRepository?.recordEvent(
+                            type = com.laterbox.app.data.repository.ActivityEventType.INSPECTION_COMPLETED,
+                            title = "Media inspected for link #$savedLinkId",
+                            detail = url,
+                            linkId = savedLinkId
+                        )
+                    } catch (_: Throwable) {}
+                } else if (status in setOf("FAILED", "NEEDS_AUTH") && notifyOnTerminalFailure) {
+                    try {
+                        val linkTitle = app?.container?.database?.savedLinkDao()?.getEntityById(savedLinkId)?.title ?: url
+                        app?.container?.activityEventRepository?.recordEvent(
+                            type = com.laterbox.app.data.repository.ActivityEventType.INSPECTION_FAILED,
+                            title = "Media inspection failed: $linkTitle",
+                            detail = errMsg,
+                            linkId = savedLinkId
+                        )
+                        app?.container?.contextualNotificationEngine?.notifyExtractionFailure(
+                            savedLinkId = savedLinkId,
+                            url = url,
+                            linkTitle = linkTitle,
+                            errorMessage = errMsg ?: "Media inspection failed",
+                            dedupKey = "inspect_${savedLinkId}_g$generation"
+                        )
+                    } catch (_: Throwable) {}
+                }
                 Result.success(result)
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 withContext(NonCancellable) {
@@ -396,6 +429,25 @@ class MediaInspectionManager(
                         updatedAt = System.currentTimeMillis()
                     )
                     inspectionDao.insert(entity)
+                    if (notifyOnTerminalFailure) {
+                        try {
+                            val app = appContext as? LaterboxApplication
+                            val linkTitle = app?.container?.database?.savedLinkDao()?.getEntityById(savedLinkId)?.title ?: url
+                            app?.container?.activityEventRepository?.recordEvent(
+                                type = com.laterbox.app.data.repository.ActivityEventType.INSPECTION_FAILED,
+                                title = "Media inspection failed: $linkTitle",
+                                detail = errMsg,
+                                linkId = savedLinkId
+                            )
+                            app?.container?.contextualNotificationEngine?.notifyExtractionFailure(
+                                savedLinkId = savedLinkId,
+                                url = url,
+                                linkTitle = linkTitle,
+                                errorMessage = errMsg ?: "Media inspection failed",
+                                dedupKey = "inspect_${savedLinkId}_g$generation"
+                            )
+                        } catch (_: Throwable) {}
+                    }
                 }
                 Result.failure(t)
             }
@@ -493,7 +545,15 @@ class MediaInspectionManager(
         activeGenerations[savedLinkId] = generation
 
         val job = scope.launch {
-            executeInspection(savedLinkId, url, previewImageUrl, forceRefresh, generation, inspectionProcessId)
+            executeInspection(
+                savedLinkId = savedLinkId,
+                url = url,
+                previewImageUrl = previewImageUrl,
+                forceRefresh = forceRefresh,
+                explicitGeneration = generation,
+                explicitProcessId = inspectionProcessId,
+                notifyOnTerminalFailure = forceRefresh
+            )
         }
         val active = ActiveInspection(generation, inspectionProcessId, job)
         activeInspections[savedLinkId] = active

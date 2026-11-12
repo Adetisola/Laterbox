@@ -415,7 +415,9 @@ class YtDlpAdapter(
                 )
             )
 
-            InfoJsonCache.save(appContext, canonicalUrl, jsonOutput)
+            if (stage != "stage_1_fast") {
+                InfoJsonCache.save(appContext, canonicalUrl, jsonOutput)
+            }
 
             parsed
         } catch (e: YoutubeDLException) {

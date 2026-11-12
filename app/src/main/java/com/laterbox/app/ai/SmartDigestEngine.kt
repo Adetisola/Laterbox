@@ -36,160 +36,26 @@ object SmartDigestEngine {
         origin: ReminderOrigin = ReminderOrigin.SMART_DIGEST,
         customApiKey: String? = null
     ): AiCopyResult {
-        val apiKey = resolveApiKey(customApiKey)
-        // 1. If an API key is available (custom or embedded), use direct Google AI Studio REST endpoint
-        if (!apiKey.isNullOrBlank()) {
-            return try {
-                withTimeout(AI_TIMEOUT_MS) {
-                    withContext(Dispatchers.IO) {
-                        executeDirectGeminiRequest(link, userName, origin, apiKey)
-                    }
-                }
-            } catch (ce: CancellationException) {
-                if (ce is TimeoutCancellationException) {
-                    AiCopyResult.Failure(AiFailure.Timeout)
-                } else {
-                    throw ce
-                }
-            } catch (e: Exception) {
-                AiCopyResult.Failure(AiFailure.ServerError(code = -1, details = e.message))
-            }
-        }
-
-        // 2. Fallback: Firebase AI Logic SDK if no direct key is configured
-        try {
-            val prompt = buildPrompt(link, userName, origin)
-            val result = withTimeout(AI_TIMEOUT_MS) {
-                val generativeModel = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
-                    modelName = CLOUD_MODEL_NAME,
-                    generationConfig = generationConfig {
-                        temperature = 0.85f
-                        maxOutputTokens = 160
-                    }
-                )
-                val response = generativeModel.generateContent(prompt)
-                val responseText = response.text?.trim()
-                if (responseText.isNullOrBlank()) {
-                    AiCopyResult.Failure(AiFailure.EmptyResponse)
-                } else {
-                    val parsed = parseAiResponse(responseText, origin)
-                    if (parsed != null) {
-                        AiCopyResult.Success(parsed)
-                    } else {
-                        AiCopyResult.Failure(AiFailure.MalformedResponse)
-                    }
-                }
-            }
-            if (result is AiCopyResult.Success) {
-                return result
-            }
-        } catch (ce: CancellationException) {
-            if (ce is TimeoutCancellationException) {
-                return AiCopyResult.Failure(AiFailure.Timeout)
-            } else {
-                throw ce
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Firebase AI Logic SDK attempt failed (${e.javaClass.simpleName}: ${e.message})")
-        }
-
-        return AiCopyResult.Failure(AiFailure.NoApiKey)
-    }
-
-    private fun executeDirectGeminiRequest(
-        link: SavedLink,
-        userName: String?,
-        origin: ReminderOrigin,
-        apiKey: String
-    ): AiCopyResult {
         val prompt = buildPrompt(link, userName, origin)
-        val payload = JSONObject().apply {
-            val partsArray = JSONArray().apply {
-                put(JSONObject().put("text", prompt))
-            }
-            val contentsArray = JSONArray().apply {
-                put(JSONObject().put("parts", partsArray))
-            }
-            put("contents", contentsArray)
-            put("generationConfig", JSONObject().apply {
-                put("temperature", 0.85)
-                put("maxOutputTokens", 160)
-            })
-        }.toString()
-
-        val conn = (URL(GENERATE_CONTENT_URL).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("x-goog-api-key", apiKey)
-            connectTimeout = 12_000
-            readTimeout = 12_000
-            doOutput = true
-        }
-
-        return try {
-            conn.outputStream.use { os ->
-                os.write(payload.toByteArray(Charsets.UTF_8))
-            }
-
-            val responseCode = conn.responseCode
-            when (responseCode) {
-                200 -> {
-                    val responseText = conn.inputStream.bufferedReader().use { it.readText() }
-                    val rawContent = extractContentFromResponse(responseText)
-                    if (rawContent.isNullOrBlank()) {
-                        AiCopyResult.Failure(AiFailure.EmptyResponse)
-                    } else {
-                        val parsed = parseAiResponse(rawContent, origin)
-                        if (parsed != null) {
-                            AiCopyResult.Success(parsed)
-                        } else {
-                            AiCopyResult.Failure(AiFailure.MalformedResponse)
-                        }
-                    }
-                }
-                429 -> {
-                    Log.w(TAG, "Gemini API rate limited ($responseCode)")
-                    AiCopyResult.Failure(AiFailure.RateLimited(responseCode))
-                }
-                400, 401, 403 -> {
-                    Log.w(TAG, "Gemini API authentication failed ($responseCode)")
-                    AiCopyResult.Failure(AiFailure.AuthError(responseCode))
-                }
-                else -> {
-                    val errorBody = conn.errorStream?.bufferedReader()?.use { it.readText() }
-                    Log.w(TAG, "Gemini API call failed ($responseCode)")
-                    val detail = errorBody?.take(160)
-                    AiCopyResult.Failure(AiFailure.ServerError(code = responseCode, details = detail))
+        return when (val textResult = GeminiClient.generateText(
+            turns = listOf(GeminiTurn(GeminiRole.USER, prompt)),
+            customApiKey = customApiKey,
+            options = GeminiGenerationOptions(temperature = 0.85f, maxOutputTokens = 160),
+            timeoutMs = AI_TIMEOUT_MS
+        )) {
+            is GeminiTextResult.Success -> {
+                val parsed = parseAiResponse(textResult.text, origin)
+                if (parsed != null) {
+                    AiCopyResult.Success(parsed)
+                } else {
+                    AiCopyResult.Failure(AiFailure.MalformedResponse)
                 }
             }
-        } finally {
-            conn.disconnect()
+            is GeminiTextResult.Failure -> AiCopyResult.Failure(textResult.reason)
         }
     }
 
-    private fun extractContentFromResponse(responseJson: String): String? {
-        return try {
-            val root = JSONObject(responseJson)
-            val candidates = root.optJSONArray("candidates")
-            val firstCandidate = candidates?.optJSONObject(0)
-            val content = firstCandidate?.optJSONObject("content")
-            val parts = content?.optJSONArray("parts")
-            parts?.optJSONObject(0)?.optString("text")
-        } catch (_: JSONException) {
-            null
-        }
-    }
-
-    fun resolveApiKey(customApiKey: String?): String? {
-        if (!customApiKey.isNullOrBlank()) {
-            return customApiKey.trim()
-        }
-        val embedded = com.laterbox.app.BuildConfig.EMBEDDED_GEMINI_API_KEY
-        if (embedded.isNotBlank()) {
-            return embedded.trim()
-        }
-        return null
-    }
+    fun resolveApiKey(customApiKey: String?): String? = GeminiClient.resolveApiKey(customApiKey)
 
     suspend fun testGeminiApi(customApiKey: String?): Pair<Boolean, String> {
         val apiKey = resolveApiKey(customApiKey)
@@ -216,7 +82,7 @@ object SmartDigestEngine {
         } catch (ce: CancellationException) {
             throw ce
         } catch (e: Exception) {
-            Log.w(TAG, "Firebase AI test failed (${e.javaClass.simpleName}: ${e.message})")
+            Log.w(TAG, "Firebase AI test failed (${e.javaClass.simpleName})")
         }
 
         return Pair(
@@ -279,7 +145,7 @@ object SmartDigestEngine {
             } catch (e: SocketTimeoutException) {
                 Pair(false, "Connection timed out")
             } catch (e: Exception) {
-                Pair(false, "Connection failed: ${e.message ?: "Unknown error"}")
+                Pair(false, "Connection failed: ${GeminiClient.redactSecrets(e.message, apiKey).ifBlank { "Unknown error" }}")
             } finally {
                 conn.disconnect()
             }

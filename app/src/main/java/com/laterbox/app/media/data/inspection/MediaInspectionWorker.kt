@@ -32,6 +32,9 @@ class MediaInspectionWorker(
         // Concurrency limit for background inspection lane (concurrency 1, low priority)
         private val inspectionSemaphore = Semaphore(1)
 
+        fun buildProcessId(savedLinkId: Long, runAttemptCount: Int): String =
+            "inspect_${savedLinkId}_worker_a${runAttemptCount}"
+
         fun schedule(
             context: Context,
             savedLinkId: Long,
@@ -111,7 +114,7 @@ class MediaInspectionWorker(
             return Result.retry()
         }
 
-        val inspectionProcessId = "inspect_${savedLinkId}_worker_a${runAttemptCount}"
+        val inspectionProcessId = buildProcessId(savedLinkId, runAttemptCount)
 
         return try {
             inspectionSemaphore.withPermit {
@@ -120,7 +123,14 @@ class MediaInspectionWorker(
                     return Result.failure()
                 }
 
-                val res = inspectionManager.executeInspection(savedLinkId, url, previewImageUrl, forceRefresh)
+                val res = inspectionManager.executeInspection(
+                    savedLinkId = savedLinkId,
+                    url = url,
+                    previewImageUrl = previewImageUrl,
+                    forceRefresh = forceRefresh,
+                    explicitProcessId = inspectionProcessId,
+                    notifyOnTerminalFailure = false
+                )
                 if (res.isSuccess) {
                     val result = res.getOrNull()
                     if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 5 && !isStopped) {
@@ -128,6 +138,9 @@ class MediaInspectionWorker(
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
+                        if (result is InspectionResult.Failed && !isStopped) {
+                            notifyTerminalWorkerFailure(container, savedLinkId, url, result.message ?: "Inspection failed", inspectionProcessId)
+                        }
                         Result.success()
                     }
                 } else {
@@ -140,6 +153,7 @@ class MediaInspectionWorker(
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
+                        notifyTerminalWorkerFailure(container, savedLinkId, url, ex?.message ?: "Inspection failed", inspectionProcessId)
                         Result.failure()
                     }
                 }
@@ -156,9 +170,37 @@ class MediaInspectionWorker(
                 inspectionManager.markInspectionPending(savedLinkId, url)
                 Result.retry()
             } else {
+                notifyTerminalWorkerFailure(container, savedLinkId, url, e.message ?: "Inspection failed", inspectionProcessId)
                 Result.failure()
             }
         }
+    }
+
+    private suspend fun notifyTerminalWorkerFailure(
+        container: com.laterbox.app.di.AppContainer?,
+        savedLinkId: Long,
+        url: String,
+        errorMessage: String,
+        dedupKey: String
+    ) {
+        if (container == null) return
+        try {
+            val link = container.database.savedLinkDao().getEntityById(savedLinkId)
+            val title = link?.title ?: url
+            container.activityEventRepository.recordEvent(
+                type = com.laterbox.app.data.repository.ActivityEventType.INSPECTION_FAILED,
+                title = "Media inspection failed: $title",
+                detail = errorMessage,
+                linkId = savedLinkId
+            )
+            container.contextualNotificationEngine.notifyExtractionFailure(
+                savedLinkId = savedLinkId,
+                url = url,
+                linkTitle = title,
+                errorMessage = errorMessage,
+                dedupKey = dedupKey
+            )
+        } catch (_: Throwable) {}
     }
 
     private fun cleanupProcess(processId: String) {

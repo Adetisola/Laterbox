@@ -425,5 +425,60 @@ class SettingsViewModel(
             userPreferencesRepository.clearCustomExportDirectory()
         }
     }
+
+    fun setAssistantEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setAssistantEnabled(enabled)
+        }
+    }
+
+    fun setAssistantAiDisclosureAccepted(accepted: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setAssistantAiDisclosureAccepted(accepted)
+        }
+    }
+
+    fun setSmartNotificationsExtractionFailure(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartNotificationsExtractionFailure(enabled)
+        }
+    }
+
+    fun setSmartNotificationsDownloadFailure(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartNotificationsDownloadFailure(enabled)
+        }
+    }
+
+    fun setSmartNotificationsAppHealth(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartNotificationsAppHealth(enabled)
+        }
+    }
+
+    fun setSmartNotificationsSummaries(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartNotificationsSummaries(enabled)
+        }
+    }
+
+    fun setSmartNotificationsTips(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setSmartNotificationsTips(enabled)
+        }
+    }
+
+    fun setQuietHoursEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferencesRepository.setQuietHoursEnabled(enabled)
+        }
+    }
+
+    fun setQuietHoursWindow(startHour: Int, endHour: Int) {
+        viewModelScope.launch {
+            userPreferencesRepository.setQuietHoursWindow(startHour, endHour)
+        }
+    }
 }
+
 

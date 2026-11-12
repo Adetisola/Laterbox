@@ -98,4 +98,10 @@ interface DownloadTaskDao {
 
     @Query("SELECT * FROM download_task WHERE status = 'QUEUED'")
     suspend fun getQueuedTasks(): List<DownloadTaskEntity>
+
+    @Query("SELECT COUNT(*) FROM download_task WHERE status = 'FAILED'")
+    suspend fun countFailedTasks(): Int
+
+    @Query("SELECT * FROM download_task ORDER BY updatedAt DESC LIMIT :limit")
+    suspend fun getRecentTasksSnapshot(limit: Int = 20): List<com.laterbox.app.media.data.db.entity.DownloadTaskEntity>
 }

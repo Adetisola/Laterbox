@@ -51,6 +51,8 @@ class DownloadsViewModelTest {
         override fun getCompletedInspections(): Flow<List<MediaInspectionEntity>> = completedInspectionsFlow
         override suspend fun deleteForLink(savedLinkId: Long) {}
         override suspend fun deleteById(id: String) {}
+        override suspend fun countFailedOrNeedsAuth(): Int = 0
+        override suspend fun getRecentInspectionsSnapshot(limit: Int): List<MediaInspectionEntity> = emptyList()
     }
 
     private class FakeMediaRepository(

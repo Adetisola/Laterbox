@@ -168,4 +168,63 @@ class YtDlpDownloaderTest {
             passedOptions.any { it.contains("--yes-playlist") }
         )
     }
+
+    @Test
+    fun download_whenLoadInfoJsonFails_invalidatesCacheAndRetriesFreshExtraction() = runBlocking {
+        val url = "https://youtube.com/watch?v=expired123"
+        val destFile = File(tempFolder.root, "retry_video.part")
+        com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.save(context, url, """{"id":"expired123"}""")
+        val cachedInfoJson = com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.getValidInfoJson(context, url)!!
+
+        val attemptOptions = mutableListOf<List<String>>()
+        var callCount = 0
+        val customExecutor: (com.yausername.youtubedl_android.YoutubeDLRequest, String, (Float, Long, String) -> Unit) -> YoutubeDLResponse =
+            { req, _, _ ->
+                callCount++
+                val field = req::class.java.getDeclaredField("options")
+                field.isAccessible = true
+                val options = field.get(req)
+                val optsFields = options::class.java.declaredFields.map {
+                    it.isAccessible = true
+                    "${it.name}=${it.get(options)}"
+                }
+                attemptOptions.add(optsFields)
+
+                if (callCount == 1) {
+                    YoutubeDLResponse(emptyList(), 1, 10L, "", "HTTP Error 403: Forbidden")
+                } else {
+                    destFile.writeBytes(ByteArray(2048) { 7 })
+                    YoutubeDLResponse(emptyList(), 0, 20L, "", "")
+                }
+            }
+
+        val downloader = YtDlpDownloader(context, customExecutor = customExecutor)
+        val result = downloader.download(
+            url = url,
+            formatSelector = "18",
+            destinationFile = destFile,
+            taskId = "task_stale_retry",
+            infoJsonFile = cachedInfoJson,
+            onProgress = { _, _, _, _ -> }
+        )
+
+        assertTrue("Retry without stale info.json should succeed", result is DownloadResult.Success)
+        assertEquals(2, callCount)
+        assertTrue(
+            "First attempt should use --load-info-json",
+            attemptOptions[0].any { it.contains("--load-info-json") }
+        )
+        assertFalse(
+            "Retry attempt should NOT use --load-info-json",
+            attemptOptions[1].any { it.contains("--load-info-json") }
+        )
+        assertTrue(
+            "Retry attempt should pass youtube:player_client=default",
+            attemptOptions[1].any { it.contains("youtube:player_client=default") }
+        )
+        assertEquals(
+            null,
+            com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.getValidInfoJson(context, url)
+        )
+    }
 }

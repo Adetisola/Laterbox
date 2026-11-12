@@ -166,7 +166,16 @@ class LinkRepository(
             val app = appContext?.applicationContext as? com.laterbox.app.LaterboxApplication
             val inspectionMgr = app?.container?.mediaInspectionManager
             val userPrefsRepo = app?.container?.userPreferencesRepository
+            val activityRepo = app?.container?.activityEventRepository
             scope.launch {
+                try {
+                    activityRepo?.recordEvent(
+                        type = com.laterbox.app.data.repository.ActivityEventType.LINK_SAVED,
+                        title = "Saved $resolvedTitle",
+                        detail = domain,
+                        linkId = linkId
+                    )
+                } catch (_: Throwable) {}
                 try {
                     val shouldInspect = userPrefsRepo?.userPreferencesFlow?.first()?.autoInspectMediaOnSave ?: true
                     if (shouldInspect) {

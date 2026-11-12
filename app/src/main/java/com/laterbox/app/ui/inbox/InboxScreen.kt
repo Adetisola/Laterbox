@@ -88,6 +88,8 @@ import com.laterbox.app.ui.theme.LaterboxTheme
 import kotlinx.coroutines.launch
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -128,13 +130,15 @@ fun InboxScreen(
     onCheckClipboard: (ClipboardManager?) -> Unit = {},
     onSaveClipboardSuggestion: (ClipboardSuggestion) -> Unit = {},
     onDismissClipboardSuggestion: (ClipboardSuggestion) -> Unit = {},
+    onMenuClick: (() -> Unit)? = null,
+    listState: LazyListState = rememberLazyListState(),
+    bottomComposerHeightPx: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
     val context = LocalContext.current
-    val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -155,7 +159,7 @@ fun InboxScreen(
 
     var scrollJob by remember { mutableStateOf<Job?>(null) }
     var headerHeightPx by remember { mutableFloatStateOf(0f) }
-    var headerOffsetPx by remember { mutableFloatStateOf(0f) }
+    var headerOffsetPx by rememberSaveable { mutableFloatStateOf(0f) }
 
     LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
         if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
@@ -165,7 +169,7 @@ fun InboxScreen(
 
     val isScrolled by remember {
         derivedStateOf {
-            headerOffsetPx <= -headerHeightPx + 10f && headerHeightPx > 0f
+            headerHeightPx > 0f && headerOffsetPx <= -headerHeightPx + 10f
         }
     }
 
@@ -173,7 +177,7 @@ fun InboxScreen(
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
-                if (delta < 0f && headerHeightPx > 0f) {
+                if (delta < 0f && headerHeightPx > 0f && headerOffsetPx > -headerHeightPx) {
                     val newOffset = (headerOffsetPx + delta).coerceIn(-headerHeightPx, 0f)
                     val consumed = newOffset - headerOffsetPx
                     headerOffsetPx = newOffset
@@ -184,7 +188,7 @@ fun InboxScreen(
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
-                if (delta > 0f && headerHeightPx > 0f) {
+                if (delta > 0f && headerHeightPx > 0f && headerOffsetPx < 0f) {
                     val newOffset = (headerOffsetPx + delta).coerceIn(-headerHeightPx, 0f)
                     val consumedY = newOffset - headerOffsetPx
                     headerOffsetPx = newOffset
@@ -288,11 +292,11 @@ fun InboxScreen(
                     }
                 }
             } else {
-                // Collapsible Header: scrolls away cleanly as user scrolls down
+                // Collapsible Header: scrolls away cleanly as user scrolls down without recursive height jitter
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .onSizeChanged { headerHeightPx = it.height.toFloat() }
+                        .clipToBounds()
                         .layout { measurable, constraints ->
                             val placeable = measurable.measure(constraints)
                             val currentHeight = (placeable.height + headerOffsetPx.roundToInt()).coerceAtLeast(0)
@@ -301,8 +305,12 @@ fun InboxScreen(
                             }
                         }
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        // Header: Brand / Title on left; Notification Bell & Settings buttons on right
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { headerHeightPx = it.height.toFloat() }
+                    ) {
+                        // Header: Menu & Brand / Title on left; Notification Bell & Settings buttons on right
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -310,17 +318,30 @@ fun InboxScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
-                                Text(
-                                    text = "Laterbox",
-                                    style = typography.displayLarge,
-                                    color = colors.textPrimary
-                                )
-                                Text(
-                                    text = "For later, whenever you're ready",
-                                    style = typography.metaText,
-                                    color = colors.textSecondary
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (onMenuClick != null) {
+                                    LaterboxIconButton(
+                                        iconRes = LaterboxIcons.Menu,
+                                        contentDescription = "Open navigation menu",
+                                        onClick = onMenuClick
+                                    )
+                                    Spacer(modifier = Modifier.width(spacing.sm))
+                                }
+                                Column {
+                                    Text(
+                                        text = "Laterbox",
+                                        style = typography.displayLarge,
+                                        color = colors.textPrimary
+                                    )
+                                    Text(
+                                        text = "For later, whenever you're ready",
+                                        style = typography.metaText,
+                                        color = colors.textSecondary
+                                    )
+                                }
                             }
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -655,6 +676,10 @@ fun InboxScreen(
                             DateGrouper.groupLinks(uiState.links)
                         }
 
+                        val density = androidx.compose.ui.platform.LocalDensity.current
+                        val composerDp = with(density) { bottomComposerHeightPx.toDp() }
+                        val listBottomClearance = if (bottomComposerHeightPx > 0) composerDp + 96.dp else 104.dp
+
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
@@ -662,7 +687,7 @@ fun InboxScreen(
                                 start = spacing.base,
                                 end = spacing.base,
                                 top = 0.dp,
-                                bottom = 148.dp // Leave clear room for floating bottom bar & FAB
+                                bottom = listBottomClearance
                             )
                         ) {
                             groupedLinks.forEach { group ->
@@ -730,10 +755,13 @@ fun InboxScreen(
 
         // Floating Action Buttons (Jump to Top stacked directly above Add Link FAB)
         if (!uiState.isSelectionMode) {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val composerDp = with(density) { bottomComposerHeightPx.toDp() }
+            val fabBottomClearance = if (bottomComposerHeightPx > 0) composerDp + 16.dp else 24.dp
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = 96.dp),
+                    .padding(end = 20.dp, bottom = fabBottomClearance),
                 horizontalAlignment = Alignment.End
             ) {
                 // Jump to top floating action button (stacked directly above FAB)

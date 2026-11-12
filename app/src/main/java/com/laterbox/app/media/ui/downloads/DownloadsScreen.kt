@@ -62,7 +62,8 @@ fun DownloadsScreen(
     viewModel: DownloadsViewModel,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onOpenLinkDetail: (Long) -> Unit = {}
+    onOpenLinkDetail: (Long) -> Unit = {},
+    onMenuClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val colors = LaterboxTheme.colors
@@ -92,17 +93,30 @@ fun DownloadsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "Downloads",
-                        style = typography.displayLarge,
-                        color = colors.textPrimary
-                    )
-                    Text(
-                        text = "Offline media & downloaded files",
-                        style = typography.metaText,
-                        color = colors.textSecondary
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (onMenuClick != null) {
+                        LaterboxIconButton(
+                            iconRes = LaterboxIcons.Menu,
+                            contentDescription = "Open navigation menu",
+                            onClick = onMenuClick
+                        )
+                        Spacer(modifier = Modifier.width(spacing.sm))
+                    }
+                    Column {
+                        Text(
+                            text = "Downloads",
+                            style = typography.displayLarge,
+                            color = colors.textPrimary
+                        )
+                        Text(
+                            text = "Offline media & downloaded files",
+                            style = typography.metaText,
+                            color = colors.textSecondary
+                        )
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {

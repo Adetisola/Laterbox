@@ -108,6 +108,14 @@ class DownloadWorker(
                 errorMessage = FailureCode.INSUFFICIENT_STORAGE.userMessage,
                 retryCount = task.retryCount
             )
+            notifyTerminalDownloadFailure(
+                container = container,
+                taskId = taskId,
+                savedLinkId = task.savedLinkId,
+                title = task.title,
+                errorMessage = FailureCode.INSUFFICIENT_STORAGE.userMessage,
+                retryCount = task.retryCount
+            )
             return Result.failure()
         }
 
@@ -230,6 +238,14 @@ class DownloadWorker(
                                 retryCount = task.retryCount
                             )
                             notificationManager.cancel(notificationId)
+                            notifyTerminalDownloadFailure(
+                                container = container,
+                                taskId = taskId,
+                                savedLinkId = task.savedLinkId,
+                                title = task.title,
+                                errorMessage = validation.reason,
+                                retryCount = task.retryCount
+                            )
                             return Result.failure()
                         }
 
@@ -343,6 +359,14 @@ class DownloadWorker(
                         assetDao.insertAsset(assetEntity)
                         taskDao.updateStatusAndStage(taskId, DownloadState.COMPLETED.name, DownloadStage.COMPLETED.name, null)
                         taskDao.markCompleted(taskId, assetId)
+                        try {
+                            container?.activityEventRepository?.recordEvent(
+                                type = com.laterbox.app.data.repository.ActivityEventType.DOWNLOAD_COMPLETED,
+                                title = "Downloaded ${task.title ?: "media"}",
+                                detail = "${task.mediaType}${task.qualityLabel?.let { " • $it" } ?: ""}",
+                                linkId = task.savedLinkId.takeIf { it > 0 }
+                            )
+                        } catch (_: Throwable) {}
                         notificationManager.cancel(notificationId)
                         Result.success()
                     }
@@ -372,6 +396,14 @@ class DownloadWorker(
                                 errorMessage = result.message,
                                 retryCount = newRetry
                             )
+                            notifyTerminalDownloadFailure(
+                                container = container,
+                                taskId = taskId,
+                                savedLinkId = task.savedLinkId,
+                                title = task.title,
+                                errorMessage = result.message ?: "Download failed",
+                                retryCount = newRetry
+                            )
                             Result.failure()
                         }
                     }
@@ -397,20 +429,59 @@ class DownloadWorker(
             val currentTask = taskDao.getEntityById(taskId)
             if (currentTask?.status != DownloadState.CANCELLED.name) {
                 val newRetry = task.retryCount + 1
+                val msg = e.localizedMessage ?: "Unknown error"
                 taskDao.updateError(
                     id = taskId,
                     status = if (newRetry <= 3) DownloadState.QUEUED.name else DownloadState.FAILED.name,
                     errorCode = FailureCode.UNKNOWN.name,
-                    errorMessage = e.localizedMessage ?: "Unknown error",
+                    errorMessage = msg,
                     retryCount = newRetry
                 )
-                if (newRetry <= 3) Result.retry() else Result.failure()
+                if (newRetry <= 3) {
+                    Result.retry()
+                } else {
+                    notifyTerminalDownloadFailure(
+                        container = container,
+                        taskId = taskId,
+                        savedLinkId = task.savedLinkId,
+                        title = task.title,
+                        errorMessage = msg,
+                        retryCount = newRetry
+                    )
+                    Result.failure()
+                }
             } else {
                 Result.success()
             }
         } finally {
             notificationManager.cancel(notificationId)
         }
+    }
+
+    private suspend fun notifyTerminalDownloadFailure(
+        container: com.laterbox.app.di.AppContainer?,
+        taskId: String,
+        savedLinkId: Long,
+        title: String?,
+        errorMessage: String,
+        retryCount: Int
+    ) {
+        if (container == null) return
+        try {
+            container.activityEventRepository.recordEvent(
+                type = com.laterbox.app.data.repository.ActivityEventType.DOWNLOAD_FAILED,
+                title = "Download failed: ${title ?: "media"}",
+                detail = errorMessage,
+                linkId = savedLinkId.takeIf { it > 0 }
+            )
+            container.contextualNotificationEngine.notifyDownloadFailure(
+                taskId = taskId,
+                savedLinkId = savedLinkId,
+                title = title,
+                errorMessage = errorMessage,
+                dedupKey = "download_${taskId}_r${retryCount}"
+            )
+        } catch (_: Throwable) {}
     }
 
     private fun ensureNotificationChannel() {

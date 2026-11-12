@@ -1,33 +1,43 @@
 package com.laterbox.app.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import com.laterbox.app.ui.util.SaveFeedbackHelper
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,16 +52,22 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.laterbox.app.ai.ChatAction
 import com.laterbox.app.domain.model.SavedLink
+import com.laterbox.app.media.ui.downloads.DownloadsTab
 import com.laterbox.app.ui.AppViewModelProvider
 import com.laterbox.app.ui.archive.ArchiveScreen
 import com.laterbox.app.ui.archive.ArchiveViewModel
+import com.laterbox.app.ui.chat.ChatScreen
+import com.laterbox.app.ui.chat.ChatViewModel
 import com.laterbox.app.ui.collections.CollectionDetailScreen
 import com.laterbox.app.ui.collections.CollectionDetailViewModel
 import com.laterbox.app.ui.collections.CollectionsScreen
 import com.laterbox.app.ui.collections.CollectionsViewModel
-import com.laterbox.app.ui.components.BottomBarDestination
-import com.laterbox.app.ui.components.LaterboxBottomBar
+import com.laterbox.app.ui.components.FloatingChatComposer
+import com.laterbox.app.ui.components.LaterboxModalDrawerSheet
+import com.laterbox.app.ui.components.LaterboxPersistentSidePanel
+import com.laterbox.app.ui.components.sectionForRoute
 import com.laterbox.app.ui.inbox.InboxScreen
 import com.laterbox.app.ui.inbox.InboxViewModel
 import com.laterbox.app.ui.settings.SettingsScreen
@@ -74,7 +90,9 @@ import kotlinx.coroutines.launch
 fun LaterboxApp(
     modifier: Modifier = Modifier,
     initialOpenLinkId: Long? = null,
-    onClearOpenLinkId: () -> Unit = {}
+    onClearOpenLinkId: () -> Unit = {},
+    initialOpenDestination: Pair<String, String?>? = null,
+    onClearOpenDestination: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -93,17 +111,20 @@ fun LaterboxApp(
     val settingsViewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val notificationHistoryViewModel: com.laterbox.app.ui.notifications.NotificationHistoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val downloadsViewModel: com.laterbox.app.media.ui.downloads.DownloadsViewModel = viewModel(factory = AppViewModelProvider.Factory)
+    val chatViewModel: ChatViewModel = viewModel(factory = AppViewModelProvider.Factory)
 
-    // Current route observation
+    // Current route & shared state observation
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val preferences by settingsViewModel.preferences.collectAsState()
+    val inboxUiState by inboxViewModel.uiState.collectAsState()
+    val chatUiState by chatViewModel.uiState.collectAsState()
+    val recentConversations by chatViewModel.recentConversations.collectAsState()
 
-    val currentBottomDestination = when {
-        currentRoute == LaterboxDestination.Collections.route || currentRoute?.startsWith("collection/") == true -> BottomBarDestination.COLLECTIONS
-        currentRoute == LaterboxDestination.Downloads.route -> BottomBarDestination.DOWNLOADS
-        currentRoute == LaterboxDestination.Archive.route -> BottomBarDestination.ARCHIVE
-        else -> BottomBarDestination.INBOX
-    }
+    // Hoisted Inbox list state & composer state so scroll & draft survive navigation
+    val inboxListState = rememberLazyListState()
+    var inboxComposerText by rememberSaveable { mutableStateOf("") }
+    var inboxComposerHeightPx by remember { mutableIntStateOf(0) }
 
     // Modal sheet states
     var showSaveSheet by remember { mutableStateOf(false) }
@@ -124,6 +145,26 @@ fun LaterboxApp(
             }
         } catch (_: Exception) {}
         onClearOpenLinkId()
+    }
+
+    LaunchedEffect(initialOpenDestination) {
+        val (dest, prompt) = initialOpenDestination ?: return@LaunchedEffect
+        when {
+            dest == "downloads" || dest == LaterboxDestination.Downloads.route -> {
+                downloadsViewModel.onTabSelected(DownloadsTab.QUEUE)
+                navController.navigate(LaterboxDestination.Downloads.route) {
+                    popUpTo(LaterboxDestination.Inbox.route)
+                    launchSingleTop = true
+                }
+            }
+            dest == "chat" || dest == LaterboxDestination.Chat.BASE_ROUTE -> {
+                navController.navigate(LaterboxDestination.Chat.createRoute(initialPrompt = prompt))
+            }
+            dest.startsWith("settings") -> {
+                navController.navigate(dest) { launchSingleTop = true }
+            }
+        }
+        onClearOpenDestination()
     }
 
     var appUpdateInfoToPrompt by remember { mutableStateOf<AppUpdateInfo?>(null) }
@@ -160,480 +201,702 @@ fun LaterboxApp(
         inboxViewModel.onLinkOpened(link.id)
     }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        containerColor = colors.backgroundPrimary,
-        snackbarHost = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(bottom = if (currentRoute != LaterboxDestination.Settings.route && currentRoute != LaterboxDestination.NotificationHistory.route) 84.dp else 16.dp)
-            ) {
-                SnackbarHost(
-                    hostState = snackbarHostState,
-                    snackbar = { data ->
-                        Snackbar(
-                            snackbarData = data,
-                            containerColor = colors.surfaceElevated,
-                            contentColor = colors.textPrimary,
-                            actionColor = colors.accentPrimary,
-                            shape = LaterboxShapeTokens.Card
-                        )
-                    }
-                )
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    BackHandler(enabled = drawerState.isOpen) {
+        coroutineScope.launch { drawerState.close() }
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val isWideTablet = maxWidth >= 840.dp
+        val currentSection = sectionForRoute(currentRoute)
+
+        val closeDrawerIfNarrow: () -> Unit = {
+            if (!isWideTablet) {
+                coroutineScope.launch { drawerState.close() }
             }
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = innerPadding.calculateTopPadding())
-        ) {
-            val topLevelRoutes = remember {
-                setOf(
-                    LaterboxDestination.Inbox.route,
-                    LaterboxDestination.Collections.route,
-                    LaterboxDestination.Downloads.route,
-                    LaterboxDestination.Archive.route
-                )
-            }
 
-            NavHost(
-                navController = navController,
-                startDestination = LaterboxDestination.Inbox.route,
-                enterTransition = {
-                    if (reducedMotion) {
-                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
-                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
-                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
-                    } else {
-                        slideIntoContainer(
-                            towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedDecelerate),
-                            initialOffset = { fullWidth -> fullWidth / 6 }
-                        ) + fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+        val navigateTopLevel: (String) -> Unit = { route ->
+            haptics.tick()
+            closeDrawerIfNarrow()
+            if (route == LaterboxDestination.Inbox.route) {
+                navController.navigate(route) {
+                    popUpTo(LaterboxDestination.Inbox.route) { inclusive = true }
+                    launchSingleTop = true
+                }
+            } else {
+                navController.navigate(route) {
+                    popUpTo(LaterboxDestination.Inbox.route)
+                    launchSingleTop = true
+                }
+            }
+        }
+
+        val handleNewChat: () -> Unit = {
+            haptics.tick()
+            closeDrawerIfNarrow()
+            chatViewModel.startNewChat()
+            navController.navigate(LaterboxDestination.Chat.createRoute()) {
+                popUpTo(LaterboxDestination.Inbox.route)
+                launchSingleTop = true
+            }
+        }
+
+        val handleOpenConversation: (com.laterbox.app.data.local.entity.ChatConversationEntity) -> Unit = { conv ->
+            haptics.tick()
+            closeDrawerIfNarrow()
+            chatViewModel.selectConversation(conv.id)
+            navController.navigate(LaterboxDestination.Chat.createRoute(conversationId = conv.id)) {
+                popUpTo(LaterboxDestination.Inbox.route)
+                launchSingleTop = true
+            }
+        }
+
+        val openMenuHandler: (() -> Unit)? = if (isWideTablet) {
+            null
+        } else {
+            {
+                haptics.tick()
+                coroutineScope.launch { drawerState.open() }
+            }
+        }
+
+        val mainContent: @Composable () -> Unit = {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = colors.backgroundPrimary,
+                snackbarHost = {
+                    val snackbarBottomPad = if (
+                        currentRoute == LaterboxDestination.Inbox.route &&
+                        preferences.assistantEnabled &&
+                        !inboxUiState.isSelectionMode
+                    ) 88.dp else 16.dp
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(bottom = snackbarBottomPad)
+                    ) {
+                        SnackbarHost(
+                            hostState = snackbarHostState,
+                            snackbar = { data ->
+                                Snackbar(
+                                    snackbarData = data,
+                                    containerColor = colors.surfaceElevated,
+                                    contentColor = colors.textPrimary,
+                                    actionColor = colors.accentPrimary,
+                                    shape = LaterboxShapeTokens.Card
+                                )
+                            }
+                        )
                     }
-                },
-                exitTransition = {
-                    if (reducedMotion) {
-                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
-                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
-                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
-                    } else {
-                        slideOutOfContainer(
-                            towards = AnimatedContentTransitionScope.SlideDirection.Start,
-                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedAccelerate),
-                            targetOffset = { fullWidth -> -fullWidth / 6 }
-                        ) + fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = innerPadding.calculateTopPadding())
+                ) {
+                    val topLevelRoutes = remember {
+                        setOf(
+                            LaterboxDestination.Inbox.route,
+                            LaterboxDestination.Collections.route,
+                            LaterboxDestination.Downloads.route,
+                            LaterboxDestination.Archive.route,
+                            LaterboxDestination.NotificationHistory.route,
+                            LaterboxDestination.Chat.route
+                        )
                     }
-                },
-                popEnterTransition = {
-                    if (reducedMotion) {
-                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
-                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
-                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
-                    } else {
-                        slideIntoContainer(
-                            towards = AnimatedContentTransitionScope.SlideDirection.End,
-                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedDecelerate),
-                            initialOffset = { fullWidth -> -fullWidth / 6 }
-                        ) + fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+
+                    NavHost(
+                        navController = navController,
+                        startDestination = LaterboxDestination.Inbox.route,
+                        enterTransition = {
+                            if (reducedMotion) {
+                                fadeIn(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                            } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                                fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                            } else {
+                                slideIntoContainer(
+                                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                                    animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedDecelerate),
+                                    initialOffset = { fullWidth -> fullWidth / 6 }
+                                ) + fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                            }
+                        },
+                        exitTransition = {
+                            if (reducedMotion) {
+                                fadeOut(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                            } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                                fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                            } else {
+                                slideOutOfContainer(
+                                    towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                                    animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedAccelerate),
+                                    targetOffset = { fullWidth -> -fullWidth / 6 }
+                                ) + fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                            }
+                        },
+                        popEnterTransition = {
+                            if (reducedMotion) {
+                                fadeIn(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                            } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                                fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                            } else {
+                                slideIntoContainer(
+                                    towards = AnimatedContentTransitionScope.SlideDirection.End,
+                                    animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedDecelerate),
+                                    initialOffset = { fullWidth -> -fullWidth / 6 }
+                                ) + fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                            }
+                        },
+                        popExitTransition = {
+                            if (reducedMotion) {
+                                fadeOut(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                            } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                                fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                            } else {
+                                slideOutOfContainer(
+                                    towards = AnimatedContentTransitionScope.SlideDirection.End,
+                                    animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedAccelerate),
+                                    targetOffset = { fullWidth -> fullWidth / 6 }
+                                ) + fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                            }
+                        }
+                    ) {
+                        // Inbox Screen
+                        composable(LaterboxDestination.Inbox.route) {
+                            InboxScreen(
+                                uiState = inboxUiState,
+                                onSearchQueryChange = inboxViewModel::onSearchQueryChange,
+                                onClearSearch = inboxViewModel::onClearSearch,
+                                onFilterContentType = inboxViewModel::onFilterContentType,
+                                onFilterDateRange = inboxViewModel::onFilterDateRange,
+                                onLinkClick = { link ->
+                                    savedItemDetailViewModel.setLink(link)
+                                    selectedLinkForDetails = link
+                                },
+                                onQuickOpenClick = handleOpenLink,
+                                onAddLinkClick = {
+                                    saveLinkViewModel.reset()
+                                    showSaveSheet = true
+                                },
+                                onSettingsClick = {
+                                    navController.navigate(LaterboxDestination.Settings.route)
+                                },
+                                onNotificationHistoryClick = {
+                                    navController.navigate(LaterboxDestination.NotificationHistory.route)
+                                },
+                                onToggleViewMode = inboxViewModel::onToggleViewMode,
+                                onRefresh = inboxViewModel::refresh,
+                                onCompleteOnboarding = inboxViewModel::onCompleteOnboarding,
+                                onToggleRead = { link ->
+                                    inboxViewModel.onToggleRead(link.id, link.isRead)
+                                },
+                                onArchive = { link ->
+                                    inboxViewModel.onArchive(link.id)
+                                    coroutineScope.launch {
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "Link archived",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            inboxViewModel.unarchive(link.id)
+                                        }
+                                    }
+                                },
+                                onDelete = { link ->
+                                    inboxViewModel.onDelete(link.id)
+                                    coroutineScope.launch {
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "Link deleted",
+                                            actionLabel = "Undo",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            inboxViewModel.onRestore(link)
+                                        }
+                                    }
+                                },
+                                onToggleSelectLink = inboxViewModel::onToggleSelectLink,
+                                onSelectAll = { inboxViewModel.onSelectAll(inboxUiState.links) },
+                                onClearSelection = inboxViewModel::onClearSelection,
+                                onArchiveSelected = {
+                                    inboxViewModel.onArchiveSelected()
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = "Selected links archived",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                    }
+                                },
+                                onToggleReadSelected = { inboxViewModel.onToggleReadSelected(inboxUiState.links) },
+                                onDeleteSelected = {
+                                    inboxViewModel.onDeleteSelected()
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            message = "Selected links deleted",
+                                            duration = SnackbarDuration.Short
+                                        )
+                                    }
+                                },
+                                onCheckClipboard = inboxViewModel::checkClipboard,
+                                onSaveClipboardSuggestion = { suggestion ->
+                                    inboxViewModel.saveClipboardSuggestion(
+                                        suggestion = suggestion,
+                                        onSuccess = {
+                                            SaveFeedbackHelper.showSaveSuccess(context, isUpdate = false)
+                                        }
+                                    )
+                                },
+                                onDismissClipboardSuggestion = inboxViewModel::dismissClipboardSuggestion,
+                                onMenuClick = openMenuHandler,
+                                listState = inboxListState,
+                                bottomComposerHeightPx = if (
+                                    preferences.assistantEnabled &&
+                                    !inboxUiState.isSelectionMode &&
+                                    inboxUiState.hasCompletedOnboarding
+                                ) inboxComposerHeightPx else 0
+                            )
+                        }
+
+                        // Chat Assistant Screen
+                        composable(
+                            route = LaterboxDestination.Chat.route,
+                            arguments = listOf(
+                                navArgument("conversationId") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                    nullable = true
+                                },
+                                navArgument("initialPrompt") {
+                                    type = NavType.StringType
+                                    defaultValue = ""
+                                    nullable = true
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val rawConvId = backStackEntry.arguments?.getString("conversationId").orEmpty()
+                            val rawPrompt = backStackEntry.arguments?.getString("initialPrompt").orEmpty()
+                            val decodedConvId = java.net.URLDecoder.decode(rawConvId, "UTF-8").takeIf { it.isNotBlank() }
+                            val decodedPrompt = java.net.URLDecoder.decode(rawPrompt, "UTF-8").takeIf { it.isNotBlank() }
+
+                            LaunchedEffect(backStackEntry.id) {
+                                chatViewModel.openChat(
+                                    conversationId = decodedConvId,
+                                    initialPrompt = decodedPrompt,
+                                    invocationKey = backStackEntry.id
+                                )
+                            }
+
+                            ChatScreen(
+                                uiState = chatUiState,
+                                onMenuClick = openMenuHandler,
+                                onNewChatClick = { chatViewModel.startNewChat() },
+                                onRunHealthCheck = { chatViewModel.runAppHealthCheck() },
+                                onAcceptAiDisclosure = { chatViewModel.acceptAiDisclosure() },
+                                onOpenAiSettings = { navController.navigate(LaterboxDestination.SettingsRemindersAi.route) },
+                                onComposerTextChange = chatViewModel::onComposerTextChange,
+                                onSendMessage = { chatViewModel.sendCurrentMessage() },
+                                onStopStreaming = { chatViewModel.cancelStreaming() },
+                                onRetryMessage = { msgId -> chatViewModel.retryMessage(msgId) },
+                                onQuickPromptClick = { prompt -> chatViewModel.sendMessage(prompt) },
+                                onActionClick = { action ->
+                                    when (action) {
+                                        is ChatAction.SearchLinks -> {
+                                            inboxViewModel.onSearchQueryChange(action.query)
+                                            navigateTopLevel(LaterboxDestination.Inbox.route)
+                                        }
+                                        is ChatAction.OpenLinkDetail -> {
+                                            coroutineScope.launch {
+                                                val app = context.applicationContext as? LaterboxApplication
+                                                val link = try {
+                                                    app?.container?.linkRepository?.getLinkById(action.linkId)?.first()
+                                                } catch (_: Exception) { null }
+                                                if (link != null) {
+                                                    savedItemDetailViewModel.setLink(link)
+                                                    selectedLinkForDetails = link
+                                                } else {
+                                                    snackbarHostState.showSnackbar("Saved link is no longer in your library.")
+                                                }
+                                            }
+                                        }
+                                        is ChatAction.OpenDownloads -> {
+                                            downloadsViewModel.onTabSelected(
+                                                if (action.initialTab == 1) DownloadsTab.QUEUE else DownloadsTab.LIBRARY
+                                            )
+                                            navigateTopLevel(LaterboxDestination.Downloads.route)
+                                        }
+                                        is ChatAction.OpenCollections -> {
+                                            navigateTopLevel(LaterboxDestination.Collections.route)
+                                        }
+                                        is ChatAction.OpenSettings -> {
+                                            navController.navigate(action.route)
+                                        }
+                                        is ChatAction.RunHealthCheck -> {
+                                            chatViewModel.runAppHealthCheck()
+                                        }
+                                        is ChatAction.RetryInspection,
+                                        is ChatAction.RetryDownload -> {
+                                            chatViewModel.requestMutatingActionConfirmation(action)
+                                        }
+                                    }
+                                },
+                                onConfirmMutatingAction = { chatViewModel.confirmMutatingAction() },
+                                onDismissMutatingAction = { chatViewModel.dismissMutatingAction() },
+                                onDismissNotice = { chatViewModel.clearStatusNotice() }
+                            )
+                        }
+
+                        // Collections Screen
+                        composable(LaterboxDestination.Collections.route) {
+                            val uiState by collectionsViewModel.uiState.collectAsState()
+                            CollectionsScreen(
+                                uiState = uiState,
+                                onCollectionClick = { collection ->
+                                    navController.navigate(
+                                        LaterboxDestination.CollectionDetail.createRoute(
+                                            collection.id,
+                                            collection.name
+                                        )
+                                    )
+                                },
+                                onOpenCreateDialog = collectionsViewModel::onOpenCreateDialog,
+                                onCloseCreateDialog = collectionsViewModel::onCloseCreateDialog,
+                                onCreateCollection = collectionsViewModel::onCreateCollection,
+                                onOpenRenameDialog = collectionsViewModel::onOpenRenameDialog,
+                                onCloseRenameDialog = collectionsViewModel::onCloseRenameDialog,
+                                onRenameCollection = collectionsViewModel::onRenameCollection,
+                                onOpenDeleteDialog = collectionsViewModel::onOpenDeleteDialog,
+                                onCloseDeleteDialog = collectionsViewModel::onCloseDeleteDialog,
+                                onDeleteCollection = collectionsViewModel::onDeleteCollection,
+                                onSettingsClick = {
+                                    navController.navigate(LaterboxDestination.Settings.route)
+                                },
+                                onMenuClick = openMenuHandler
+                            )
+                        }
+
+                        // Collection Detail Screen
+                        composable(
+                            route = LaterboxDestination.CollectionDetail.route,
+                            arguments = listOf(
+                                navArgument("collectionId") { type = NavType.LongType },
+                                navArgument("collectionName") { type = NavType.StringType }
+                            )
+                        ) { backStackEntry ->
+                            val collectionId = backStackEntry.arguments?.getLong("collectionId") ?: 0L
+                            val rawName = backStackEntry.arguments?.getString("collectionName") ?: ""
+                            val collectionName = java.net.URLDecoder.decode(rawName, "UTF-8")
+
+                            LaunchedEffect(collectionId, collectionName) {
+                                collectionDetailViewModel.setCollection(collectionId, collectionName)
+                            }
+
+                            val uiState by collectionDetailViewModel.uiState.collectAsState()
+                            CollectionDetailScreen(
+                                uiState = uiState,
+                                onBackClick = { navController.popBackStack() },
+                                onLinkClick = { link ->
+                                    savedItemDetailViewModel.setLink(link)
+                                    selectedLinkForDetails = link
+                                },
+                                onQuickOpenClick = handleOpenLink
+                            )
+                        }
+
+                        // Archive Screen
+                        composable(LaterboxDestination.Archive.route) {
+                            val uiState by archiveViewModel.uiState.collectAsState()
+                            ArchiveScreen(
+                                uiState = uiState,
+                                onSearchQueryChange = archiveViewModel::onSearchQueryChange,
+                                onClearSearch = archiveViewModel::onClearSearch,
+                                onLinkClick = { link ->
+                                    savedItemDetailViewModel.setLink(link)
+                                    selectedLinkForDetails = link
+                                },
+                                onQuickOpenClick = handleOpenLink,
+                                onRestoreLink = archiveViewModel::onRestoreLink,
+                                onOpenDeleteDialog = archiveViewModel::onOpenDeleteDialog,
+                                onCloseDeleteDialog = archiveViewModel::onCloseDeleteDialog,
+                                onPermanentDelete = archiveViewModel::onPermanentDelete,
+                                onSettingsClick = {
+                                    navController.navigate(LaterboxDestination.Settings.route)
+                                },
+                                onMenuClick = openMenuHandler
+                            )
+                        }
+
+                        // Downloads Screen
+                        composable(LaterboxDestination.Downloads.route) {
+                            com.laterbox.app.media.ui.downloads.DownloadsScreen(
+                                viewModel = downloadsViewModel,
+                                onSettingsClick = {
+                                    navController.navigate(LaterboxDestination.Settings.route)
+                                },
+                                onOpenLinkDetail = { targetId ->
+                                    coroutineScope.launch {
+                                        val app = context.applicationContext as? LaterboxApplication
+                                        try {
+                                            val link = app?.container?.linkRepository?.getLinkById(targetId)?.first()
+                                            if (link != null) {
+                                                savedItemDetailViewModel.setLink(link)
+                                                selectedLinkForDetails = link
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                },
+                                onMenuClick = openMenuHandler
+                            )
+                        }
+
+                        // Settings Screen (Landing Hub)
+                        composable(LaterboxDestination.Settings.route) {
+                            SettingsScreen(
+                                preferences = preferences,
+                                onThemeModeChange = settingsViewModel::setThemeMode,
+                                onNavigateToAppearanceProfile = { navController.navigate(LaterboxDestination.SettingsAppearanceProfile.route) },
+                                onNavigateToRemindersAi = { navController.navigate(LaterboxDestination.SettingsRemindersAi.route) },
+                                onNavigateToCaptureShortcuts = { navController.navigate(LaterboxDestination.SettingsCaptureShortcuts.route) },
+                                onNavigateToReadingBehavior = { navController.navigate(LaterboxDestination.SettingsReadingBehavior.route) },
+                                onNavigateToMediaDownloads = { navController.navigate(LaterboxDestination.SettingsMediaDownloads.route) },
+                                onNavigateToDataStorage = { navController.navigate(LaterboxDestination.SettingsDataStorage.route) },
+                                onNavigateToAboutPrivacy = { navController.navigate(LaterboxDestination.SettingsAboutPrivacy.route) },
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Settings: Appearance & Profile
+                        composable(LaterboxDestination.SettingsAppearanceProfile.route) {
+                            com.laterbox.app.ui.settings.AppearanceProfileSettingsScreen(
+                                preferences = preferences,
+                                onThemeModeChange = settingsViewModel::setThemeMode,
+                                onFontSizeScaleChange = settingsViewModel::setFontSizeScale,
+                                onUserNameChange = settingsViewModel::setUserName,
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Settings: Reminders & AI
+                        composable(LaterboxDestination.SettingsRemindersAi.route) {
+                            val aiConnectionStatus by settingsViewModel.aiConnectionStatus.collectAsState()
+                            com.laterbox.app.ui.settings.RemindersAiSettingsScreen(
+                                preferences = preferences,
+                                onSmartRemindersEnabledChange = settingsViewModel::setSmartRemindersEnabled,
+                                onMorningEveningEnabledChange = settingsViewModel::setMorningEveningEnabled,
+                                onMorningTimeChange = settingsViewModel::setMorningTime,
+                                onEveningTimeChange = settingsViewModel::setEveningTime,
+                                onWeekendRoundupEnabledChange = settingsViewModel::setWeekendRoundupEnabled,
+                                onWeekendRoundupTimeChange = settingsViewModel::setWeekendRoundupTime,
+                                onDailyDigestEnabledChange = settingsViewModel::setDailyDigestEnabled,
+                                onDailyDigestTimeChange = settingsViewModel::setDailyDigestTime,
+                                onDailyDigestWeekdaysOnlyChange = settingsViewModel::setDailyDigestWeekdaysOnly,
+                                onCustomScheduleEnabledChange = settingsViewModel::setCustomScheduleEnabled,
+                                onCustomScheduleDaysChange = settingsViewModel::setCustomScheduleDays,
+                                onCustomScheduleTimeChange = settingsViewModel::setCustomScheduleTime,
+                                onSmartReminderPersistenceChange = settingsViewModel::setSmartReminderPersistence,
+                                aiConnectionStatus = aiConnectionStatus,
+                                onGeminiApiKeyChange = settingsViewModel::setGeminiApiKey,
+                                onTestAiConnection = settingsViewModel::testAiConnection,
+                                onSendTestSmartDigest = settingsViewModel::sendTestSmartDigest,
+                                onBackClick = { navController.popBackStack() },
+                                onAssistantEnabledChange = settingsViewModel::setAssistantEnabled,
+                                onResetAiDisclosureConsent = { settingsViewModel.setAssistantAiDisclosureAccepted(false) },
+                                onSmartNotificationsExtractionFailureChange = settingsViewModel::setSmartNotificationsExtractionFailure,
+                                onSmartNotificationsDownloadFailureChange = settingsViewModel::setSmartNotificationsDownloadFailure,
+                                onSmartNotificationsAppHealthChange = settingsViewModel::setSmartNotificationsAppHealth,
+                                onSmartNotificationsSummariesChange = settingsViewModel::setSmartNotificationsSummaries,
+                                onSmartNotificationsTipsChange = settingsViewModel::setSmartNotificationsTips,
+                                onQuietHoursEnabledChange = settingsViewModel::setQuietHoursEnabled,
+                                onQuietHoursWindowChange = settingsViewModel::setQuietHoursWindow
+                            )
+                        }
+
+                        // Settings: Capture & Shortcuts
+                        composable(LaterboxDestination.SettingsCaptureShortcuts.route) {
+                            com.laterbox.app.ui.settings.CaptureShortcutsSettingsScreen(
+                                preferences = preferences,
+                                onAccessibilityCaptureEnabledChange = settingsViewModel::setAccessibilityCaptureEnabled,
+                                onClipboardSuggestionEnabledChange = settingsViewModel::setClipboardSuggestionEnabled,
+                                onToggleExcludedPackage = settingsViewModel::toggleExcludedCapturePackage,
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Settings: Reading & Behaviour
+                        composable(LaterboxDestination.SettingsReadingBehavior.route) {
+                            com.laterbox.app.ui.settings.ReadingBehaviorSettingsScreen(
+                                preferences = preferences,
+                                onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Settings: Media & Downloads
+                        composable(LaterboxDestination.SettingsMediaDownloads.route) {
+                            val isUpdatingYtDlp by settingsViewModel.isUpdatingYtDlp.collectAsState()
+                            val ytDlpState by settingsViewModel.ytDlpState.collectAsState()
+                            val ffmpegState by settingsViewModel.ffmpegState.collectAsState()
+
+                            com.laterbox.app.ui.settings.MediaDownloadsSettingsScreen(
+                                preferences = preferences,
+                                onMediaDownloadNetworkPolicyChange = settingsViewModel::setMediaDownloadNetworkPolicy,
+                                onAutoInspectMediaOnSaveChange = settingsViewModel::setAutoInspectMediaOnSave,
+                                onFastEngineEnabledChange = settingsViewModel::setFastEngineEnabled,
+                                isUpdatingYtDlp = isUpdatingYtDlp,
+                                onUpdateYtDlpClick = {
+                                    settingsViewModel.updateYtDlp { msg ->
+                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                ytDlpState = ytDlpState,
+                                ffmpegState = ffmpegState,
+                                onGetDiagnosticReport = settingsViewModel::getDiagnosticReport,
+                                onGetDiagnosticReportText = settingsViewModel::getDiagnosticsReportText,
+                                onRetryInitializeEngine = {
+                                    settingsViewModel.retryInitializeEngine { msg ->
+                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onSetCustomExportDirectory = settingsViewModel::setCustomExportDirectory,
+                                onClearCustomExportDirectory = settingsViewModel::clearCustomExportDirectory,
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Settings: Data & Storage
+                        composable(LaterboxDestination.SettingsDataStorage.route) {
+                            com.laterbox.app.ui.settings.DataStorageSettingsScreen(
+                                preferences = preferences,
+                                onAllowSystemBackupChange = settingsViewModel::setAllowSystemBackup,
+                                onExportBackup = settingsViewModel::exportBackup,
+                                onImportBackup = settingsViewModel::importBackup,
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Settings: About & Privacy
+                        composable(LaterboxDestination.SettingsAboutPrivacy.route) {
+                            val isCheckingUpdate by settingsViewModel.isCheckingUpdate.collectAsState()
+                            val availableUpdateInfo by settingsViewModel.updateCheckResult.collectAsState()
+
+                            com.laterbox.app.ui.settings.AboutPrivacySettingsScreen(
+                                isCheckingUpdate = isCheckingUpdate,
+                                availableUpdateInfo = availableUpdateInfo,
+                                onCheckForUpdates = {
+                                    settingsViewModel.checkForUpdates { msg ->
+                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onDismissUpdateDialog = settingsViewModel::dismissUpdateDialog,
+                                onPostponeUpdate = settingsViewModel::postponeUpdate,
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        // Notification History Screen
+                        composable(LaterboxDestination.NotificationHistory.route) {
+                            com.laterbox.app.ui.notifications.NotificationHistoryScreen(
+                                viewModel = notificationHistoryViewModel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onOpenUrl = { url, linkId ->
+                                    BrowserLauncher.openUrl(context, url, colors)
+                                    if (linkId != null) {
+                                        inboxViewModel.onLinkOpened(linkId)
+                                    }
+                                },
+                                onMenuClick = openMenuHandler
+                            )
+                        }
                     }
-                },
-                popExitTransition = {
-                    if (reducedMotion) {
-                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
-                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
-                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
-                    } else {
-                        slideOutOfContainer(
-                            towards = AnimatedContentTransitionScope.SlideDirection.End,
-                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedAccelerate),
-                            targetOffset = { fullWidth -> fullWidth / 6 }
-                        ) + fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+
+                    // Bottom Floating ChatGPT-style single-line composer pill on Inbox ONLY
+                    if (currentRoute == LaterboxDestination.Inbox.route &&
+                        preferences.assistantEnabled &&
+                        !inboxUiState.isSelectionMode &&
+                        inboxUiState.hasCompletedOnboarding
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .padding(horizontal = 16.dp, vertical = 12.dp)
+                                .onGloballyPositioned { coords ->
+                                    inboxComposerHeightPx = coords.size.height
+                                }
+                        ) {
+                            FloatingChatComposer(
+                                text = inboxComposerText,
+                                onTextChange = { inboxComposerText = it },
+                                onSend = {
+                                    val prompt = inboxComposerText.trim()
+                                    if (prompt.isNotBlank()) {
+                                        haptics.tick()
+                                        inboxComposerText = ""
+                                        navController.navigate(
+                                            LaterboxDestination.Chat.createRoute(initialPrompt = prompt)
+                                        )
+                                    }
+                                }
+                            )
+                        }
                     }
+                }
+            }
+        }
+
+        if (isWideTablet) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                LaterboxPersistentSidePanel(
+                    currentSection = currentSection,
+                    activeConversationId = chatUiState.activeConversationId,
+                    recentConversations = recentConversations,
+                    unreadNotificationCount = inboxUiState.unreadNotificationCount,
+                    userName = preferences.userName,
+                    onNavigateInbox = { navigateTopLevel(LaterboxDestination.Inbox.route) },
+                    onNavigateCollections = { navigateTopLevel(LaterboxDestination.Collections.route) },
+                    onNavigateDownloads = { navigateTopLevel(LaterboxDestination.Downloads.route) },
+                    onNavigateArchive = { navigateTopLevel(LaterboxDestination.Archive.route) },
+                    onNavigateNotifications = { navigateTopLevel(LaterboxDestination.NotificationHistory.route) },
+                    onNavigateSettings = { navigateTopLevel(LaterboxDestination.Settings.route) },
+                    onNewChatClick = handleNewChat,
+                    onConversationClick = handleOpenConversation,
+                    onDeleteConversation = { convId -> chatViewModel.deleteConversation(convId) }
+                )
+                Box(modifier = Modifier.weight(1f)) {
+                    mainContent()
+                }
+            }
+        } else {
+            val gesturesEnabled = currentRoute?.startsWith("settings") != true &&
+                currentRoute?.startsWith("collection/") != true
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                gesturesEnabled = gesturesEnabled,
+                drawerContent = {
+                    LaterboxModalDrawerSheet(
+                        currentSection = currentSection,
+                        activeConversationId = chatUiState.activeConversationId,
+                        recentConversations = recentConversations,
+                        unreadNotificationCount = inboxUiState.unreadNotificationCount,
+                        userName = preferences.userName,
+                        onNavigateInbox = { navigateTopLevel(LaterboxDestination.Inbox.route) },
+                        onNavigateCollections = { navigateTopLevel(LaterboxDestination.Collections.route) },
+                        onNavigateDownloads = { navigateTopLevel(LaterboxDestination.Downloads.route) },
+                        onNavigateArchive = { navigateTopLevel(LaterboxDestination.Archive.route) },
+                        onNavigateNotifications = { navigateTopLevel(LaterboxDestination.NotificationHistory.route) },
+                        onNavigateSettings = { navigateTopLevel(LaterboxDestination.Settings.route) },
+                        onNewChatClick = handleNewChat,
+                        onConversationClick = handleOpenConversation,
+                        onDeleteConversation = { convId -> chatViewModel.deleteConversation(convId) }
+                    )
                 }
             ) {
-                // Inbox Screen
-                composable(LaterboxDestination.Inbox.route) {
-                    val uiState by inboxViewModel.uiState.collectAsState()
-                    InboxScreen(
-                        uiState = uiState,
-                        onSearchQueryChange = inboxViewModel::onSearchQueryChange,
-                        onClearSearch = inboxViewModel::onClearSearch,
-                        onFilterContentType = inboxViewModel::onFilterContentType,
-                        onFilterDateRange = inboxViewModel::onFilterDateRange,
-                        onLinkClick = { link ->
-                            savedItemDetailViewModel.setLink(link)
-                            selectedLinkForDetails = link
-                        },
-                        onQuickOpenClick = handleOpenLink,
-                        onAddLinkClick = {
-                            saveLinkViewModel.reset()
-                            showSaveSheet = true
-                        },
-                        onSettingsClick = {
-                            navController.navigate(LaterboxDestination.Settings.route)
-                        },
-                        onNotificationHistoryClick = {
-                            navController.navigate(LaterboxDestination.NotificationHistory.route)
-                        },
-                        onToggleViewMode = inboxViewModel::onToggleViewMode,
-                        onRefresh = inboxViewModel::refresh,
-                        onCompleteOnboarding = inboxViewModel::onCompleteOnboarding,
-                        onToggleRead = { link ->
-                            inboxViewModel.onToggleRead(link.id, link.isRead)
-                        },
-                        onArchive = { link ->
-                            inboxViewModel.onArchive(link.id)
-                            coroutineScope.launch {
-                                val result = snackbarHostState.showSnackbar(
-                                    message = "Link archived",
-                                    actionLabel = "Undo",
-                                    duration = SnackbarDuration.Short
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    inboxViewModel.unarchive(link.id)
-                                }
-                            }
-                        },
-                        onDelete = { link ->
-                            inboxViewModel.onDelete(link.id)
-                            coroutineScope.launch {
-                                val result = snackbarHostState.showSnackbar(
-                                    message = "Link deleted",
-                                    actionLabel = "Undo",
-                                    duration = SnackbarDuration.Short
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    inboxViewModel.onRestore(link)
-                                }
-                            }
-                        },
-                        onToggleSelectLink = inboxViewModel::onToggleSelectLink,
-                        onSelectAll = { inboxViewModel.onSelectAll(uiState.links) },
-                        onClearSelection = inboxViewModel::onClearSelection,
-                        onArchiveSelected = {
-                            inboxViewModel.onArchiveSelected()
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar(
-                                    message = "Selected links archived",
-                                    duration = SnackbarDuration.Short
-                                )
-                            }
-                        },
-                        onToggleReadSelected = { inboxViewModel.onToggleReadSelected(uiState.links) },
-                        onDeleteSelected = {
-                            inboxViewModel.onDeleteSelected()
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar(
-                                    message = "Selected links deleted",
-                                    duration = SnackbarDuration.Short
-                                )
-                            }
-                        },
-                        onCheckClipboard = inboxViewModel::checkClipboard,
-                        onSaveClipboardSuggestion = { suggestion ->
-                            inboxViewModel.saveClipboardSuggestion(
-                                suggestion = suggestion,
-                                onSuccess = {
-                                    SaveFeedbackHelper.showSaveSuccess(context, isUpdate = false)
-                                }
-                            )
-                        },
-                        onDismissClipboardSuggestion = inboxViewModel::dismissClipboardSuggestion
-                    )
-                }
-
-                // Collections Screen
-                composable(LaterboxDestination.Collections.route) {
-                    val uiState by collectionsViewModel.uiState.collectAsState()
-                    CollectionsScreen(
-                        uiState = uiState,
-                        onCollectionClick = { collection ->
-                            navController.navigate(
-                                LaterboxDestination.CollectionDetail.createRoute(
-                                    collection.id,
-                                    collection.name
-                                )
-                            )
-                        },
-                        onOpenCreateDialog = collectionsViewModel::onOpenCreateDialog,
-                        onCloseCreateDialog = collectionsViewModel::onCloseCreateDialog,
-                        onCreateCollection = collectionsViewModel::onCreateCollection,
-                        onOpenRenameDialog = collectionsViewModel::onOpenRenameDialog,
-                        onCloseRenameDialog = collectionsViewModel::onCloseRenameDialog,
-                        onRenameCollection = collectionsViewModel::onRenameCollection,
-                        onOpenDeleteDialog = collectionsViewModel::onOpenDeleteDialog,
-                        onCloseDeleteDialog = collectionsViewModel::onCloseDeleteDialog,
-                        onDeleteCollection = collectionsViewModel::onDeleteCollection,
-                        onSettingsClick = {
-                            navController.navigate(LaterboxDestination.Settings.route)
-                        }
-                    )
-                }
-
-                // Collection Detail Screen
-                composable(
-                    route = LaterboxDestination.CollectionDetail.route,
-                    arguments = listOf(
-                        navArgument("collectionId") { type = NavType.LongType },
-                        navArgument("collectionName") { type = NavType.StringType }
-                    )
-                ) { backStackEntry ->
-                    val collectionId = backStackEntry.arguments?.getLong("collectionId") ?: 0L
-                    val rawName = backStackEntry.arguments?.getString("collectionName") ?: ""
-                    val collectionName = java.net.URLDecoder.decode(rawName, "UTF-8")
-
-                    LaunchedEffect(collectionId, collectionName) {
-                        collectionDetailViewModel.setCollection(collectionId, collectionName)
-                    }
-
-                    val uiState by collectionDetailViewModel.uiState.collectAsState()
-                    CollectionDetailScreen(
-                        uiState = uiState,
-                        onBackClick = { navController.popBackStack() },
-                        onLinkClick = { link ->
-                            savedItemDetailViewModel.setLink(link)
-                            selectedLinkForDetails = link
-                        },
-                        onQuickOpenClick = handleOpenLink
-                    )
-                }
-
-                // Archive Screen
-                composable(LaterboxDestination.Archive.route) {
-                    val uiState by archiveViewModel.uiState.collectAsState()
-                    ArchiveScreen(
-                        uiState = uiState,
-                        onSearchQueryChange = archiveViewModel::onSearchQueryChange,
-                        onClearSearch = archiveViewModel::onClearSearch,
-                        onLinkClick = { link ->
-                            savedItemDetailViewModel.setLink(link)
-                            selectedLinkForDetails = link
-                        },
-                        onQuickOpenClick = handleOpenLink,
-                        onRestoreLink = archiveViewModel::onRestoreLink,
-                        onOpenDeleteDialog = archiveViewModel::onOpenDeleteDialog,
-                        onCloseDeleteDialog = archiveViewModel::onCloseDeleteDialog,
-                        onPermanentDelete = archiveViewModel::onPermanentDelete,
-                        onSettingsClick = {
-                            navController.navigate(LaterboxDestination.Settings.route)
-                        }
-                    )
-                }
-
-                // Downloads Screen
-                composable(LaterboxDestination.Downloads.route) {
-                    com.laterbox.app.media.ui.downloads.DownloadsScreen(
-                        viewModel = downloadsViewModel,
-                        onSettingsClick = {
-                            navController.navigate(LaterboxDestination.Settings.route)
-                        },
-                        onOpenLinkDetail = { targetId ->
-                            coroutineScope.launch {
-                                val app = context.applicationContext as? LaterboxApplication
-                                try {
-                                    val link = app?.container?.linkRepository?.getLinkById(targetId)?.first()
-                                    if (link != null) {
-                                        savedItemDetailViewModel.setLink(link)
-                                        selectedLinkForDetails = link
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
-                    )
-                }
-
-                // Settings Screen (Landing Hub)
-                composable(LaterboxDestination.Settings.route) {
-                    val preferences by settingsViewModel.preferences.collectAsState()
-
-                    SettingsScreen(
-                        preferences = preferences,
-                        onThemeModeChange = settingsViewModel::setThemeMode,
-                        onNavigateToAppearanceProfile = { navController.navigate(LaterboxDestination.SettingsAppearanceProfile.route) },
-                        onNavigateToRemindersAi = { navController.navigate(LaterboxDestination.SettingsRemindersAi.route) },
-                        onNavigateToCaptureShortcuts = { navController.navigate(LaterboxDestination.SettingsCaptureShortcuts.route) },
-                        onNavigateToReadingBehavior = { navController.navigate(LaterboxDestination.SettingsReadingBehavior.route) },
-                        onNavigateToMediaDownloads = { navController.navigate(LaterboxDestination.SettingsMediaDownloads.route) },
-                        onNavigateToDataStorage = { navController.navigate(LaterboxDestination.SettingsDataStorage.route) },
-                        onNavigateToAboutPrivacy = { navController.navigate(LaterboxDestination.SettingsAboutPrivacy.route) },
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Settings: Appearance & Profile
-                composable(LaterboxDestination.SettingsAppearanceProfile.route) {
-                    val preferences by settingsViewModel.preferences.collectAsState()
-                    com.laterbox.app.ui.settings.AppearanceProfileSettingsScreen(
-                        preferences = preferences,
-                        onThemeModeChange = settingsViewModel::setThemeMode,
-                        onFontSizeScaleChange = settingsViewModel::setFontSizeScale,
-                        onUserNameChange = settingsViewModel::setUserName,
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Settings: Reminders & AI
-                composable(LaterboxDestination.SettingsRemindersAi.route) {
-                    val preferences by settingsViewModel.preferences.collectAsState()
-                    val aiConnectionStatus by settingsViewModel.aiConnectionStatus.collectAsState()
-                    com.laterbox.app.ui.settings.RemindersAiSettingsScreen(
-                        preferences = preferences,
-                        onSmartRemindersEnabledChange = settingsViewModel::setSmartRemindersEnabled,
-                        onMorningEveningEnabledChange = settingsViewModel::setMorningEveningEnabled,
-                        onMorningTimeChange = settingsViewModel::setMorningTime,
-                        onEveningTimeChange = settingsViewModel::setEveningTime,
-                        onWeekendRoundupEnabledChange = settingsViewModel::setWeekendRoundupEnabled,
-                        onWeekendRoundupTimeChange = settingsViewModel::setWeekendRoundupTime,
-                        onDailyDigestEnabledChange = settingsViewModel::setDailyDigestEnabled,
-                        onDailyDigestTimeChange = settingsViewModel::setDailyDigestTime,
-                        onDailyDigestWeekdaysOnlyChange = settingsViewModel::setDailyDigestWeekdaysOnly,
-                        onCustomScheduleEnabledChange = settingsViewModel::setCustomScheduleEnabled,
-                        onCustomScheduleDaysChange = settingsViewModel::setCustomScheduleDays,
-                        onCustomScheduleTimeChange = settingsViewModel::setCustomScheduleTime,
-                        onSmartReminderPersistenceChange = settingsViewModel::setSmartReminderPersistence,
-                        aiConnectionStatus = aiConnectionStatus,
-                        onGeminiApiKeyChange = settingsViewModel::setGeminiApiKey,
-                        onTestAiConnection = settingsViewModel::testAiConnection,
-                        onSendTestSmartDigest = settingsViewModel::sendTestSmartDigest,
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Settings: Capture & Shortcuts
-                composable(LaterboxDestination.SettingsCaptureShortcuts.route) {
-                    val preferences by settingsViewModel.preferences.collectAsState()
-                    com.laterbox.app.ui.settings.CaptureShortcutsSettingsScreen(
-                        preferences = preferences,
-                        onAccessibilityCaptureEnabledChange = settingsViewModel::setAccessibilityCaptureEnabled,
-                        onClipboardSuggestionEnabledChange = settingsViewModel::setClipboardSuggestionEnabled,
-                        onToggleExcludedPackage = settingsViewModel::toggleExcludedCapturePackage,
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Settings: Reading & Behaviour
-                composable(LaterboxDestination.SettingsReadingBehavior.route) {
-                    val preferences by settingsViewModel.preferences.collectAsState()
-                    com.laterbox.app.ui.settings.ReadingBehaviorSettingsScreen(
-                        preferences = preferences,
-                        onAutoMarkAsReadChange = settingsViewModel::setAutoMarkAsRead,
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Settings: Media & Downloads
-                composable(LaterboxDestination.SettingsMediaDownloads.route) {
-                    val preferences by settingsViewModel.preferences.collectAsState()
-                    val isUpdatingYtDlp by settingsViewModel.isUpdatingYtDlp.collectAsState()
-                    val ytDlpState by settingsViewModel.ytDlpState.collectAsState()
-                    val ffmpegState by settingsViewModel.ffmpegState.collectAsState()
-
-                    com.laterbox.app.ui.settings.MediaDownloadsSettingsScreen(
-                        preferences = preferences,
-                        onMediaDownloadNetworkPolicyChange = settingsViewModel::setMediaDownloadNetworkPolicy,
-                        onAutoInspectMediaOnSaveChange = settingsViewModel::setAutoInspectMediaOnSave,
-                        onFastEngineEnabledChange = settingsViewModel::setFastEngineEnabled,
-                        isUpdatingYtDlp = isUpdatingYtDlp,
-                        onUpdateYtDlpClick = {
-                            settingsViewModel.updateYtDlp { msg ->
-                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        ytDlpState = ytDlpState,
-                        ffmpegState = ffmpegState,
-                        onGetDiagnosticReport = settingsViewModel::getDiagnosticReport,
-                        onGetDiagnosticReportText = settingsViewModel::getDiagnosticsReportText,
-                        onRetryInitializeEngine = {
-                            settingsViewModel.retryInitializeEngine { msg ->
-                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onSetCustomExportDirectory = settingsViewModel::setCustomExportDirectory,
-                        onClearCustomExportDirectory = settingsViewModel::clearCustomExportDirectory,
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Settings: Data & Storage
-                composable(LaterboxDestination.SettingsDataStorage.route) {
-                    val preferences by settingsViewModel.preferences.collectAsState()
-                    com.laterbox.app.ui.settings.DataStorageSettingsScreen(
-                        preferences = preferences,
-                        onAllowSystemBackupChange = settingsViewModel::setAllowSystemBackup,
-                        onExportBackup = settingsViewModel::exportBackup,
-                        onImportBackup = settingsViewModel::importBackup,
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Settings: About & Privacy
-                composable(LaterboxDestination.SettingsAboutPrivacy.route) {
-                    val isCheckingUpdate by settingsViewModel.isCheckingUpdate.collectAsState()
-                    val availableUpdateInfo by settingsViewModel.updateCheckResult.collectAsState()
-
-                    com.laterbox.app.ui.settings.AboutPrivacySettingsScreen(
-                        isCheckingUpdate = isCheckingUpdate,
-                        availableUpdateInfo = availableUpdateInfo,
-                        onCheckForUpdates = {
-                            settingsViewModel.checkForUpdates { msg ->
-                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onDismissUpdateDialog = settingsViewModel::dismissUpdateDialog,
-                        onPostponeUpdate = settingsViewModel::postponeUpdate,
-                        onBackClick = { navController.popBackStack() }
-                    )
-                }
-
-                // Notification History Screen
-                composable(LaterboxDestination.NotificationHistory.route) {
-                    com.laterbox.app.ui.notifications.NotificationHistoryScreen(
-                        viewModel = notificationHistoryViewModel,
-                        onNavigateBack = { navController.popBackStack() },
-                        onOpenUrl = { url, linkId ->
-                            BrowserLauncher.openUrl(context, url, colors)
-                            if (linkId != null) {
-                                inboxViewModel.onLinkOpened(linkId)
-                            }
-                        }
-                    )
-                }
-            }
-
-            if (currentRoute?.startsWith("settings") != true && currentRoute != LaterboxDestination.NotificationHistory.route) {
-                LaterboxBottomBar(
-                    currentDestination = currentBottomDestination,
-                    onDestinationSelected = { destination ->
-                        haptics.tick()
-                        when (destination) {
-                            BottomBarDestination.INBOX -> {
-                                navController.navigate(LaterboxDestination.Inbox.route) {
-                                    popUpTo(LaterboxDestination.Inbox.route) { inclusive = true }
-                                }
-                            }
-                            BottomBarDestination.COLLECTIONS -> {
-                                navController.navigate(LaterboxDestination.Collections.route) {
-                                    popUpTo(LaterboxDestination.Inbox.route)
-                                }
-                            }
-                            BottomBarDestination.DOWNLOADS -> {
-                                navController.navigate(LaterboxDestination.Downloads.route) {
-                                    popUpTo(LaterboxDestination.Inbox.route)
-                                }
-                            }
-                            BottomBarDestination.ARCHIVE -> {
-                                navController.navigate(LaterboxDestination.Archive.route) {
-                                    popUpTo(LaterboxDestination.Inbox.route)
-                                }
-                            }
-                        }
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
+                mainContent()
             }
         }
     }

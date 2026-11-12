@@ -1,12 +1,17 @@
 package com.laterbox.app.di
 
 import android.content.Context
+import com.laterbox.app.ai.LaterboxContextEngine
 import com.laterbox.app.data.backup.BackupManager
 import com.laterbox.app.data.local.LaterboxDatabase
 import com.laterbox.app.data.preferences.UserPreferencesRepository
+import com.laterbox.app.data.repository.ActivityEventRepository
+import com.laterbox.app.data.repository.ChatRepository
 import com.laterbox.app.data.repository.CollectionRepository
 import com.laterbox.app.data.repository.LinkRepository
 import com.laterbox.app.data.repository.NotificationHistoryRepository
+import com.laterbox.app.diagnostics.AppHealthChecker
+import com.laterbox.app.reminders.ContextualNotificationEngine
 
 interface AppContainer {
     val database: LaterboxDatabase
@@ -23,6 +28,11 @@ interface AppContainer {
     val ytDlpUpdater: com.laterbox.app.media.data.adapters.ytdlp.YtDlpUpdater
     val diagnosticsBuffer: com.laterbox.app.media.data.diagnostics.InspectionDiagnosticsBuffer
     val warmYtDlpServer: com.laterbox.app.media.data.adapters.ytdlp.WarmYtDlpServer
+    val chatRepository: ChatRepository
+    val activityEventRepository: ActivityEventRepository
+    val appHealthChecker: AppHealthChecker
+    val laterboxContextEngine: LaterboxContextEngine
+    val contextualNotificationEngine: ContextualNotificationEngine
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -93,6 +103,42 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         com.laterbox.app.media.data.adapters.ytdlp.WarmYtDlpServer(
             appContext = context.applicationContext,
             userPreferencesRepository = userPreferencesRepository
+        )
+    }
+
+    override val chatRepository: ChatRepository by lazy {
+        ChatRepository(database.chatDao())
+    }
+
+    override val activityEventRepository: ActivityEventRepository by lazy {
+        ActivityEventRepository(database.activityEventDao())
+    }
+
+    override val appHealthChecker: AppHealthChecker by lazy {
+        AppHealthChecker(
+            appContext = context.applicationContext,
+            database = database,
+            runtimeManager = ytDlpRuntimeManager,
+            userPreferencesRepository = userPreferencesRepository
+        )
+    }
+
+    override val laterboxContextEngine: LaterboxContextEngine by lazy {
+        LaterboxContextEngine(
+            database = database,
+            activityEventRepository = activityEventRepository,
+            userPreferencesRepository = userPreferencesRepository,
+            appHealthChecker = appHealthChecker
+        )
+    }
+
+    override val contextualNotificationEngine: ContextualNotificationEngine by lazy {
+        ContextualNotificationEngine(
+            appContext = context.applicationContext,
+            database = database,
+            userPreferencesRepository = userPreferencesRepository,
+            activityEventRepository = activityEventRepository,
+            appHealthChecker = appHealthChecker
         )
     }
 

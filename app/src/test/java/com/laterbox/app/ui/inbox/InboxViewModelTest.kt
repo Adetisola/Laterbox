@@ -1,6 +1,9 @@
 package com.laterbox.app.ui.inbox
 
 import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
@@ -27,6 +30,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.Executor
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -39,25 +43,47 @@ class InboxViewModelTest {
     private lateinit var database: LaterboxDatabase
     private lateinit var linkRepository: LinkRepository
     private lateinit var preferencesRepository: UserPreferencesRepository
+    private lateinit var viewModelStore: ViewModelStore
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
+        val directExecutor = Executor { runnable -> runnable.run() }
         database = Room.inMemoryDatabaseBuilder(context, LaterboxDatabase::class.java)
             .allowMainThreadQueries()
+            .setQueryExecutor(directExecutor)
+            .setTransactionExecutor(directExecutor)
             .build()
         linkRepository = LinkRepository(database.savedLinkDao())
         preferencesRepository = UserPreferencesRepository(context)
+        viewModelStore = ViewModelStore()
     }
 
     @After
     fun tearDown() {
+        viewModelStore.clear()
         database.close()
+    }
+
+    private fun createViewModel(
+        notificationHistoryRepository: NotificationHistoryRepository? = null
+    ): InboxViewModel {
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                return InboxViewModel(
+                    linkRepository = linkRepository,
+                    userPreferencesRepository = preferencesRepository,
+                    notificationHistoryRepository = notificationHistoryRepository
+                ) as T
+            }
+        }
+        return ViewModelProvider(viewModelStore, factory)[InboxViewModel::class.java]
     }
 
     @Test
     fun inboxViewModel_observesLinksAndFiltersCorrectly() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
 
         // Save a test article and a test video
         linkRepository.saveLink(
@@ -111,7 +137,7 @@ class InboxViewModelTest {
 
     @Test
     fun inboxViewModel_archiveRemovesLinkFromInbox() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
 
         val linkId = linkRepository.saveLink(
             originalUrl = "https://example.com/item",
@@ -139,7 +165,7 @@ class InboxViewModelTest {
 
     @Test
     fun inboxViewModel_togglesViewMode() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
 
         viewModel.uiState.test {
             var state = awaitItem()
@@ -209,7 +235,7 @@ class InboxViewModelTest {
                 )
             )
 
-            val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+            val viewModel = createViewModel()
             viewModel.refresh()
 
             // Wait until repository finishes enriching the link
@@ -235,7 +261,7 @@ class InboxViewModelTest {
 
     @Test
     fun dateRangeFilter_filtersLinksCorrectly() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
 
         val now = System.currentTimeMillis()
         val oneDayAgo = now - 24 * 60 * 60 * 1000L
@@ -306,7 +332,7 @@ class InboxViewModelTest {
 
     @Test
     fun inboxViewModel_saveClipboardSuggestion_recordsHashAndSavesLink() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
         val suggestion = com.laterbox.app.capture.ClipboardSuggestion(
             url = "https://example.com/clipboard-save",
             domain = "example.com",
@@ -331,11 +357,7 @@ class InboxViewModelTest {
     @Test
     fun inboxViewModel_observesUnreadNotificationCount() = runTest {
         val notificationRepo = NotificationHistoryRepository(database.notificationHistoryDao())
-        val viewModel = InboxViewModel(
-            linkRepository = linkRepository,
-            userPreferencesRepository = preferencesRepository,
-            notificationHistoryRepository = notificationRepo
-        )
+        val viewModel = createViewModel(notificationHistoryRepository = notificationRepo)
 
         viewModel.uiState.test {
             var state = awaitItem()
@@ -371,7 +393,7 @@ class InboxViewModelTest {
 
     @Test
     fun inboxViewModel_multiSelection_toggle_and_clear() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
 
         viewModel.uiState.test {
             var state = awaitItem()
@@ -418,7 +440,7 @@ class InboxViewModelTest {
 
     @Test
     fun inboxViewModel_multiSelection_selectAll_and_batchArchive() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
 
         val id1 = linkRepository.saveLink(
             originalUrl = "https://example.com/item1",
@@ -464,7 +486,7 @@ class InboxViewModelTest {
 
     @Test
     fun inboxViewModel_multiSelection_batchToggleRead_and_batchDelete() = runTest {
-        val viewModel = InboxViewModel(linkRepository, preferencesRepository)
+        val viewModel = createViewModel()
 
         val id1 = linkRepository.saveLink(
             originalUrl = "https://example.com/read1",

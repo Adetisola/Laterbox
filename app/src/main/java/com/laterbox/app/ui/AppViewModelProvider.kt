@@ -74,6 +74,17 @@ object AppViewModelProvider {
                 diagnosticsBuffer = app.container.diagnosticsBuffer
             )
         }
+        initializer {
+            val app = laterboxApplication()
+            com.laterbox.app.ui.chat.ChatViewModel(
+                chatRepository = app.container.chatRepository,
+                userPreferencesRepository = app.container.userPreferencesRepository,
+                laterboxContextEngine = app.container.laterboxContextEngine,
+                appHealthChecker = app.container.appHealthChecker,
+                linkRepository = app.container.linkRepository,
+                mediaRepository = app.container.mediaRepository
+            )
+        }
     }
 }
 

@@ -85,7 +85,7 @@ fun AboutPrivacySettingsScreen(
                     Text(
                         text = "• On-Device Media Extraction: Media inspection and downloads run locally on your device via yt-dlp, QuickJS, and FFmpeg without intermediate proxy servers.\n" +
                                "• Public X/Twitter Previews: api.fxtwitter.com (FxEmbed) is contacted strictly to resolve public X post metadata and media when saved, without accounts or tracking.\n" +
-                               "• Smart Reminders (Optional): If you configure your own Google AI Studio API key, link snippets are sent directly to Google AI Studio to extract reminder dates. No personal data is stored or tracked.",
+                               "• Remote AI Assistant & Smart Reminders: Your chat prompts, relevant saved link metadata (titles, URLs, notes, and sanitized app health/activity summaries — never private API keys or full storage paths), and Smart Digest snippets are sent remotely to Google AI Studio (Gemini) only after you enable and accept the AI notice. Chat history is stored locally on your device.",
                         style = typography.bodySecondary,
                         color = colors.textSecondary
                     )

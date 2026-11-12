@@ -35,4 +35,9 @@ object LaterboxIcons {
     @DrawableRes val User = R.drawable.ic_huge_user
     @DrawableRes val Globe = R.drawable.ic_platform_web
     @DrawableRes val Download = R.drawable.ic_huge_download
+    @DrawableRes val Menu = R.drawable.ic_huge_menu
+    @DrawableRes val Chat = R.drawable.ic_huge_chat
+    @DrawableRes val Send = R.drawable.ic_huge_send
+    @DrawableRes val Stop = R.drawable.ic_huge_stop
+    @DrawableRes val Health = R.drawable.ic_huge_health
 }
