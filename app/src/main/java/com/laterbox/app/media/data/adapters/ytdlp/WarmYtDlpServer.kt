@@ -25,6 +25,11 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
+data class WarmExecutionResult(
+    val output: String,
+    val warnings: String? = null
+)
+
 class WarmYtDlpServer(
     private val appContext: Context,
     private val userPreferencesRepository: UserPreferencesRepository
@@ -90,15 +95,27 @@ def idle_checker():
 
 threading.Thread(target=idle_checker, daemon=True).start()
 
+class YtDlpCustomLogger:
+    def __init__(self):
+        self.warnings = []
+        self.errors = []
+    def debug(self, msg):
+        pass
+    def warning(self, msg):
+        self.warnings.append(str(msg))
+    def error(self, msg):
+        self.errors.append(str(msg))
+
 def run_extraction(req_id, url, options):
     start = time.time()
+    logger = YtDlpCustomLogger()
     try:
         args = list(options)
         if url:
             args.append(url)
         parser, opts, all_urls, ydl_opts = yt_dlp.parse_options(args)
+        ydl_opts["logger"] = logger
         ydl_opts["quiet"] = True
-        ydl_opts["no_warnings"] = True
 
         target_url = all_urls[0] if all_urls else url
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -109,6 +126,7 @@ def run_extraction(req_id, url, options):
                 "id": req_id,
                 "success": True,
                 "output": json.dumps(sanitized),
+                "warnings": "\n".join(logger.warnings) if logger.warnings else None,
                 "elapsed_ms": elapsed_ms
             }
     except Exception as e:
@@ -117,6 +135,7 @@ def run_extraction(req_id, url, options):
             "id": req_id,
             "success": False,
             "error": str(e),
+            "warnings": "\n".join(logger.warnings) if logger.warnings else None,
             "elapsed_ms": elapsed_ms
         }
 
@@ -331,7 +350,7 @@ while running:
 
     /**
      * Executes inspection via warm loopback daemon.
-     * Returns JSON string if successful, or null if warm engine is disabled/unavailable (to trigger fallback).
+     * Returns WarmExecutionResult if successful, or null if warm engine is disabled/unavailable (to trigger fallback).
      * Throws YoutubeDLException if yt-dlp returns an error message.
      */
     suspend fun execute(
@@ -339,7 +358,7 @@ while running:
         options: List<String>,
         processId: String,
         timeoutMs: Long
-    ): String? = withContext(Dispatchers.IO) {
+    ): WarmExecutionResult? = withContext(Dispatchers.IO) {
         if (!isFastEngineEnabled()) {
             return@withContext null
         }
@@ -378,12 +397,22 @@ while running:
 
                 val success = respObj.optBoolean("success", false)
                 if (success) {
-                    respObj.optString("output")
+                    val out = respObj.optString("output")
+                    val warn = respObj.optString("warnings").takeIf { it.isNotBlank() }
+                    WarmExecutionResult(output = out, warnings = warn)
                 } else {
                     val error = respObj.optString("error", "Unknown extraction error")
                     throw YoutubeDLException(error)
                 }
             } catch (te: SocketTimeoutException) {
+                val proc = daemonProcess
+                daemonProcess = null
+                serverPort = null
+                serverToken = null
+                isRunning.set(false)
+                try {
+                    proc?.destroyForcibly()
+                } catch (_: Throwable) {}
                 throw te
             } catch (ye: YoutubeDLException) {
                 throw ye
@@ -400,23 +429,34 @@ while running:
     }
 
     fun cancel(processId: String) {
-        val port = serverPort ?: return
-        val token = serverToken ?: return
-        Thread({
-            try {
-                Socket().use { sock ->
-                    sock.connect(InetSocketAddress("127.0.0.1", port), 1000)
-                    sock.soTimeout = 1000
-                    val writer = PrintWriter(OutputStreamWriter(sock.getOutputStream(), "UTF-8"), true)
-                    val cancelReq = JSONObject().apply {
-                        put("id", processId)
-                        put("token", token)
-                        put("action", "cancel")
+        val proc = daemonProcess
+        val port = serverPort
+        val token = serverToken
+        daemonProcess = null
+        serverPort = null
+        serverToken = null
+        isRunning.set(false)
+
+        try {
+            proc?.destroyForcibly()
+        } catch (_: Throwable) {}
+
+        if (port != null && token != null) {
+            Thread({
+                try {
+                    Socket().use { sock ->
+                        sock.connect(InetSocketAddress("127.0.0.1", port), 500)
+                        val writer = PrintWriter(OutputStreamWriter(sock.getOutputStream(), "UTF-8"), true)
+                        val cancelReq = JSONObject().apply {
+                            put("id", processId)
+                            put("token", token)
+                            put("action", "cancel")
+                        }
+                        writer.println(cancelReq.toString())
                     }
-                    writer.println(cancelReq.toString())
-                }
-            } catch (_: Throwable) {}
-        }, "ytdlp-daemon-cancel").start()
+                } catch (_: Throwable) {}
+            }, "ytdlp-daemon-cancel").start()
+        }
     }
 
     fun shutdown() {

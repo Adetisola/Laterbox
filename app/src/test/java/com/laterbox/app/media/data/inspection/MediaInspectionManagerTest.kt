@@ -330,5 +330,118 @@ class MediaInspectionManagerTest {
         assertEquals(2, inspectCalls)
         assertTrue(refreshResult.isSuccess)
     }
+
+    @Test
+    fun retry_cancelsPreviousActiveJob_andSetsInspectingImmediately() = testScope.runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/slow_video",
+            normalizedUrl = "https://example.com/slow_video",
+            title = "Slow Video",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        val firstStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val firstShouldFinish = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+        val slowAdapter = object : MediaPlatformAdapter {
+            override val id = "Slow"
+            override fun canHandle(url: String) = true
+            override suspend fun inspect(url: String): InspectionResult = inspect(url, null)
+            override suspend fun inspect(url: String, processId: String?): InspectionResult {
+                if (url.contains("slow")) {
+                    firstStarted.complete(Unit)
+                    firstShouldFinish.await()
+                    return InspectionResult.Available("Slow", "Slow Video Title", null, emptyList())
+                }
+                return InspectionResult.Available("Fast", "Fast Video Title", null, emptyList())
+            }
+        }
+
+        val registry = AdapterRegistry(listOf(slowAdapter))
+        val platformResolver = PlatformResolver(registry)
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = platformResolver,
+            scope = this
+        )
+
+        // 1. Start first slow inspection
+        val job1 = manager.startInspection(linkId, "https://example.com/slow_video", forceRefresh = false)
+        firstStarted.await()
+
+        // 2. While first is running, start second inspection with forceRefresh = true
+        val job2 = manager.startInspection(linkId, "https://example.com/fast_video", forceRefresh = true)
+
+        // Verify that job1 was cancelled immediately
+        assertTrue("Job 1 should be cancelled by force refresh", job1.isCancelled)
+
+        // Let job1 attempt to finish if uncancelled
+        firstShouldFinish.complete(Unit)
+        job2.join()
+
+        // DB should have Fast Video result, not Slow Video result
+        val entity = inspectionDao.getEntityForLink(linkId)
+        assertNotNull(entity)
+        assertEquals("COMPLETED", entity?.status)
+        assertEquals("https://example.com/fast_video", entity?.url)
+        val parsed = entity?.resultJson?.let { com.laterbox.app.media.data.adapters.InspectionResultJsonAdapter.fromJson(it) }
+        assertTrue(parsed is InspectionResult.Available)
+        assertEquals("Fast Video Title", (parsed as InspectionResult.Available).title)
+    }
+
+    @Test
+    fun cancelInspection_cancelsActiveJob_marksCancelled_andJobDoesNotOverwriteCancelled() = testScope.runTest {
+        val link = SavedLinkEntity(
+            originalUrl = "https://example.com/hanging_video",
+            normalizedUrl = "https://example.com/hanging_video",
+            title = "Hanging Video",
+            domain = "example.com"
+        )
+        val linkId = linkDao.insertLink(link)
+
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val blockUntilCancelled = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+        val hangingAdapter = object : MediaPlatformAdapter {
+            override val id = "Hanging"
+            override fun canHandle(url: String) = true
+            override suspend fun inspect(url: String): InspectionResult = inspect(url, null)
+            override suspend fun inspect(url: String, processId: String?): InspectionResult {
+                started.complete(Unit)
+                blockUntilCancelled.await()
+                return InspectionResult.Available("Hanging", "Should Not Persist", null, emptyList())
+            }
+        }
+
+        val registry = AdapterRegistry(listOf(hangingAdapter))
+        val platformResolver = PlatformResolver(registry)
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = platformResolver,
+            scope = this
+        )
+
+        val job = manager.startInspection(linkId, "https://example.com/hanging_video", forceRefresh = false)
+        started.await()
+
+        // Call cancelInspection
+        manager.cancelInspection(linkId)
+        assertTrue("Active inspection job should be cancelled", job.isCancelled)
+
+        // Status should be CANCELLED in DB
+        val entity = inspectionDao.getEntityForLink(linkId)
+        assertEquals("CANCELLED", entity?.status)
+
+        // Allow hanging inspection to complete its await
+        blockUntilCancelled.complete(Unit)
+        job.join()
+
+        // Status must STILL be CANCELLED, not COMPLETED
+        val finalEntity = inspectionDao.getEntityForLink(linkId)
+        assertEquals("CANCELLED", finalEntity?.status)
+    }
 }
 

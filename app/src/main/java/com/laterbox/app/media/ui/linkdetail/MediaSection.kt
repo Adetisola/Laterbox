@@ -209,7 +209,7 @@ fun MediaSection(
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Checking media availability...",
+                        text = if (inspectionResult != null) "Retrying inspection..." else "Checking media availability...",
                         style = MaterialTheme.typography.bodyMedium,
                         color = colors.textPrimary
                     )
@@ -254,7 +254,7 @@ fun MediaSection(
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = LaterboxShapeTokens.Card,
-                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                                color = colors.statusDanger.copy(alpha = 0.12f)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(10.dp),
@@ -263,61 +263,27 @@ fun MediaSection(
                                     Icon(
                                         painter = painterResource(LaterboxIcons.Refresh),
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
+                                        tint = colors.statusDanger,
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
                                         text = "Some media could not be extracted (${inspectionResult.partialFailures.size} issue(s))",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                        color = colors.statusDanger
                                     )
                                 }
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Available Formats",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = colors.textSecondary
-                            )
-                            Surface(
-                                shape = LaterboxShapeTokens.Chip,
-                                color = colors.surfaceSecondary,
-                                border = BorderStroke(1.dp, colors.borderSubtle),
-                                modifier = Modifier
-                                    .sizeIn(minWidth = 48.dp, minHeight = 32.dp)
-                                    .clickable(
-                                        role = Role.Button,
-                                        onClickLabel = "Refresh media formats",
-                                        onClick = onRetryClick
-                                    )
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = LaterboxIcons.Refresh),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(13.dp),
-                                        tint = colors.accentPrimary
-                                    )
-                                    Text(
-                                        text = "Refresh",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                                        color = colors.accentPrimary
-                                    )
-                                }
-                            }
-                        }
+                        Text(
+                            text = "Available Formats",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
                         // More formats loading banner if not complete
                         if (!inspectionResult.isComplete) {
                             Surface(
@@ -375,6 +341,14 @@ fun MediaSection(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    LaterboxSecondaryButton(
+                        text = "Retry inspection",
+                        leadingIcon = LaterboxIcons.Refresh,
+                        onClick = onRetryClick,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
 
                 is InspectionResult.MetadataOnly -> {
@@ -408,6 +382,13 @@ fun MediaSection(
                                     Text("Search on YouTube", fontSize = 12.sp)
                                 }
                             }
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LaterboxSecondaryButton(
+                                text = "Retry inspection",
+                                leadingIcon = LaterboxIcons.Refresh,
+                                onClick = onRetryClick,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                 }
@@ -524,14 +505,14 @@ fun MediaSection(
                                 Icon(
                                     painter = painterResource(LaterboxIcons.Refresh),
                                     contentDescription = null,
-                                    tint = if (isWaitingConnection) colors.accentPrimary else MaterialTheme.colorScheme.error,
+                                    tint = if (isWaitingConnection) colors.accentPrimary else colors.statusDanger,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = headerTitle,
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
-                                    color = if (isWaitingConnection) colors.textPrimary else MaterialTheme.colorScheme.error
+                                    color = if (isWaitingConnection) colors.textPrimary else colors.statusDanger
                                 )
                             }
                             val failureMessage = if (isWaitingConnection) {
@@ -778,7 +759,7 @@ private fun ActiveTaskRow(
                         Text(
                             text = "Failed: ${task.errorMessage ?: task.errorCode?.userMessage ?: "Download error"}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
+                            color = colors.statusDanger,
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(modifier = Modifier.width(8.dp))

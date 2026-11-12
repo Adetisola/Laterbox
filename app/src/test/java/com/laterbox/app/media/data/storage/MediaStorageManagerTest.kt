@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.laterbox.app.media.domain.model.MediaType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -72,5 +73,17 @@ class MediaStorageManagerTest {
 
         val extMp4 = storageManager.resolveExtension("video/mp4", "mp4", MediaType.VIDEO)
         assertEquals("mp4", extMp4)
+    }
+
+    @Test
+    fun sniffMimeType_mapsMatroskaContainerToAudioWebm_andResolvesWebmExtension() {
+        val file = tempFolder.newFile("sample_opus.part")
+        file.writeBytes(byteArrayOf(0x1A.toByte(), 0x45.toByte(), 0xDF.toByte(), 0xA3.toByte(), 0x00, 0x00))
+
+        val mime = storageManager.sniffMimeType(file, mediaType = MediaType.AUDIO)
+        assertEquals("audio/webm", mime)
+
+        val ext = storageManager.resolveExtension(mime, null, MediaType.AUDIO)
+        assertTrue("WebM audio must resolve to webm or opus, not m4a", ext == "webm" || ext == "opus")
     }
 }

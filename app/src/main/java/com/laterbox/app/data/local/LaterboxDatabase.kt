@@ -30,7 +30,7 @@ import com.laterbox.app.media.data.db.entity.MediaInspectionEntity
         DownloadTaskEntity::class,
         MediaInspectionEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -399,6 +399,51 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Migration from version 8 to version 9:
+         * 1. Enforces single inspection row per saved link with savedLinkId as PRIMARY KEY.
+         * 2. Adds generation column to track attempt generations.
+         * 3. Deduplicates existing media_inspection rows, retaining the newest entry per link by updatedAt.
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Create temporary new table with savedLinkId as primary key and generation column
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `media_inspection_new` (
+                        `savedLinkId` INTEGER NOT NULL,
+                        `id` TEXT NOT NULL,
+                        `generation` INTEGER NOT NULL DEFAULT 0,
+                        `url` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `resultJson` TEXT,
+                        `errorCode` TEXT,
+                        `errorMessage` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`savedLinkId`),
+                        FOREIGN KEY(`savedLinkId`) REFERENCES `saved_links`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+
+                // 2. Insert rows into media_inspection_new ordered by updatedAt ASC so newest replaces older duplicates
+                db.execSQL("""
+                    INSERT OR REPLACE INTO `media_inspection_new` (
+                        `savedLinkId`, `id`, `generation`, `url`, `status`, `resultJson`, `errorCode`, `errorMessage`, `createdAt`, `updatedAt`
+                    )
+                    SELECT `savedLinkId`, `id`, 0, `url`, `status`, `resultJson`, `errorCode`, `errorMessage`, `createdAt`, `updatedAt`
+                    FROM `media_inspection`
+                    ORDER BY `updatedAt` ASC
+                """.trimIndent())
+
+                // 3. Drop old table and rename new table
+                db.execSQL("DROP TABLE `media_inspection`")
+                db.execSQL("ALTER TABLE `media_inspection_new` RENAME TO `media_inspection`")
+
+                // 4. Create index on status
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_media_inspection_status` ON `media_inspection` (`status`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -409,7 +454,7 @@ abstract class LaterboxDatabase : RoomDatabase() {
                     LaterboxDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                     .build()
                     .also { INSTANCE = it }
             }

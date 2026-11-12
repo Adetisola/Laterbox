@@ -19,6 +19,7 @@ import androidx.work.WorkerParameters
 import com.laterbox.app.LaterboxApplication
 import com.laterbox.app.R
 import com.laterbox.app.data.preferences.MediaDownloadNetworkPolicy
+import com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache
 import com.laterbox.app.media.data.db.entity.DownloadedAssetEntity
 import com.laterbox.app.media.data.storage.MediaStorageManager
 import com.laterbox.app.media.data.storage.ThumbnailGenerator
@@ -75,7 +76,7 @@ class DownloadWorker(
             val isBlocked = when (prefs.mediaDownloadNetworkPolicy) {
                 MediaDownloadNetworkPolicy.WIFI_ONLY -> true
                 MediaDownloadNetworkPolicy.WIFI_OVER_20MB -> {
-                    task.totalBytes != null && task.totalBytes > 20L * 1024 * 1024
+                    task.totalBytes == null || task.totalBytes > 20L * 1024 * 1024
                 }
                 MediaDownloadNetworkPolicy.ANY_NETWORK -> false
             }
@@ -127,7 +128,7 @@ class DownloadWorker(
 
         // 4. Download transfer under concurrency gate
         val progressChannel = Channel<ProgressEvent>(Channel.CONFLATED)
-        val progressJob = CoroutineScope(coroutineContext).launch {
+        val progressJob = CoroutineScope(kotlinx.coroutines.currentCoroutineContext()).launch {
             var lastReportedStage: DownloadStage? = null
             var lastDbUpdateTime = 0L
             var lastDbPercent = -1
@@ -177,11 +178,13 @@ class DownloadWorker(
 
                 val result = if (task.formatSelector != null) {
                     val ytDlpDownloader = YtDlpDownloader(appContext)
+                    val infoJsonFile = InfoJsonCache.getValidInfoJson(appContext, task.sourceUrl, task.savedLinkId)
                     ytDlpDownloader.download(
                         url = task.sourceUrl,
                         formatSelector = task.formatSelector,
                         destinationFile = partFile,
                         taskId = taskId,
+                        infoJsonFile = infoJsonFile,
                         onProgress = onProgressCallback
                     )
                 } else {
@@ -253,22 +256,50 @@ class DownloadWorker(
                             existingAsset.localPath
                         } else null
 
-                        val cleanSuggestedExt = when (mediaType) {
-                            MediaType.AUDIO -> "m4a"
-                            MediaType.VIDEO -> "mp4"
-                            MediaType.IMAGE -> "jpg"
-                            else -> null
-                        }
-
                         val finalized = storageManager.finalizeDownload(
                             taskId = taskId,
                             mediaType = mediaType,
-                            suggestedExt = cleanSuggestedExt,
+                            suggestedExt = null,
                             existingDuplicatePath = duplicatePath
                         )
 
                         val finalMediaFile = storageManager.resolveFile(finalized.relativePath)
                         val assetId = UUID.randomUUID().toString()
+
+                        var durationMs: Long? = null
+                        var width: Int? = null
+                        var height: Int? = null
+
+                        try {
+                            val retriever = android.media.MediaMetadataRetriever()
+                            retriever.setDataSource(finalMediaFile.absolutePath)
+                            val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                            if (!durStr.isNullOrBlank()) {
+                                durationMs = durStr.toLongOrNull()
+                            }
+                            val wStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                            if (!wStr.isNullOrBlank()) {
+                                width = wStr.toIntOrNull()
+                            }
+                            val hStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                            if (!hStr.isNullOrBlank()) {
+                                height = hStr.toIntOrNull()
+                            }
+                            retriever.release()
+                        } catch (_: Throwable) {}
+
+                        if (mediaType == MediaType.IMAGE && (width == null || height == null)) {
+                            try {
+                                val options = android.graphics.BitmapFactory.Options().apply {
+                                    inJustDecodeBounds = true
+                                }
+                                android.graphics.BitmapFactory.decodeFile(finalMediaFile.absolutePath, options)
+                                if (options.outWidth > 0 && options.outHeight > 0) {
+                                    width = options.outWidth
+                                    height = options.outHeight
+                                }
+                            } catch (_: Throwable) {}
+                        }
 
                         // 7. Thumbnail Generation stage
                         taskDao.updateStage(taskId, DownloadStage.GENERATING_THUMBNAIL.name, null)
@@ -295,9 +326,9 @@ class DownloadWorker(
                             exportedUri = null,
                             fileStatus = AssetFileStatus.AVAILABLE.name,
                             fileSize = finalized.fileSize,
-                            durationMs = null,
-                            width = null,
-                            height = null,
+                            durationMs = durationMs,
+                            width = width,
+                            height = height,
                             qualityLabel = task.qualityLabel,
                             checksum = finalized.checksum,
                             createdAt = System.currentTimeMillis(),

@@ -69,4 +69,26 @@ class InspectionDiagnosticsBufferTest {
         assertTrue(report.contains("stage_1_fast"))
         assertFalse(report.contains("SECRET_TOKEN"))
     }
+
+    @Test
+    fun entryWithDiagnosticContext_formatsAllContextFields() {
+        val entry = InspectionDiagnosticEntry(
+            id = "diag_test",
+            url = "https://youtube.com/watch?v=abc",
+            adapterId = "yt-dlp",
+            stage = "stage_2_complete",
+            isWarmProcess = true,
+            linkId = 123L,
+            generation = 3L,
+            processId = "inspect_123_g3",
+            rowsFound = 1,
+            shownReason = "CACHE_HIT"
+        )
+        val text = entry.toFormattedString()
+        assertTrue(text.contains("LinkId: 123"))
+        assertTrue(text.contains("Gen: 3"))
+        assertTrue(text.contains("PID: inspect_123_g3"))
+        assertTrue(text.contains("RowsFound: 1"))
+        assertTrue(text.contains("Reason: CACHE_HIT"))
+    }
 }

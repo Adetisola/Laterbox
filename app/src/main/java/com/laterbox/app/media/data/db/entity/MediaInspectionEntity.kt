@@ -17,13 +17,13 @@ import com.laterbox.app.data.local.entity.SavedLinkEntity
         )
     ],
     indices = [
-        Index("savedLinkId"),
         Index("status")
     ]
 )
 data class MediaInspectionEntity(
-    @PrimaryKey val id: String,
-    val savedLinkId: Long,
+    @PrimaryKey val savedLinkId: Long,
+    val id: String,
+    val generation: Long = 0L,
     val url: String,
     val status: String,
     val resultJson: String? = null,

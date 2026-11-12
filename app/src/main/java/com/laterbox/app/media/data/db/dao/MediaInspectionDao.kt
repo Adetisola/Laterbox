@@ -17,22 +17,22 @@ interface MediaInspectionDao {
     @Update
     suspend fun update(entity: MediaInspectionEntity)
 
-    @Query("SELECT * FROM media_inspection WHERE savedLinkId = :savedLinkId LIMIT 1")
+    @Query("SELECT * FROM media_inspection WHERE savedLinkId = :savedLinkId ORDER BY updatedAt DESC LIMIT 1")
     fun getInspectionForLink(savedLinkId: Long): Flow<MediaInspectionEntity?>
 
-    @Query("SELECT * FROM media_inspection WHERE savedLinkId = :savedLinkId LIMIT 1")
+    @Query("SELECT * FROM media_inspection WHERE savedLinkId = :savedLinkId ORDER BY updatedAt DESC LIMIT 1")
     suspend fun getEntityForLink(savedLinkId: Long): MediaInspectionEntity?
 
-    @Query("SELECT * FROM media_inspection WHERE id = :id LIMIT 1")
+    @Query("SELECT * FROM media_inspection WHERE id = :id ORDER BY updatedAt DESC LIMIT 1")
     suspend fun getEntityById(id: String): MediaInspectionEntity?
 
     @Query("SELECT * FROM media_inspection WHERE status IN ('PENDING', 'PREPARING', 'INSPECTING', 'PROCESSING') AND updatedAt < :staleThreshold")
     suspend fun getStaleInspections(staleThreshold: Long): List<MediaInspectionEntity>
 
-    @Query("SELECT savedLinkId FROM media_inspection WHERE status = 'COMPLETED'")
+    @Query("SELECT DISTINCT savedLinkId FROM media_inspection WHERE status = 'COMPLETED'")
     fun getCompletedInspectionLinkIds(): Flow<List<Long>>
 
-    @Query("SELECT * FROM media_inspection WHERE status = 'COMPLETED' ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM media_inspection WHERE status = 'COMPLETED' GROUP BY savedLinkId ORDER BY updatedAt DESC")
     fun getCompletedInspections(): Flow<List<MediaInspectionEntity>>
 
     @Query("DELETE FROM media_inspection WHERE savedLinkId = :savedLinkId")

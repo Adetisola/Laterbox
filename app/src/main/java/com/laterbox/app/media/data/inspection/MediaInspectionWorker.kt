@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters
 import com.laterbox.app.LaterboxApplication
 import com.laterbox.app.media.domain.model.InspectionResult
 import com.yausername.youtubedl_android.YoutubeDL
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.TimeUnit
@@ -70,11 +71,18 @@ class MediaInspectionWorker(
     override suspend fun doWork(): Result {
         val savedLinkId = inputData.getLong(KEY_SAVED_LINK_ID, -1L).takeIf { it > 0 } ?: return Result.failure()
         val url = inputData.getString(KEY_URL) ?: return Result.failure()
-        val previewImageUrl = inputData.getString(KEY_PREVIEW_IMAGE_URL)
+        var previewImageUrl = inputData.getString(KEY_PREVIEW_IMAGE_URL)
         val forceRefresh = inputData.getBoolean(KEY_FORCE_REFRESH, false)
 
         val app = appContext as? LaterboxApplication
         val container = app?.container
+        if (previewImageUrl.isNullOrBlank() && container != null) {
+            try {
+                val savedLink = container.linkRepository.getLinkById(savedLinkId).first()
+                previewImageUrl = savedLink?.previewImageUrl
+            } catch (_: Throwable) {}
+        }
+
         val inspectionManager = container?.mediaInspectionManager
             ?: MediaInspectionManager(
                 appContext = appContext,
@@ -87,7 +95,7 @@ class MediaInspectionWorker(
         val memInfo = android.app.ActivityManager.MemoryInfo()
         actManager?.getMemoryInfo(memInfo)
         if (memInfo.lowMemory) {
-            android.util.Log.i("MediaInspectionWorker", "Deferring background inspection: device in low-memory state")
+            android.util.Log.i("MediaInspectionWorker", "Deferring background inspection for link $savedLinkId: device in low-memory state (availMem=${memInfo.availMem}, threshold=${memInfo.threshold}) -> returning Result.retry()")
             inspectionManager.markInspectionPending(savedLinkId, url)
             return Result.retry()
         }
@@ -98,7 +106,7 @@ class MediaInspectionWorker(
         val caps = cm?.getNetworkCapabilities(activeNet)
         val isValidated = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         if (!isValidated) {
-            android.util.Log.i("MediaInspectionWorker", "Deferring background inspection: network is not validated")
+            android.util.Log.i("MediaInspectionWorker", "Deferring background inspection for link $savedLinkId: active network is not validated (attempt $runAttemptCount of 5) -> returning Result.retry()")
             inspectionManager.markInspectionPending(savedLinkId, url)
             return Result.retry()
         }
@@ -116,6 +124,7 @@ class MediaInspectionWorker(
                 if (res.isSuccess) {
                     val result = res.getOrNull()
                     if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 5) {
+                        android.util.Log.i("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after retryable failure (${result.code}: ${result.message}): attempt $runAttemptCount of 5 -> returning Result.retry()")
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
@@ -123,6 +132,7 @@ class MediaInspectionWorker(
                     }
                 } else {
                     if (runAttemptCount < 5) {
+                        android.util.Log.w("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after unhandled inspection error (${res.exceptionOrNull()?.message}): attempt $runAttemptCount of 5 -> returning Result.retry()")
                         inspectionManager.markInspectionPending(savedLinkId, url)
                         Result.retry()
                     } else {
@@ -130,9 +140,10 @@ class MediaInspectionWorker(
                     }
                 }
             }
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
             cleanupProcess(inspectionProcessId)
             if (runAttemptCount < 5) {
+                android.util.Log.w("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after exception (${e.message}): attempt $runAttemptCount of 5 -> returning Result.retry()", e)
                 inspectionManager.markInspectionPending(savedLinkId, url)
                 Result.retry()
             } else {

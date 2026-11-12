@@ -180,6 +180,7 @@ class YtDlpAdapter(
             // Execute either via warm engine daemon or standard process spawn
             var jsonOutput: String? = null
             var errorOutput: String? = null
+            var warmWarnings: String? = null
             var usedWarm = false
             val execStart = System.currentTimeMillis()
 
@@ -192,13 +193,52 @@ class YtDlpAdapter(
                         timeoutMs = timeoutMs ?: inspectionTimeoutMs
                     )
                     if (warmResp != null) {
-                        jsonOutput = warmResp
+                        jsonOutput = warmResp.output
+                        warmWarnings = warmResp.warnings
                         usedWarm = true
                     }
                 } catch (ye: YoutubeDLException) {
                     errorOutput = ye.message
+                } catch (ste: java.net.SocketTimeoutException) {
+                    diagnosticsBuffer?.record(
+                        InspectionDiagnosticEntry(
+                            id = inspectionId,
+                            url = canonicalUrl,
+                            adapterId = id,
+                            stage = stage,
+                            playerClient = playerClient,
+                            runtimeReadyMs = runtimeReadyMs,
+                            totalMs = System.currentTimeMillis() - startTotal,
+                            isWarmProcess = true,
+                            success = false,
+                            error = "EXTRACTION_TIMEOUT"
+                        )
+                    )
+                    return@withContext InspectionResult.Failed(
+                        code = FailureCode.EXTRACTION_TIMEOUT,
+                        message = "Media inspection timed out after ${(timeoutMs ?: inspectionTimeoutMs) / 1000} seconds.",
+                        retryable = true
+                    )
                 } catch (te: TimeoutCancellationException) {
-                    throw te
+                    diagnosticsBuffer?.record(
+                        InspectionDiagnosticEntry(
+                            id = inspectionId,
+                            url = canonicalUrl,
+                            adapterId = id,
+                            stage = stage,
+                            playerClient = playerClient,
+                            runtimeReadyMs = runtimeReadyMs,
+                            totalMs = System.currentTimeMillis() - startTotal,
+                            isWarmProcess = true,
+                            success = false,
+                            error = "EXTRACTION_TIMEOUT"
+                        )
+                    )
+                    return@withContext InspectionResult.Failed(
+                        code = FailureCode.EXTRACTION_TIMEOUT,
+                        message = "Media inspection timed out after ${(timeoutMs ?: inspectionTimeoutMs) / 1000} seconds.",
+                        retryable = true
+                    )
                 } catch (ce: CancellationException) {
                     throw ce
                 } catch (t: Throwable) {
@@ -302,11 +342,13 @@ class YtDlpAdapter(
                     videoFormatCount = videoCount,
                     audioFormatCount = audioCount,
                     thumbnailCount = thumbCount,
-                    warnings = InspectionDiagnosticEntry.sanitizeWarnings(errorOutput),
+                    warnings = InspectionDiagnosticEntry.sanitizeWarnings(warmWarnings ?: errorOutput),
                     isWarmProcess = usedWarm,
                     success = true
                 )
             )
+
+            InfoJsonCache.save(appContext, canonicalUrl, jsonOutput)
 
             parsed
         } catch (e: YoutubeDLException) {

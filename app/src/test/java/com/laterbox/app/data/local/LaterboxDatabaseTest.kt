@@ -1306,5 +1306,90 @@ class LaterboxDatabaseTest {
 
         helper.close()
     }
+
+    @Test
+    fun migration8To9EnforcesSingleRowPerLinkAndAddsGenerationColumn() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(8) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `saved_links` (
+                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            `original_url` TEXT NOT NULL,
+                            `normalized_url` TEXT NOT NULL,
+                            `title` TEXT NOT NULL,
+                            `domain` TEXT NOT NULL
+                        )
+                        """.trimIndent()
+                    )
+                    db.execSQL(
+                        """
+                        CREATE TABLE IF NOT EXISTS `media_inspection` (
+                            `id` TEXT NOT NULL PRIMARY KEY,
+                            `savedLinkId` INTEGER NOT NULL,
+                            `url` TEXT NOT NULL,
+                            `status` TEXT NOT NULL,
+                            `resultJson` TEXT,
+                            `errorCode` TEXT,
+                            `errorMessage` TEXT,
+                            `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            FOREIGN KEY(`savedLinkId`) REFERENCES `saved_links`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                        )
+                        """.trimIndent()
+                    )
+                }
+
+                override fun onUpgrade(
+                    db: androidx.sqlite.db.SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int
+                ) = Unit
+            })
+            .build()
+
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+
+        // Create saved links
+        sqliteDb.execSQL("INSERT INTO `saved_links` (`id`, `original_url`, `normalized_url`, `title`, `domain`) VALUES (10, 'https://youtube.com/watch?v=1', 'https://youtube.com/watch?v=1', 'Video 1', 'youtube.com')")
+        sqliteDb.execSQL("INSERT INTO `saved_links` (`id`, `original_url`, `normalized_url`, `title`, `domain`) VALUES (20, 'https://youtube.com/watch?v=2', 'https://youtube.com/watch?v=2', 'Video 2', 'youtube.com')")
+
+        // Insert duplicate inspection rows for link 10 in v8 schema
+        sqliteDb.execSQL("INSERT INTO `media_inspection` (`id`, `savedLinkId`, `url`, `status`, `resultJson`, `createdAt`, `updatedAt`) VALUES ('insp_10_old', 10, 'https://youtube.com/watch?v=1', 'FAILED', '{\"title\":\"Old\"}', 1000, 1000)")
+        sqliteDb.execSQL("INSERT INTO `media_inspection` (`id`, `savedLinkId`, `url`, `status`, `resultJson`, `createdAt`, `updatedAt`) VALUES ('insp_10_new', 10, 'https://youtube.com/watch?v=1', 'COMPLETED', '{\"title\":\"Newest\"}', 1000, 2000)")
+
+        // Insert row for link 20
+        sqliteDb.execSQL("INSERT INTO `media_inspection` (`id`, `savedLinkId`, `url`, `status`, `resultJson`, `createdAt`, `updatedAt`) VALUES ('insp_20', 20, 'https://youtube.com/watch?v=2', 'COMPLETED', '{\"title\":\"Link20\"}', 1500, 1500)")
+
+        // Execute MIGRATION_8_9
+        LaterboxDatabase.MIGRATION_8_9.migrate(sqliteDb)
+
+        // 1. Verify duplicates collapsed: exactly 1 row for link 10
+        val countCursor = sqliteDb.query("SELECT COUNT(*) FROM media_inspection WHERE savedLinkId = 10")
+        assertTrue(countCursor.moveToFirst())
+        assertEquals(1, countCursor.getInt(0))
+        countCursor.close()
+
+        // 2. Verify newest kept: status is COMPLETED and updatedAt is 2000
+        val rowCursor = sqliteDb.query("SELECT status, resultJson, generation FROM media_inspection WHERE savedLinkId = 10")
+        assertTrue(rowCursor.moveToFirst())
+        assertEquals("COMPLETED", rowCursor.getString(0))
+        assertEquals("{\"title\":\"Newest\"}", rowCursor.getString(1))
+        assertEquals(0L, rowCursor.getLong(2))
+        rowCursor.close()
+
+        // 3. Verify link 20 is untouched
+        val link20Cursor = sqliteDb.query("SELECT status, resultJson FROM media_inspection WHERE savedLinkId = 20")
+        assertTrue(link20Cursor.moveToFirst())
+        assertEquals("COMPLETED", link20Cursor.getString(0))
+        assertEquals("{\"title\":\"Link20\"}", link20Cursor.getString(1))
+        link20Cursor.close()
+
+        helper.close()
+    }
 }
 

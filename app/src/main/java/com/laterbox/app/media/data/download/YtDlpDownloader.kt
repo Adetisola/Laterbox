@@ -27,6 +27,7 @@ class YtDlpDownloader(
         formatSelector: String,
         destinationFile: File,
         taskId: String,
+        infoJsonFile: File? = null,
         onProgress: (bytesDownloaded: Long, totalBytes: Long?, percent: Int, stage: DownloadStage?) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
         if (customExecutor == null) {
@@ -59,7 +60,17 @@ class YtDlpDownloader(
             formatSelector
         }
 
-        val request = YoutubeDLRequest(url).apply {
+        val isInstagram = url.contains("instagram.com", ignoreCase = true)
+        val hasValidInfoJson = infoJsonFile != null && infoJsonFile.exists() && infoJsonFile.length() > 0L &&
+            (System.currentTimeMillis() - infoJsonFile.lastModified() < 5 * 3600 * 1000L)
+
+        val request = if (hasValidInfoJson) {
+            YoutubeDLRequest(emptyList()).apply {
+                addOption("--load-info-json", infoJsonFile!!.absolutePath)
+            }
+        } else {
+            YoutubeDLRequest(url)
+        }.apply {
             addOption("-f", effectiveFormatSelector)
             addOption("-o", destinationFile.absolutePath)
             if (!isAudioOnly && isFfmpegAvailable) {
@@ -68,10 +79,16 @@ class YtDlpDownloader(
             addOption("--print", "after_move:filepath")
             addOption("--continue")
             addOption("--socket-timeout", "20")
-            addOption("--no-playlist")
+            if (!isInstagram) {
+                addOption("--no-playlist")
+            } else {
+                addOption("--yes-playlist")
+            }
             addOption("--no-warnings")
             addOption("--cache-dir", com.laterbox.app.media.data.adapters.ytdlp.YtDlpOptimizer.getCacheDir(appContext).absolutePath)
-            addOption("--extractor-args", "youtube:player_client=default")
+            if (!hasValidInfoJson) {
+                addOption("--extractor-args", "youtube:player_client=default")
+            }
         }
 
         try {

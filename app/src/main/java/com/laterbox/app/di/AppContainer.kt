@@ -59,7 +59,8 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         com.laterbox.app.media.data.inspection.MediaInspectionManager(
             appContext = context.applicationContext,
             inspectionDao = database.mediaInspectionDao(),
-            platformResolver = platformResolver
+            platformResolver = platformResolver,
+            warmServer = warmYtDlpServer
         )
     }
 

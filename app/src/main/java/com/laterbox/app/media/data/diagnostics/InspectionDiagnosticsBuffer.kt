@@ -27,6 +27,11 @@ data class InspectionDiagnosticEntry(
     val thumbnailCount: Int = 0,
     val warnings: List<String> = emptyList(),
     val isWarmProcess: Boolean = false,
+    val linkId: Long? = null,
+    val generation: Long? = null,
+    val processId: String? = null,
+    val rowsFound: Int? = null,
+    val shownReason: String? = null,
     val success: Boolean = true,
     val error: String? = null
 ) {
@@ -36,11 +41,19 @@ data class InspectionDiagnosticEntry(
         val engineStr = if (isWarmProcess) "Warm" else "Spawn"
         val statusStr = if (success) "SUCCESS" else "FAILED: $error"
         val warningsStr = if (warnings.isNotEmpty()) "\n  Warnings:\n" + warnings.joinToString("\n") { "    - $it" } else ""
+        val extraInfoList = listOfNotNull(
+            linkId?.let { "LinkId: $it" },
+            generation?.let { "Gen: $it" },
+            processId?.let { "PID: $it" },
+            rowsFound?.let { "RowsFound: $it" },
+            shownReason?.let { "Reason: $it" }
+        )
+        val extraInfoStr = if (extraInfoList.isNotEmpty()) "\n  Context: " + extraInfoList.joinToString(" | ") else ""
 
         return """
             [$timeStr] $statusStr
             URL: ${sanitizeUrl(url)}
-            Adapter: $adapterId | Stage: $stage | Engine: $engineStr | PlayerClient: ${playerClient ?: "default"}
+            Adapter: $adapterId | Stage: $stage | Engine: $engineStr | PlayerClient: ${playerClient ?: "default"}$extraInfoStr
             Timing (ms):
               Runtime Ready: ${runtimeReadyMs}ms
               Process Spawn to Output: ${processSpawnToOutputMs}ms

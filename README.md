@@ -43,11 +43,15 @@ Laterbox/
 │   ├── src/
 │   │   ├── main/
 │   │   │   ├── java/com/laterbox/app/
-│   │   │   │   ├── data/       # Room database, DAOs, repositories
+│   │   │   │   ├── data/       # Room database, DAOs, repositories, DataStore preferences
 │   │   │   │   ├── domain/     # Models, URL normalization, shared text parser
+│   │   │   │   ├── media/      # Media engine: extraction adapters, staged pipeline, downloads, storage
+│   │   │   │   │   ├── data/       # Adapters (yt-dlp, QuickJS, FxEmbed, oEmbed), DB, download workers
+│   │   │   │   │   ├── domain/     # Media models, platform resolver, extraction contracts
+│   │   │   │   │   └── ui/         # MediaSection, CandidateCard, DownloadTaskRow, LinkDetail
 │   │   │   │   ├── metadata/   # Jsoup extractor & offline worker
 │   │   │   │   ├── sharing/    # ShareReceiverActivity & intent handling
-│   │   │   │   └── ui/         # Compose screens, theme, components
+│   │   │   │   └── ui/         # Compose screens, theme tokens, components
 │   │   │   ├── res/            # Vector drawables, fonts, strings
 │   │   │   └── AndroidManifest.xml
 │   │   └── test/               # Unit, Room, and Robolectric test suites
@@ -66,8 +70,15 @@ Laterbox/
 Laterbox uses **GitHub Actions** for automated build and release verification:
 
 - **CI Pipeline**: On every push and pull request to `main`, workflows validate the Gradle wrapper, run Android Lint, execute the complete unit and Robolectric test suite, compile the debug APK, and upload the build artifact.
-- **Release Distribution**: Pushing a version tag (`v*`) triggers an automated build that signs the release APK via secure GitHub Actions Secrets and attaches `app-release.apk` directly to a GitHub Release.
+- **Release Distribution**: Pushing a version tag (`v*`) triggers an automated build that signs the release APK via secure GitHub Actions Secrets and attaches multi-ABI APKs (`Laterbox-ARM32.apk`, `Laterbox-ARM64.apk`, `Laterbox-Universal.apk`) directly to a GitHub Release.
 - Detailed pipeline specifications and secret configurations are documented in [docs/ci-cd-architecture.md](docs/ci-cd-architecture.md).
+
+---
+
+## Adaptive Layout Status & Roadmap
+
+- **Design System Standardisation**: Completed. All screens, dialogs, buttons, cards, and input fields strictly use Laterbox tokens (`LaterboxTheme.colors`, `spacing`, `typography`, `LaterboxShapeTokens`, and `LaterboxButton`/`LaterboxCard` components) without hardcoded colors or ad-hoc shapes.
+- **Adaptive Split-Pane & Large Screens**: Large-screen adaptations (such as media-first split-pane detail sheet, `WindowSizeClass` adaptations, and tablet/foldable navigation rail) remain active backlog items for subsequent milestones, maintaining a clean single-column responsive layout for handset form factors.
 
 ---
 
@@ -87,11 +98,14 @@ This is a public repository:
 - Release signing secrets are managed solely via GitHub Secrets.
 - Sample data and automated test fixtures use strictly synthetic, public domains (`example.com`, `wikipedia.org`) with zero private user information.
 
-### Media Library & yt-dlp Privacy Notes
+### Media Library, Privacy & Third-Party Services
 
-Laterbox includes an on-device Media Library for downloading media from saved links directly into local app storage:
-- **Zero Third-Party Relays**: All extractions and byte transfers occur strictly on-device between your device and the original media hosts. Links and files are never sent to external download services or intermediate proxy servers.
-- **yt-dlp Extractor Engine Updates**: To keep extractors functional when media platforms update their layouts, Laterbox periodically queries the official `yt-dlp` GitHub releases repository (checked at most once every 24 hours on app launch, or manually via Settings). This network request contacts GitHub solely to check for new binary updates—no user links, browsing history, or personal identifiers are ever transmitted.
+Laterbox includes an on-device Media Library for discovering and downloading media directly into local app storage:
+- **Zero Third-Party Relays**: All media downloads and byte transfers occur strictly on-device directly between your phone and the original content servers. Links, cookies, and downloaded files are never proxied or forwarded to intermediate servers.
+- **Local yt-dlp & QuickJS Engine**: The media extraction pipeline runs locally on your device using a bundled Python runtime with QuickJS for JavaScript player signature deciphering.
+- **Public X/Twitter Metadata (FxEmbed)**: For X (formerly Twitter) links only, Laterbox queries `api.fxtwitter.com` strictly to resolve public post metadata and media URLs when saved, without requiring accounts, API keys, or personal identifiers.
+- **yt-dlp Extractor Engine Updates**: To keep extractors functional when platforms update their web players, Laterbox periodically queries the official `yt-dlp` GitHub releases repository (checked at most once every 24 hours on app launch, or manually via Settings). This request contacts GitHub solely to check for binary releases—no user links, history, or identifiers are transmitted.
+- **Smart Reminders (Optional)**: If you configure a personal Google AI Studio API key in Settings, link text snippets are sent directly to Google AI Studio to extract scheduled dates. No data is logged or retained.
 
 ---
 

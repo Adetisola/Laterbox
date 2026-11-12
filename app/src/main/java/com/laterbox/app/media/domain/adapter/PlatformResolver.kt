@@ -17,7 +17,7 @@ class AdapterRegistry(
 }
 
 class PlatformResolver(
-    private val registry: AdapterRegistry,
+    val registry: AdapterRegistry,
     private val fallbackTimeoutMs: Long = 30_000L
 ) {
     suspend fun resolveAndInspect(url: String, processId: String? = null): InspectionResult = withContext(Dispatchers.IO) {

@@ -1382,6 +1382,21 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(spacing.xs))
 
+                    Text(
+                        text = "Third-Party Services & Privacy Notice",
+                        style = typography.uiMedium,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = "• On-Device Media Extraction: Media inspection and downloads run locally on your device via yt-dlp, QuickJS, and FFmpeg without intermediate proxy servers.\n" +
+                               "• Public X/Twitter Previews: api.fxtwitter.com (FxEmbed) is contacted strictly to resolve public X post metadata and media when saved, without accounts or tracking.\n" +
+                               "• Smart Reminders (Optional): If you configure your own Google AI Studio API key, link snippets are sent directly to Google AI Studio to extract reminder dates. No personal data is stored or tracked.",
+                        style = typography.bodySecondary,
+                        color = colors.textSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(spacing.xs))
+
                     LaterboxSecondaryButton(
                         text = if (isCheckingUpdate) "Checking for updates..." else "Check for updates",
                         enabled = !isCheckingUpdate,
@@ -1435,7 +1450,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(spacing.xs))
                         Text(
-                            text = "Libraries:\n• AndroidX Jetpack & Jetpack Compose (Apache 2.0)\n• Room SQLite Database (Apache 2.0)\n• Coil Image Loading (Apache 2.0)\n• Jsoup HTML Parser (MIT License)\n• Kotlin & Coroutines (Apache 2.0)",
+                            text = "Libraries & Media Engines:\n• yt-dlp (The Unlicense)\n• QuickJS (MIT License)\n• FFmpeg (LGPL / GPL)\n• AndroidX Jetpack & Jetpack Compose (Apache 2.0)\n• Room SQLite Database (Apache 2.0)\n• Coil Image Loading (Apache 2.0)\n• Jsoup HTML Parser (MIT License)\n• Kotlin & Coroutines (Apache 2.0)",
                             style = typography.bodySecondary,
                             color = colors.textSecondary
                         )
