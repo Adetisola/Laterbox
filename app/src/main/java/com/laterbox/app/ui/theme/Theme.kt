@@ -92,4 +92,10 @@ object LaterboxTheme {
 
     val spacing: LaterboxSpacing
         get() = LaterboxSpacing
+
+    val shapes: LaterboxShapeTokens
+        get() = LaterboxShapeTokens
+
+    val elevations: LaterboxElevationTokens
+        get() = LaterboxElevationTokens
 }

@@ -582,25 +582,25 @@ fun InboxScreen(
             // Floating Bottom-Right Action Button (+ Add Link) [UX15, UX17]
             Surface(
                 onClick = onAddLinkClick,
-                shape = LaterboxShapeTokens.Fab,
+                shape = LaterboxTheme.shapes.Fab,
                 color = colors.accentPrimary,
-                contentColor = Color.White,
-                shadowElevation = 6.dp,
+                contentColor = colors.onAccentPrimary,
+                shadowElevation = LaterboxTheme.elevations.floating,
                 modifier = Modifier
-                    .height(56.dp)
+                    .height(spacing.fabHeight)
                     .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
             ) {
                 Row(
                     modifier = Modifier
-                        .padding(horizontal = if (isFabExpanded) 18.dp else 16.dp),
+                        .padding(horizontal = if (isFabExpanded) spacing.lg else spacing.base),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
                     Icon(
                         painter = painterResource(id = LaterboxIcons.Plus),
                         contentDescription = "Add Link",
-                        modifier = Modifier.size(24.dp),
-                        tint = Color.White
+                        modifier = Modifier.size(spacing.iconLarge),
+                        tint = colors.onAccentPrimary
                     )
                     AnimatedVisibility(
                         visible = isFabExpanded,
@@ -608,13 +608,11 @@ fun InboxScreen(
                         exit = fadeOut() + shrinkHorizontally()
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(spacing.sm))
                             Text(
                                 text = "Add Link",
-                                style = typography.uiMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
-                                fontSize = 15.sp,
+                                style = typography.buttonLabel,
+                                color = colors.onAccentPrimary,
                                 maxLines = 1
                             )
                         }

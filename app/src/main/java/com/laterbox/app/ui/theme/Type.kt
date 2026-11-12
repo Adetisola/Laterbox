@@ -32,27 +32,34 @@ val JetBrainsMonoFamily = FontFamily(
 
 @Immutable
 data class LaterboxTypography(
+    // Newsreader (Serif Display / Editorial)
     val editorialDisplay: TextStyle,
     val editorialTitle: TextStyle,
     val wordmark: TextStyle,
-    val cardTitle: TextStyle,
-    val detailTitle: TextStyle,
-    val bodyPrimary: TextStyle,
-    val uiLabel: TextStyle,
-    val metadataMono: TextStyle,
-    val displayLarge: TextStyle = editorialDisplay,
-    val titleSmall: TextStyle = cardTitle,
     val sheetTitle: TextStyle = editorialTitle.copy(fontSize = 20.sp, lineHeight = 26.sp),
+    val displayLarge: TextStyle = editorialDisplay,
+
+    // Inter (Sans-serif UI & Content)
+    val detailTitle: TextStyle,
+    val titleLarge: TextStyle = detailTitle.copy(fontSize = 18.sp, lineHeight = 24.sp),
+    val cardTitle: TextStyle,
+    val titleSmall: TextStyle = cardTitle,
+    val bodyPrimary: TextStyle,
     val bodySecondary: TextStyle = bodyPrimary.copy(fontSize = 13.sp, lineHeight = 18.sp),
-    val fieldLabel: TextStyle = uiLabel.copy(fontSize = 12.sp, lineHeight = 16.sp),
-    val caption: TextStyle = metadataMono.copy(fontSize = 10.sp, lineHeight = 14.sp),
-    val buttonLabel: TextStyle = uiLabel.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+    val bodySmall: TextStyle = bodySecondary,
+    val uiLabel: TextStyle,
     val uiMedium: TextStyle = uiLabel,
+    val labelMedium: TextStyle = uiLabel.copy(fontSize = 13.sp, lineHeight = 18.sp),
+    val fieldLabel: TextStyle = uiLabel.copy(fontSize = 12.sp, lineHeight = 16.sp),
+    val buttonLabel: TextStyle = uiLabel.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+    val badgeLabel: TextStyle = uiLabel.copy(fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold),
+
+    // JetBrains Mono (Technical & Metadata)
+    val metadataMono: TextStyle,
     val metaText: TextStyle = metadataMono,
     val codeText: TextStyle = metadataMono,
-    val badgeText: TextStyle = metadataMono.copy(fontSize = 10.sp, lineHeight = 12.sp),
-    val bodySmall: TextStyle = bodySecondary,
-    val labelMedium: TextStyle = uiLabel.copy(fontSize = 13.sp)
+    val caption: TextStyle = metadataMono.copy(fontSize = 10.sp, lineHeight = 14.sp),
+    val badgeText: TextStyle = metadataMono.copy(fontSize = 10.sp, lineHeight = 12.sp)
 )
 
 val DefaultLaterboxTypography = LaterboxTypography(
@@ -127,20 +134,25 @@ fun LaterboxTypography.scaled(scaleFactor: Float): LaterboxTypography {
         editorialDisplay = editorialDisplay.scale(),
         editorialTitle = editorialTitle.scale(),
         wordmark = wordmark.scale(),
-        cardTitle = cardTitle.scale(),
-        detailTitle = detailTitle.scale(),
-        bodyPrimary = bodyPrimary.scale(),
-        uiLabel = uiLabel.scale(),
-        metadataMono = metadataMono.scale(),
-        displayLarge = displayLarge.scale(),
-        titleSmall = titleSmall.scale(),
         sheetTitle = sheetTitle.scale(),
+        displayLarge = displayLarge.scale(),
+        detailTitle = detailTitle.scale(),
+        titleLarge = titleLarge.scale(),
+        cardTitle = cardTitle.scale(),
+        titleSmall = titleSmall.scale(),
+        bodyPrimary = bodyPrimary.scale(),
         bodySecondary = bodySecondary.scale(),
-        fieldLabel = fieldLabel.scale(),
-        caption = caption.scale(),
-        buttonLabel = buttonLabel.scale(),
+        bodySmall = bodySmall.scale(),
+        uiLabel = uiLabel.scale(),
         uiMedium = uiMedium.scale(),
+        labelMedium = labelMedium.scale(),
+        fieldLabel = fieldLabel.scale(),
+        buttonLabel = buttonLabel.scale(),
+        badgeLabel = badgeLabel.scale(),
+        metadataMono = metadataMono.scale(),
         metaText = metaText.scale(),
-        codeText = codeText.scale()
+        codeText = codeText.scale(),
+        caption = caption.scale(),
+        badgeText = badgeText.scale()
     )
 }

@@ -137,20 +137,20 @@ fun SavedLinkCard(
                     if (!link.isRead) {
                         Box(
                             modifier = Modifier
-                                .size(6.dp)
+                                .size(LaterboxTheme.spacing.radiusSmall)
                                 .clip(CircleShape)
                                 .background(LaterboxTheme.colors.accentPrimary)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(LaterboxTheme.spacing.radiusSmall))
                     }
 
                     FaviconImage(
                         domain = link.domain,
                         faviconUrl = link.faviconUrl,
-                        size = 16.dp
+                        size = LaterboxTheme.spacing.iconSmall
                     )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(LaterboxTheme.spacing.sm))
 
                     Text(
                         text = link.domain,
@@ -161,12 +161,12 @@ fun SavedLinkCard(
                         modifier = Modifier.weight(1f, fill = false)
                     )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(LaterboxTheme.spacing.sm))
 
                     ContentTypeBadge(contentType = link.contentType)
 
                     if (isMediaReady) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(LaterboxTheme.spacing.radiusSmall))
                         MediaReadyBadge()
                     }
                 }
@@ -235,12 +235,12 @@ fun SavedLinkCard(
                             onError = { imageLoadFailed = true },
                             modifier = Modifier
                                 .size(72.dp)
-                                .clip(RoundedCornerShape(LaterboxTheme.spacing.thumbnailRadius))
+                                .clip(LaterboxTheme.shapes.Thumbnail)
                                 .background(LaterboxTheme.colors.surfaceSecondary)
                                 .border(
                                     width = LaterboxTheme.spacing.hairline,
                                     color = LaterboxTheme.colors.borderSubtle,
-                                    shape = RoundedCornerShape(LaterboxTheme.spacing.thumbnailRadius)
+                                    shape = LaterboxTheme.shapes.Thumbnail
                                 )
                         )
                     }
@@ -313,56 +313,52 @@ fun SavedLinkCard(
                     Text(
                         text = DateGrouper.formatRelativeTime(link.createdAt),
                         style = LaterboxTheme.typography.metadataMono,
-                        color = LaterboxTheme.colors.textTertiary,
-                        fontSize = 11.sp
+                        color = LaterboxTheme.colors.textTertiary
                     )
 
                     if (!link.collectionName.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(LaterboxTheme.spacing.xs))
                         Text(
                             text = "· #${link.collectionName}",
                             style = LaterboxTheme.typography.metadataMono,
                             color = LaterboxTheme.colors.accentPrimary,
-                            fontSize = 11.sp,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(LaterboxTheme.spacing.sm))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(LaterboxTheme.spacing.radiusSmall)
                 ) {
                     // Direct "View ↗" text button with 12dp backdrop
                     Box(
                         modifier = Modifier
-                            .height(34.dp)
-                            .clip(LaterboxShapeTokens.Button)
+                            .height(LaterboxTheme.spacing.chipHeight)
+                            .clip(LaterboxTheme.shapes.Button)
                             .background(LaterboxTheme.colors.surfaceSecondary.copy(alpha = 0.8f))
                             .border(
-                                BorderStroke(1.dp, LaterboxTheme.colors.borderSubtle.copy(alpha = 0.5f)),
-                                LaterboxShapeTokens.Button
+                                BorderStroke(LaterboxTheme.spacing.hairline, LaterboxTheme.colors.borderSubtle.copy(alpha = 0.5f)),
+                                LaterboxTheme.shapes.Button
                             )
                             .clickable(onClick = onQuickOpenClick)
-                            .padding(horizontal = 10.dp),
+                            .padding(horizontal = LaterboxTheme.spacing.md),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = "View",
-                                style = LaterboxTheme.typography.uiMedium,
-                                color = LaterboxTheme.colors.accentPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
+                                style = LaterboxTheme.typography.fieldLabel.copy(fontWeight = FontWeight.SemiBold),
+                                color = LaterboxTheme.colors.accentPrimary
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(LaterboxTheme.spacing.xs))
                             Icon(
                                 painter = painterResource(id = LaterboxIcons.ArrowUpRight),
                                 contentDescription = null,
-                                modifier = Modifier.size(13.dp),
+                                modifier = Modifier.size(LaterboxTheme.spacing.iconSmall),
                                 tint = LaterboxTheme.colors.accentPrimary
                             )
                         }

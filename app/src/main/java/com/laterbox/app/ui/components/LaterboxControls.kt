@@ -36,25 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.ui.theme.LaterboxTheme
 
-/**
- * Cohesive shape tokens across Laterbox:
- * - 12dp: Buttons, chips, icon backdrops, text fields
- * - 16dp: Link cards, collapsed FAB
- * - 20dp: Floating bottom navigation pill
- * - 24dp: Bottom sheets
- */
-object LaterboxShapeTokens {
-    val Button = RoundedCornerShape(12.dp)
-    val Chip = RoundedCornerShape(12.dp)
-    val IconButton = RoundedCornerShape(12.dp)
-    val InputField = RoundedCornerShape(12.dp)
-    val Card = RoundedCornerShape(16.dp)
-    val Fab = RoundedCornerShape(16.dp)
-    val PillNav = RoundedCornerShape(20.dp)
-    val Sheet = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
-    val Dialog = RoundedCornerShape(16.dp)
-    val Badge = RoundedCornerShape(6.dp)
-}
+typealias LaterboxShapeTokens = com.laterbox.app.ui.theme.LaterboxShapeTokens
+
 
 /**
  * Standardised icon button for Laterbox with an obvious, tactile backdrop,

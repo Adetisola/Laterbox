@@ -16,9 +16,11 @@ data class LaterboxColors(
     val borderSubtle: Color,
     val borderFocused: Color,
     val accentPrimary: Color,
+    val onAccentPrimary: Color = Color.White,
     val accentContainer: Color,
     val statusDanger: Color,
     val statusSuccess: Color = Color(0xFF2E7D32),
+    val statusWarning: Color = Color(0xFF8F5200),
     val scrim: Color = Color(0x77000000),
     val isDark: Boolean
 )
@@ -35,9 +37,11 @@ val LightLaterboxColors = LaterboxColors(
     borderSubtle = Color(0xFFE6E4DD),
     borderFocused = Color(0xFF191919),
     accentPrimary = Color(0xFFC85A32),
+    onAccentPrimary = Color(0xFFFFFFFF),
     accentContainer = Color(0xFFF9EBE5),
     statusDanger = Color(0xFFB8322A),
     statusSuccess = Color(0xFF2E7D32),
+    statusWarning = Color(0xFF8F5200),
     scrim = Color(0x66000000),
     isDark = false
 )
@@ -54,9 +58,11 @@ val DarkLaterboxColors = LaterboxColors(
     borderSubtle = Color(0xFF282826),
     borderFocused = Color(0xFFEDEDEA),
     accentPrimary = Color(0xFFE07048),
+    onAccentPrimary = Color(0xFFFFFFFF),
     accentContainer = Color(0xFF332019),
     statusDanger = Color(0xFFE55A50),
     statusSuccess = Color(0xFF4CAF50),
+    statusWarning = Color(0xFFF59E0B),
     scrim = Color(0x88000000),
     isDark = true
 )

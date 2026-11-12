@@ -11,6 +11,7 @@ import com.laterbox.app.ui.components.BottomBarDestination
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.LaterboxBottomBar
 import com.laterbox.app.ui.components.SavedLinkCard
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -48,6 +49,34 @@ class LaterboxThemeTest {
 
         val darkSecOnBg = contrastRatio(DarkLaterboxColors.textSecondary, DarkLaterboxColors.backgroundPrimary)
         assertTrue("Dark secondary text must exceed 4.5:1 (AA), got $darkSecOnBg", darkSecOnBg >= 4.5)
+        // Status colors contrast
+        val lightSuccessOnBg = contrastRatio(LightLaterboxColors.statusSuccess, LightLaterboxColors.backgroundPrimary)
+        assertTrue("Light success must exceed 4.5:1 (AA), got $lightSuccessOnBg", lightSuccessOnBg >= 4.5)
+
+        val lightDangerOnBg = contrastRatio(LightLaterboxColors.statusDanger, LightLaterboxColors.backgroundPrimary)
+        assertTrue("Light danger must exceed 4.5:1 (AA), got $lightDangerOnBg", lightDangerOnBg >= 4.5)
+
+        val lightWarningOnBg = contrastRatio(LightLaterboxColors.statusWarning, LightLaterboxColors.backgroundPrimary)
+        assertTrue("Light warning must exceed 4.5:1 (AA), got $lightWarningOnBg", lightWarningOnBg >= 4.5)
+
+        val darkSuccessOnBg = contrastRatio(DarkLaterboxColors.statusSuccess, DarkLaterboxColors.backgroundPrimary)
+        assertTrue("Dark success must exceed 4.5:1 (AA), got $darkSuccessOnBg", darkSuccessOnBg >= 4.5)
+
+        val darkDangerOnBg = contrastRatio(DarkLaterboxColors.statusDanger, DarkLaterboxColors.backgroundPrimary)
+        assertTrue("Dark danger must exceed 4.5:1 (AA), got $darkDangerOnBg", darkDangerOnBg >= 4.5)
+
+        val darkWarningOnBg = contrastRatio(DarkLaterboxColors.statusWarning, DarkLaterboxColors.backgroundPrimary)
+        assertTrue("Dark warning must exceed 4.5:1 (AA), got $darkWarningOnBg", darkWarningOnBg >= 4.5)
+    }
+
+    @Test
+    fun verifiesShapeAndElevationTokens() {
+        assertEquals(16.dp, LaterboxSpacing.cardRadius)
+        assertEquals(0.dp, LaterboxElevationTokens.flat)
+        assertEquals(1.dp, LaterboxElevationTokens.card)
+        assertEquals(6.dp, LaterboxElevationTokens.sheet)
+        assertEquals(6.dp, LaterboxElevationTokens.floating)
+        assertEquals(8.dp, LaterboxElevationTokens.dialog)
     }
 
     @Test
@@ -125,7 +154,15 @@ class LaterboxThemeTest {
         val original = DefaultLaterboxTypography
         val scaled = original.scaled(1.15f)
         assertTrue(scaled.cardTitle.fontSize.value > original.cardTitle.fontSize.value)
+        assertTrue(scaled.badgeText.fontSize.value > original.badgeText.fontSize.value)
+        assertTrue(scaled.bodySmall.fontSize.value > original.bodySmall.fontSize.value)
+        assertTrue(scaled.labelMedium.fontSize.value > original.labelMedium.fontSize.value)
+        assertTrue(scaled.titleLarge.fontSize.value > original.titleLarge.fontSize.value)
+        assertTrue(scaled.badgeLabel.fontSize.value > original.badgeLabel.fontSize.value)
+
         val small = original.scaled(0.85f)
         assertTrue(small.cardTitle.fontSize.value < original.cardTitle.fontSize.value)
+        assertTrue(small.badgeText.fontSize.value < original.badgeText.fontSize.value)
+        assertTrue(small.bodySmall.fontSize.value < original.bodySmall.fontSize.value)
     }
 }
