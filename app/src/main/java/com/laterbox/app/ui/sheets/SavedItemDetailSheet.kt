@@ -117,13 +117,15 @@ fun SavedItemDetailSheet(
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
+        shape = LaterboxTheme.shapes.Sheet,
         containerColor = colors.surfaceElevated,
         contentColor = colors.textPrimary,
+        tonalElevation = LaterboxTheme.elevations.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier
                     .padding(vertical = spacing.sm)
-                    .size(width = 36.dp, height = 4.dp)
+                    .size(width = spacing.dragHandleWidth, height = spacing.dragHandleHeight)
                     .clip(RoundedCornerShape(spacing.radiusFull))
                     .background(colors.borderSubtle)
             )

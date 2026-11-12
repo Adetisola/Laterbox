@@ -206,4 +206,22 @@ class LaterboxThemeTest {
         composeTestRule.onNodeWithText("Are you sure you want to proceed?").assertExists()
         composeTestRule.onNodeWithText("Proceed").assertExists()
     }
+
+    @Test
+    fun verifiesMotionAndHaptics() {
+        val normalTween = LaterboxMotion.tweenSpec<Float>(LaterboxMotion.durationMedium, reducedMotion = false)
+        val reducedTween = LaterboxMotion.tweenSpec<Float>(LaterboxMotion.durationMedium, reducedMotion = true)
+
+        assertEquals(LaterboxMotion.durationMedium, normalTween.durationMillis)
+        assertEquals(0, reducedTween.durationMillis)
+
+        composeTestRule.setContent {
+            val haptics = com.laterbox.app.ui.util.rememberLaterboxHaptics()
+            // Ensure no crashes on any Android environment
+            haptics.tick()
+            haptics.confirm()
+            haptics.warning()
+            haptics.dragHandle()
+        }
+    }
 }

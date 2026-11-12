@@ -49,6 +49,7 @@ import coil.request.ImageRequest
 import com.laterbox.app.data.preferences.InboxViewMode
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.theme.LaterboxTheme
+import com.laterbox.app.ui.util.rememberLaterboxHaptics
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -65,6 +66,7 @@ fun SavedLinkCard(
     isMediaReady: Boolean = false
 ) {
     val context = LocalContext.current
+    val haptics = rememberLaterboxHaptics()
     var showMenu by remember { mutableStateOf(false) }
 
     val imageUrl = link.previewImageUrl?.takeIf {
@@ -103,7 +105,10 @@ fun SavedLinkCard(
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = { showMenu = true }
+                onLongClick = {
+                    haptics.dragHandle()
+                    showMenu = true
+                }
             ),
         shape = shape,
         colors = CardDefaults.cardColors(

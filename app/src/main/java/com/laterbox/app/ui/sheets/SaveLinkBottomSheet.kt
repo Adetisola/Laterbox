@@ -40,8 +40,10 @@ fun SaveLinkBottomSheet(
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
+        shape = LaterboxTheme.shapes.Sheet,
         containerColor = colors.surfaceElevated,
         contentColor = colors.textPrimary,
+        tonalElevation = LaterboxTheme.elevations.sheet,
         dragHandle = {
             Box(
                 modifier = Modifier

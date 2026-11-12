@@ -72,6 +72,7 @@ import com.laterbox.app.ui.components.LaterboxPrimaryButton
 import com.laterbox.app.ui.components.LaterboxSecondaryButton
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
+import com.laterbox.app.ui.util.rememberLaterboxHaptics
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 
@@ -810,6 +811,7 @@ private fun CandidateCard(
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
+    val haptics = rememberLaterboxHaptics()
     val isDownloadable = candidate.status == CandidateStatus.AVAILABLE
 
     LaterboxCard(
@@ -880,7 +882,10 @@ private fun CandidateCard(
                 LaterboxPrimaryButton(
                     text = "Download",
                     leadingIcon = LaterboxIcons.Download,
-                    onClick = onDownload
+                    onClick = {
+                        haptics.confirm()
+                        onDownload()
+                    }
                 )
             } else {
                 LaterboxBadge(

@@ -10,6 +10,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.laterbox.app.ui.util.SaveFeedbackHelper
 import com.laterbox.app.ui.components.LaterboxShapeTokens
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
@@ -57,8 +60,11 @@ import com.laterbox.app.ui.sheets.SaveLinkBottomSheet
 import com.laterbox.app.ui.sheets.SaveLinkViewModel
 import com.laterbox.app.ui.sheets.SavedItemDetailSheet
 import com.laterbox.app.ui.sheets.SavedItemDetailViewModel
+import com.laterbox.app.ui.theme.LaterboxMotion
 import com.laterbox.app.ui.theme.LaterboxTheme
+import com.laterbox.app.ui.theme.rememberReducedMotion
 import com.laterbox.app.ui.util.BrowserLauncher
+import com.laterbox.app.ui.util.rememberLaterboxHaptics
 import com.laterbox.app.LaterboxApplication
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -74,6 +80,8 @@ fun LaterboxApp(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val colors = LaterboxTheme.colors
+    val haptics = rememberLaterboxHaptics()
+    val reducedMotion = rememberReducedMotion()
 
     // ViewModels
     val inboxViewModel: InboxViewModel = viewModel(factory = AppViewModelProvider.Factory)
@@ -147,6 +155,7 @@ fun LaterboxApp(
     }
 
     val handleOpenLink: (SavedLink) -> Unit = { link ->
+        haptics.tick()
         BrowserLauncher.openUrl(context, link.originalUrl, colors)
         inboxViewModel.onLinkOpened(link.id)
     }
@@ -181,9 +190,70 @@ fun LaterboxApp(
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding())
         ) {
+            val topLevelRoutes = remember {
+                setOf(
+                    LaterboxDestination.Inbox.route,
+                    LaterboxDestination.Collections.route,
+                    LaterboxDestination.Downloads.route,
+                    LaterboxDestination.Archive.route
+                )
+            }
+
             NavHost(
                 navController = navController,
-                startDestination = LaterboxDestination.Inbox.route
+                startDestination = LaterboxDestination.Inbox.route,
+                enterTransition = {
+                    if (reducedMotion) {
+                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                    } else {
+                        slideIntoContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedDecelerate),
+                            initialOffset = { fullWidth -> fullWidth / 6 }
+                        ) + fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                    }
+                },
+                exitTransition = {
+                    if (reducedMotion) {
+                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                    } else {
+                        slideOutOfContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.Start,
+                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedAccelerate),
+                            targetOffset = { fullWidth -> -fullWidth / 6 }
+                        ) + fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                    }
+                },
+                popEnterTransition = {
+                    if (reducedMotion) {
+                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                        fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                    } else {
+                        slideIntoContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.End,
+                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedDecelerate),
+                            initialOffset = { fullWidth -> -fullWidth / 6 }
+                        ) + fadeIn(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.decelerateEasing))
+                    }
+                },
+                popExitTransition = {
+                    if (reducedMotion) {
+                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(0, reducedMotion = true))
+                    } else if (initialState.destination.route in topLevelRoutes && targetState.destination.route in topLevelRoutes) {
+                        fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                    } else {
+                        slideOutOfContainer(
+                            towards = AnimatedContentTransitionScope.SlideDirection.End,
+                            animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationMedium, LaterboxMotion.emphasizedAccelerate),
+                            targetOffset = { fullWidth -> fullWidth / 6 }
+                        ) + fadeOut(animationSpec = LaterboxMotion.tweenSpec(LaterboxMotion.durationShort, LaterboxMotion.standardEasing))
+                    }
+                }
             ) {
                 // Inbox Screen
                 composable(LaterboxDestination.Inbox.route) {
@@ -439,6 +509,7 @@ fun LaterboxApp(
                 LaterboxBottomBar(
                     currentDestination = currentBottomDestination,
                     onDestinationSelected = { destination ->
+                        haptics.tick()
                         when (destination) {
                             BottomBarDestination.INBOX -> {
                                 navController.navigate(LaterboxDestination.Inbox.route) {
@@ -481,6 +552,7 @@ fun LaterboxApp(
             onCreateCollection = saveLinkViewModel::onCreateCollection,
             onReminderAtChange = saveLinkViewModel::onReminderAtChange,
             onSaveClick = {
+                haptics.confirm()
                 saveLinkViewModel.onSave { isUpdate ->
                     SaveFeedbackHelper.showSaveSuccess(context, isUpdate)
                     coroutineScope.launch {
@@ -510,6 +582,7 @@ fun LaterboxApp(
             onCreateCollection = savedItemDetailViewModel::onCreateAndAssignCollection,
             onSetReminder = savedItemDetailViewModel::onSetReminder,
             onSaveEdits = {
+                haptics.confirm()
                 savedItemDetailViewModel.onSaveEdits {
                     SaveFeedbackHelper.showSaveSuccess(context, isUpdate = true)
                     coroutineScope.launch {
@@ -518,8 +591,12 @@ fun LaterboxApp(
                     }
                 }
             },
-            onToggleRead = savedItemDetailViewModel::onToggleRead,
+            onToggleRead = {
+                haptics.tick()
+                savedItemDetailViewModel.onToggleRead()
+            },
             onToggleArchive = {
+                haptics.tick()
                 val item = selectedLinkForDetails
                 val wasArchived = item?.isArchived == true
                 val linkId = item?.id
@@ -541,6 +618,7 @@ fun LaterboxApp(
                 }
             },
             onDelete = {
+                haptics.warning()
                 savedItemDetailViewModel.deleteWithUndo(deleteFiles = false) { deletedLink ->
                     coroutineScope.launch {
                         detailSheetState.hide()
@@ -557,6 +635,7 @@ fun LaterboxApp(
                 }
             },
             onDeleteWithFiles = { deleteFiles ->
+                haptics.warning()
                 savedItemDetailViewModel.deleteWithUndo(deleteFiles = deleteFiles) { deletedLink ->
                     coroutineScope.launch {
                         detailSheetState.hide()
@@ -575,7 +654,10 @@ fun LaterboxApp(
             onInspectMedia = { savedItemDetailViewModel.inspectLink(forceRefresh = false) },
             onRetryInspection = { savedItemDetailViewModel.retryInspection() },
             onCancelInspection = savedItemDetailViewModel::cancelInspection,
-            onDownloadCandidate = savedItemDetailViewModel::downloadCandidate,
+            onDownloadCandidate = { candidate ->
+                haptics.confirm()
+                savedItemDetailViewModel.downloadCandidate(candidate)
+            },
             onOpenMediaAsset = { asset ->
                 when (asset.mediaType) {
                     com.laterbox.app.media.domain.model.MediaType.IMAGE -> activeViewerAsset = asset
