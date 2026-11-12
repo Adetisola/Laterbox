@@ -64,7 +64,11 @@ import com.laterbox.app.media.domain.model.MediaCandidate
 import com.laterbox.app.media.domain.model.MediaType
 import com.laterbox.app.media.domain.model.MusicMatchCandidate
 import com.laterbox.app.media.ui.downloads.formatBytes
+import com.laterbox.app.ui.components.LaterboxBadge
+import com.laterbox.app.ui.components.LaterboxBadgeVariant
+import com.laterbox.app.ui.components.LaterboxCard
 import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxPrimaryButton
 import com.laterbox.app.ui.components.LaterboxSecondaryButton
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -804,104 +808,85 @@ private fun CandidateCard(
     onDownload: () -> Unit
 ) {
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
     val isDownloadable = candidate.status == CandidateStatus.AVAILABLE
 
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = LaterboxShapeTokens.Card,
-        color = colors.surfacePrimary,
-        tonalElevation = 1.dp
+    LaterboxCard(
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = candidate.formatLabel,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = typography.bodyPrimary.copy(fontWeight = FontWeight.SemiBold),
                         color = colors.textPrimary,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     if (candidate.isThumbnail) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Surface(
-                            shape = LaterboxShapeTokens.PillNav,
-                            color = colors.surfaceSecondary
-                        ) {
-                            Text(
-                                text = "Thumbnail",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = colors.textSecondary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(spacing.xs))
+                        LaterboxBadge(
+                            text = "Thumbnail",
+                            variant = LaterboxBadgeVariant.NEUTRAL
+                        )
                     }
                 }
 
                 if (candidate.isOgFallback) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(spacing.xxs))
                     Text(
                         text = "Original media could not be extracted from this platform. Save preview image instead.",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                 }
 
                 if (candidate.audioTrackMissing) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(spacing.xxs))
                     Text(
                         text = "Source video contains no audio track",
-                        style = MaterialTheme.typography.labelSmall,
+                        style = typography.caption,
                         color = colors.textSecondary
                     )
                 }
 
                 if (!isDownloadable && !candidate.statusReason.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(spacing.xxs))
                     Text(
                         text = candidate.statusReason,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
+                        style = typography.bodySmall,
+                        color = colors.statusDanger
                     )
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(spacing.xxs))
                 val sizeText = candidate.estimatedBytes?.let { formatBytes(it) } ?: "Size unknown"
                 val dimText = if (candidate.width != null && candidate.height != null) " · ${candidate.width}×${candidate.height}" else ""
                 val fpsText = if (candidate.fps != null && candidate.fps > 0) " · ${candidate.fps.toInt()}fps" else ""
                 Text(
                     text = "${candidate.mediaType.name} · $sizeText$dimText$fpsText",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = typography.caption,
                     color = colors.textSecondary
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(spacing.sm))
 
             if (isDownloadable) {
-                Button(
-                    onClick = onDownload,
-                    shape = LaterboxShapeTokens.PillNav,
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.accentPrimary)
-                ) {
-                    Icon(
-                        painter = painterResource(LaterboxIcons.Download),
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Download")
-                }
+                LaterboxPrimaryButton(
+                    text = "Download",
+                    leadingIcon = LaterboxIcons.Download,
+                    onClick = onDownload
+                )
             } else {
-                OutlinedButton(
-                    onClick = {},
-                    enabled = false,
-                    shape = LaterboxShapeTokens.PillNav
-                ) {
-                    Text(candidate.status.name.lowercase().replaceFirstChar { it.uppercase() })
-                }
+                LaterboxBadge(
+                    text = candidate.status.name.lowercase().replaceFirstChar { it.uppercase() },
+                    variant = LaterboxBadgeVariant.NEUTRAL
+                )
             }
         }
     }

@@ -18,14 +18,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +44,8 @@ import com.laterbox.app.domain.model.Collection
 import com.laterbox.app.domain.model.CollectionWithCount
 import com.laterbox.app.ui.components.CollectionsSkeletonGrid
 import com.laterbox.app.ui.components.EmptyStateView
+import com.laterbox.app.ui.components.LaterboxCard
+import com.laterbox.app.ui.components.LaterboxConfirmDialog
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
@@ -194,41 +194,13 @@ fun CollectionsScreen(
 
         // Delete Collection Dialog
         uiState.collectionToDelete?.let { collection ->
-            AlertDialog(
-                onDismissRequest = onCloseDeleteDialog,
-                containerColor = colors.surfaceElevated,
-                title = {
-                    Text(
-                        text = "Delete Collection?",
-                        style = typography.titleSmall,
-                        color = colors.textPrimary
-                    )
-                },
-                text = {
-                    Text(
-                        text = "\"${collection.name}\" will be removed. Saved links in this collection will not be deleted; they will simply become uncategorised in your Inbox.",
-                        style = typography.bodySecondary,
-                        color = colors.textSecondary
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = { onDeleteCollection(collection.id) }) {
-                        Text(
-                            text = "Delete",
-                            style = typography.uiMedium,
-                            color = colors.accentPrimary
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = onCloseDeleteDialog) {
-                        Text(
-                            text = "Cancel",
-                            style = typography.uiMedium,
-                            color = colors.textSecondary
-                        )
-                    }
-                }
+            LaterboxConfirmDialog(
+                title = "Delete Collection?",
+                message = "\"${collection.name}\" will be removed. Saved links in this collection will not be deleted; they will simply become uncategorised in your Inbox.",
+                confirmText = "Delete",
+                onConfirm = { onDeleteCollection(collection.id) },
+                onDismiss = onCloseDeleteDialog,
+                isDestructive = true
             )
         }
     }
@@ -246,18 +218,17 @@ private fun CollectionCard(
     val spacing = LaterboxTheme.spacing
     var showMenu by remember { mutableStateOf(false) }
 
-    Box(
+    LaterboxCard(
+        onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .height(130.dp)
-            .clip(LaterboxShapeTokens.Card)
-            .background(colors.surfacePrimary)
-            .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.Card)
-            .clickable(onClick = onClick)
-            .padding(spacing.md)
+            .padding(0.dp)
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(spacing.md),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
@@ -335,22 +306,21 @@ private fun CollectionInputDialog(
     val typography = LaterboxTheme.typography
     var name by remember { mutableStateOf(initialValue) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = colors.surfaceElevated,
-        title = {
-            Text(
-                text = title,
-                style = typography.titleSmall,
-                color = colors.textPrimary
-            )
+    LaterboxConfirmDialog(
+        title = title,
+        message = "Enter a name for this collection.",
+        confirmText = confirmText,
+        onConfirm = {
+            if (name.isNotBlank()) onConfirm(name.trim())
         },
-        text = {
+        onDismiss = onDismiss,
+        content = {
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Collection name") },
                 singleLine = true,
+                shape = LaterboxTheme.shapes.InputField,
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = colors.accentPrimary,
                     unfocusedBorderColor = colors.borderSubtle,
@@ -359,29 +329,6 @@ private fun CollectionInputDialog(
                 ),
                 modifier = Modifier.fillMaxWidth()
             )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (name.isNotBlank()) onConfirm(name.trim())
-                },
-                enabled = name.isNotBlank()
-            ) {
-                Text(
-                    text = confirmText,
-                    style = typography.uiMedium,
-                    color = if (name.isNotBlank()) colors.accentPrimary else colors.textSecondary.copy(alpha = 0.5f)
-                )
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(
-                    text = "Cancel",
-                    style = typography.uiMedium,
-                    color = colors.textSecondary
-                )
-            }
         }
     )
 }

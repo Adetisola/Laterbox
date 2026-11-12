@@ -125,14 +125,16 @@ fun LaterboxPrimaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     isLoading: Boolean = false,
-    @DrawableRes leadingIcon: Int? = null
+    @DrawableRes leadingIcon: Int? = null,
+    isDestructive: Boolean = false
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
 
-    val containerColor = if (enabled && !isLoading) colors.accentPrimary else colors.accentPrimary.copy(alpha = 0.45f)
-    val contentColor = colors.surfaceElevated
+    val primaryColor = if (isDestructive) colors.statusDanger else colors.accentPrimary
+    val containerColor = if (enabled && !isLoading) primaryColor else primaryColor.copy(alpha = 0.45f)
+    val contentColor = colors.onAccentPrimary
 
     Box(
         modifier = modifier

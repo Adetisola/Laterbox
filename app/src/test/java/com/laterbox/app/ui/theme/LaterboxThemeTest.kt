@@ -165,4 +165,45 @@ class LaterboxThemeTest {
         assertTrue(small.badgeText.fontSize.value < original.badgeText.fontSize.value)
         assertTrue(small.bodySmall.fontSize.value < original.bodySmall.fontSize.value)
     }
+
+    @Test
+    fun rendersLaterboxComponentsCorrectly() {
+        var clicked = false
+        var confirmed = false
+
+        composeTestRule.setContent {
+            LaterboxTheme {
+                com.laterbox.app.ui.components.LaterboxCard(
+                    onClick = { clicked = true }
+                ) {
+                    Text("Card Content Inside")
+                }
+
+                com.laterbox.app.ui.components.LaterboxBadge(
+                    text = "High Quality 1080p",
+                    variant = com.laterbox.app.ui.components.LaterboxBadgeVariant.SUCCESS
+                )
+
+                com.laterbox.app.ui.components.LaterboxSearchField(
+                    query = "android",
+                    onQueryChange = {},
+                    placeholder = "Search saved links..."
+                )
+
+                com.laterbox.app.ui.components.LaterboxConfirmDialog(
+                    title = "Confirm Action",
+                    message = "Are you sure you want to proceed?",
+                    confirmText = "Proceed",
+                    onConfirm = { confirmed = true },
+                    onDismiss = {}
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Card Content Inside").assertExists()
+        composeTestRule.onNodeWithText("High Quality 1080p").assertExists()
+        composeTestRule.onNodeWithText("Confirm Action").assertExists()
+        composeTestRule.onNodeWithText("Are you sure you want to proceed?").assertExists()
+        composeTestRule.onNodeWithText("Proceed").assertExists()
+    }
 }

@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -50,8 +49,10 @@ import com.laterbox.app.ui.components.DateGroupHeader
 import com.laterbox.app.ui.components.DateGrouper
 import com.laterbox.app.ui.components.EmptyStateView
 import com.laterbox.app.ui.components.InboxSkeletonList
+import com.laterbox.app.ui.components.LaterboxConfirmDialog
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
+import com.laterbox.app.ui.components.LaterboxSearchField
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.components.SavedLinkCard
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -106,71 +107,13 @@ fun ArchiveScreen(
             }
 
             // Search Bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = spacing.base, vertical = spacing.xs)
-                    .height(44.dp)
-                    .clip(LaterboxShapeTokens.InputField)
-                    .background(colors.surfacePrimary)
-                    .border(spacing.hairline, colors.borderSubtle, LaterboxShapeTokens.InputField)
-                    .padding(horizontal = spacing.md),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(id = LaterboxIcons.Search),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = colors.textSecondary
-                    )
-                    Spacer(modifier = Modifier.width(spacing.sm))
-
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (uiState.searchQuery.isEmpty()) {
-                            Text(
-                                text = "Search archived links...",
-                                style = typography.bodySecondary,
-                                color = colors.textSecondary.copy(alpha = 0.7f)
-                            )
-                        }
-                        BasicTextField(
-                            value = uiState.searchQuery,
-                            onValueChange = onSearchQueryChange,
-                            singleLine = true,
-                            textStyle = typography.bodyPrimary.copy(color = colors.textPrimary),
-                            cursorBrush = SolidColor(colors.accentPrimary),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-
-                    if (uiState.searchQuery.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(LaterboxShapeTokens.IconButton)
-                                .clickable(
-                                    role = Role.Button,
-                                    onClickLabel = "Clear search",
-                                    onClick = onClearSearch
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(id = LaterboxIcons.Close),
-                                contentDescription = "Clear search",
-                                modifier = Modifier.size(16.dp),
-                                tint = colors.textSecondary
-                            )
-                        }
-                    }
-                }
-            }
+            LaterboxSearchField(
+                query = uiState.searchQuery,
+                onQueryChange = onSearchQueryChange,
+                placeholder = "Search archived links...",
+                onClear = onClearSearch,
+                modifier = Modifier.padding(horizontal = spacing.base, vertical = spacing.xs)
+            )
 
             Spacer(modifier = Modifier.height(spacing.xs))
 
@@ -341,41 +284,13 @@ fun ArchiveScreen(
 
         // Delete Confirmation Dialog
         uiState.linkToDelete?.let { link ->
-            AlertDialog(
-                onDismissRequest = onCloseDeleteDialog,
-                containerColor = colors.surfaceElevated,
-                title = {
-                    Text(
-                        text = "Delete Link Permanently?",
-                        style = typography.detailTitle,
-                        color = colors.textPrimary
-                    )
-                },
-                text = {
-                    Text(
-                        text = "This will permanently remove \"${link.title.ifBlank { link.domain }}\" and its metadata. This action cannot be undone.",
-                        style = typography.bodyPrimary,
-                        color = colors.textSecondary
-                    )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = { onPermanentDelete(link.id) }
-                    ) {
-                        Text(
-                            text = "Delete permanently",
-                            color = colors.accentPrimary
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = onCloseDeleteDialog) {
-                        Text(
-                            text = "Cancel",
-                            color = colors.textSecondary
-                        )
-                    }
-                }
+            LaterboxConfirmDialog(
+                title = "Delete Link Permanently?",
+                message = "This will permanently remove \"${link.title.ifBlank { link.domain }}\" and its metadata. This action cannot be undone.",
+                confirmText = "Delete permanently",
+                onConfirm = { onPermanentDelete(link.id) },
+                onDismiss = onCloseDeleteDialog,
+                isDestructive = true
             )
         }
     }

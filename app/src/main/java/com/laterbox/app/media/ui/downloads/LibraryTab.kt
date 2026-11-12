@@ -41,6 +41,10 @@ import coil.compose.AsyncImage
 import com.laterbox.app.media.domain.model.AssetFileStatus
 import com.laterbox.app.media.domain.model.MediaAsset
 import com.laterbox.app.media.domain.model.MediaType
+import com.laterbox.app.ui.components.LaterboxBadge
+import com.laterbox.app.ui.components.LaterboxBadgeVariant
+import com.laterbox.app.ui.components.LaterboxCard
+import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
 import com.laterbox.app.ui.theme.LaterboxTheme
@@ -161,27 +165,26 @@ fun LibraryAssetCard(
 ) {
     val context = LocalContext.current
     val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val spacing = LaterboxTheme.spacing
     val file = File(context.filesDir, "media/${asset.localPath}")
 
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
-        shape = LaterboxShapeTokens.Card,
-        colors = CardDefaults.cardColors(containerColor = colors.surfacePrimary),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    LaterboxCard(
+        onClick = onOpen,
+        elevation = LaterboxTheme.elevations.card,
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(spacing.md),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Thumbnail or Media Type Icon
             Box(
                 modifier = Modifier
                     .size(56.dp)
-                    .clip(LaterboxShapeTokens.Card)
+                    .clip(LaterboxTheme.shapes.Thumbnail)
                     .background(colors.surfaceSecondary),
                 contentAlignment = Alignment.Center
             ) {
@@ -218,12 +221,12 @@ fun LibraryAssetCard(
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(spacing.md))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = asset.title ?: file.name,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                    style = typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                     color = colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -232,13 +235,13 @@ fun LibraryAssetCard(
                     Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = "${asset.artist}${if (!asset.album.isNullOrBlank()) " • ${asset.album}" else ""}",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.accentPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(spacing.xxs))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val metaLine = buildString {
                         append("${asset.mediaType.name} · ${formatBytes(asset.fileSize)}")
@@ -248,37 +251,34 @@ fun LibraryAssetCard(
                     }
                     Text(
                         text = metaLine,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = typography.bodySmall,
                         color = colors.textSecondary
                     )
                     if (asset.fileStatus == AssetFileStatus.MISSING) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
+                        Spacer(modifier = Modifier.width(spacing.xs))
+                        LaterboxBadge(
                             text = "Missing",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error
+                            variant = LaterboxBadgeVariant.DANGER
                         )
                     }
                 }
             }
 
-            IconButton(onClick = onExport) {
-                Icon(
-                    painter = painterResource(LaterboxIcons.Download),
-                    contentDescription = "Export to shared storage",
-                    tint = colors.textSecondary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            LaterboxIconButton(
+                iconRes = LaterboxIcons.Download,
+                contentDescription = "Export to shared storage",
+                onClick = onExport,
+                modifier = Modifier.size(36.dp)
+            )
 
-            IconButton(onClick = onDelete) {
-                Icon(
-                    painter = painterResource(LaterboxIcons.Delete),
-                    contentDescription = "Delete",
-                    tint = colors.textSecondary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
+            Spacer(modifier = Modifier.width(spacing.xxs))
+
+            LaterboxIconButton(
+                iconRes = LaterboxIcons.Delete,
+                contentDescription = "Delete",
+                onClick = onDelete,
+                modifier = Modifier.size(36.dp)
+            )
         }
     }
 }
@@ -293,13 +293,10 @@ fun ReadyToDownloadCard(
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
 
-    Card(
-        modifier = modifier
-            .width(220.dp)
-            .clickable(onClick = onClick),
-        shape = LaterboxShapeTokens.Card,
-        colors = CardDefaults.cardColors(containerColor = colors.surfacePrimary),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    LaterboxCard(
+        onClick = onClick,
+        elevation = LaterboxTheme.elevations.card,
+        modifier = modifier.width(220.dp)
     ) {
         Column(
             modifier = Modifier
@@ -310,7 +307,7 @@ fun ReadyToDownloadCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(96.dp)
-                    .clip(LaterboxShapeTokens.Card)
+                    .clip(LaterboxTheme.shapes.Thumbnail)
                     .background(colors.surfaceSecondary),
                 contentAlignment = Alignment.Center
             ) {
@@ -340,16 +337,12 @@ fun ReadyToDownloadCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .clip(LaterboxShapeTokens.Badge)
-                        .background(colors.surfacePrimary.copy(alpha = 0.92f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(spacing.xs)
                 ) {
-                    Text(
+                    LaterboxBadge(
                         text = "${item.candidateCount} ${if (item.candidateCount == 1) "format" else "formats"}",
-                        style = typography.badgeText,
-                        color = colors.accentPrimary,
-                        fontWeight = FontWeight.SemiBold
+                        variant = LaterboxBadgeVariant.ACCENT,
+                        isMonospace = true
                     )
                 }
             }
@@ -364,7 +357,7 @@ fun ReadyToDownloadCard(
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(spacing.xxs))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(

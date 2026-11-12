@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,7 +37,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +61,7 @@ import com.laterbox.app.domain.model.MetadataStatus
 import com.laterbox.app.ui.components.ContentTypeBadge
 import com.laterbox.app.ui.components.CustomReminderPickerDialog
 import com.laterbox.app.ui.components.FaviconImage
+import com.laterbox.app.ui.components.LaterboxConfirmDialog
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxShapeTokens
@@ -662,22 +661,25 @@ fun SavedItemDetailSheet(
         // New Collection inline creation dialog
         if (showCreateCollectionDialog) {
             var newCollectionName by remember { mutableStateOf("") }
-            AlertDialog(
-                onDismissRequest = { showCreateCollectionDialog = false },
-                containerColor = colors.surfaceElevated,
-                title = {
-                    Text(
-                        text = "New Collection",
-                        style = typography.titleSmall,
-                        color = colors.textPrimary
-                    )
+            LaterboxConfirmDialog(
+                title = "New Collection",
+                message = "Enter a name for this collection.",
+                confirmText = "Create",
+                onConfirm = {
+                    val name = newCollectionName.trim()
+                    if (name.isNotBlank()) {
+                        onCreateCollection(name)
+                        showCreateCollectionDialog = false
+                    }
                 },
-                text = {
+                onDismiss = { showCreateCollectionDialog = false },
+                content = {
                     OutlinedTextField(
                         value = newCollectionName,
                         onValueChange = { newCollectionName = it.take(50) },
                         label = { Text("Collection name") },
                         singleLine = true,
+                        shape = LaterboxTheme.shapes.InputField,
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedBorderColor = colors.accentPrimary,
                             unfocusedBorderColor = colors.borderSubtle,
@@ -686,33 +688,6 @@ fun SavedItemDetailSheet(
                         ),
                         modifier = Modifier.fillMaxWidth()
                     )
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            val name = newCollectionName.trim()
-                            if (name.isNotBlank()) {
-                                onCreateCollection(name)
-                                showCreateCollectionDialog = false
-                            }
-                        },
-                        enabled = newCollectionName.isNotBlank()
-                    ) {
-                        Text(
-                            text = "Create",
-                            style = typography.uiMedium,
-                            color = colors.accentPrimary
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showCreateCollectionDialog = false }) {
-                        Text(
-                            text = "Cancel",
-                            style = typography.uiMedium,
-                            color = colors.textSecondary
-                        )
-                    }
                 }
             )
         }
@@ -720,96 +695,33 @@ fun SavedItemDetailSheet(
         // Delete confirmation dialog
         if (showDeleteConfirm) {
             if (uiState.assets.isNotEmpty()) {
-                AlertDialog(
-                    onDismissRequest = { showDeleteConfirm = false },
-                    containerColor = colors.surfaceElevated,
-                    title = {
-                        Text(
-                            text = "Delete Link",
-                            style = typography.titleSmall,
-                            color = colors.textPrimary
-                        )
+                LaterboxConfirmDialog(
+                    title = "Delete Link",
+                    message = "\"${link.title}\" has ${uiState.assets.size} downloaded file(s). Do you want to keep them in your Downloads library or delete them?",
+                    confirmText = "Delete Link & Files",
+                    onConfirm = {
+                        showDeleteConfirm = false
+                        onDeleteWithFiles(true)
                     },
-                    text = {
-                        Text(
-                            text = "\"${link.title}\" has ${uiState.assets.size} downloaded file(s). Do you want to keep them in your Downloads library or delete them?",
-                            style = typography.bodySecondary,
-                            color = colors.textSecondary
-                        )
+                    onDismiss = { showDeleteConfirm = false },
+                    neutralText = "Keep Files",
+                    onNeutral = {
+                        showDeleteConfirm = false
+                        onDeleteWithFiles(false)
                     },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            showDeleteConfirm = false
-                            onDeleteWithFiles(true)
-                        }) {
-                            Text(
-                                text = "Delete Link & Files",
-                                style = typography.uiMedium,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    },
-                    dismissButton = {
-                        Row {
-                            TextButton(onClick = { showDeleteConfirm = false }) {
-                                Text(
-                                    text = "Cancel",
-                                    style = typography.uiMedium,
-                                    color = colors.textSecondary
-                                )
-                            }
-                            TextButton(onClick = {
-                                showDeleteConfirm = false
-                                onDeleteWithFiles(false)
-                            }) {
-                                Text(
-                                    text = "Keep Files",
-                                    style = typography.uiMedium,
-                                    color = colors.accentPrimary
-                                )
-                            }
-                        }
-                    }
+                    isDestructive = true
                 )
             } else {
-                AlertDialog(
-                    onDismissRequest = { showDeleteConfirm = false },
-                    containerColor = colors.surfaceElevated,
-                    title = {
-                        Text(
-                            text = "Delete Link?",
-                            style = typography.titleSmall,
-                            color = colors.textPrimary
-                        )
+                LaterboxConfirmDialog(
+                    title = "Delete Link?",
+                    message = "\"${link.title}\" will be permanently deleted.",
+                    confirmText = "Delete",
+                    onConfirm = {
+                        showDeleteConfirm = false
+                        onDelete()
                     },
-                    text = {
-                        Text(
-                            text = "\"${link.title}\" will be permanently deleted.",
-                            style = typography.bodySecondary,
-                            color = colors.textSecondary
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            showDeleteConfirm = false
-                            onDelete()
-                        }) {
-                            Text(
-                                text = "Delete",
-                                style = typography.uiMedium,
-                                color = colors.accentPrimary
-                            )
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showDeleteConfirm = false }) {
-                            Text(
-                                text = "Cancel",
-                                style = typography.uiMedium,
-                                color = colors.textSecondary
-                            )
-                        }
-                    }
+                    onDismiss = { showDeleteConfirm = false },
+                    isDestructive = true
                 )
             }
         }
