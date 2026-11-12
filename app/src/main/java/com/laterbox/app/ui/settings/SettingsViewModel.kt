@@ -291,7 +291,7 @@ class SettingsViewModel(
                         com.laterbox.app.update.ApkInstallerHelper.cleanupOldUpdateApks(ctx, currentVersion)
                     } catch (_: Exception) {}
                 }
-                when (val result = com.laterbox.app.update.GitHubUpdateChecker.checkForUpdate(currentVersion)) {
+                when (val result = com.laterbox.app.update.GitHubUpdateChecker.checkForUpdate(currentVersion, context = appContext)) {
                     is com.laterbox.app.update.UpdateCheckResult.UpdateAvailable -> {
                         _updateCheckResult.value = result.updateInfo
                     }

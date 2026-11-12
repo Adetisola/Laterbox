@@ -1,6 +1,8 @@
 package com.laterbox.app.update
 
+import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.annotation.Keep
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -106,10 +108,34 @@ object GitHubUpdateChecker {
         }
     }
 
+    private fun fetchDeltaManifest(manifestAsset: ReleaseAsset): DeltaManifest? {
+        var conn: HttpURLConnection? = null
+        return try {
+            val url = URL(manifestAsset.downloadUrl)
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                setRequestProperty("User-Agent", "Laterbox-App")
+            }
+            if (conn.responseCode in 200..299) {
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
+                DeltaManifest.fromJson(text)
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
     suspend fun checkForUpdate(
         currentVersionName: String,
         releasesUrl: String = LATEST_RELEASE_URL,
-        deviceSupportedAbis: Array<String> = Build.SUPPORTED_ABIS ?: emptyArray()
+        deviceSupportedAbis: Array<String> = Build.SUPPORTED_ABIS ?: emptyArray(),
+        context: Context? = null
     ): UpdateCheckResult = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
@@ -179,6 +205,32 @@ object GitHubUpdateChecker {
                 return@withContext UpdateCheckResult.NoCompatibleApk(cleanVersion, deviceSupportedAbis.toList())
             }
 
+            // Inspect delta-manifest.json if context is available to detect compatible binary patch
+            var deltaPatchInfo: DeltaPatchInfo? = null
+            if (context != null) {
+                val manifestAsset = parsedAssets.firstOrNull { it.name.equals(DeltaManifest.MANIFEST_FILENAME, ignoreCase = true) }
+                if (manifestAsset != null) {
+                    try {
+                        val manifest = fetchDeltaManifest(manifestAsset)
+                        if (manifest != null) {
+                            val installedSha = InstalledApkHelper.getInstalledApkSha256(context)
+                            if (!installedSha.isNullOrBlank()) {
+                                val compatiblePatch = manifest.findCompatiblePatch(installedSha, deviceSupportedAbis)
+                                if (compatiblePatch != null) {
+                                    val patchAsset = parsedAssets.firstOrNull { it.name.equals(compatiblePatch.patchFilename, ignoreCase = true) }
+                                    if (patchAsset != null && patchAsset.downloadUrl.isNotBlank()) {
+                                        deltaPatchInfo = compatiblePatch.copy(downloadUrl = patchAsset.downloadUrl)
+                                        Log.i("GitHubUpdateChecker", "Compatible delta patch selected: ${compatiblePatch.patchFilename} (${compatiblePatch.patchSize} bytes)")
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w("GitHubUpdateChecker", "Delta patch resolution encountered an error, falling back to full APK: ${e.message}")
+                    }
+                }
+            }
+
             val apkDownloadUrl = selected.asset.downloadUrl.ifBlank { releasePageUrl }
             val info = AppUpdateInfo(
                 versionName = cleanVersion,
@@ -189,7 +241,8 @@ object GitHubUpdateChecker {
                 apkSize = selected.asset.size,
                 isNewer = true,
                 targetAbiLabel = selected.targetAbiLabel,
-                assetName = selected.asset.name
+                assetName = selected.asset.name,
+                deltaPatch = deltaPatchInfo
             )
 
             UpdateCheckResult.UpdateAvailable(info)

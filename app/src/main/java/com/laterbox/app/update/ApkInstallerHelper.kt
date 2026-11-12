@@ -65,29 +65,12 @@ object ApkInstallerHelper {
         }
     }
 
-    /**
-     * Resiliently downloads the APK with HTTP Range header support to resume partial downloads.
-     * Retries automatically on transient network drops instead of discarding downloaded data.
-     */
-    suspend fun downloadApk(
-        context: Context,
+    private suspend fun downloadFileInternal(
+        outputFile: File,
         downloadUrl: String,
-        versionName: String,
-        assetName: String = "",
+        expectedTotalBytes: Long = -1L,
         onProgress: (DownloadProgress) -> Unit
     ): File? = withContext(Dispatchers.IO) {
-        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
-        val fileName = getApkFileName(versionName, assetName)
-        val outputFile = File(updatesDir, fileName)
-
-        // 1. If the file is already fully downloaded and verified, return immediately
-        if (outputFile.exists() && outputFile.length() > 0 && verifyApk(context, outputFile)) {
-            withContext(Dispatchers.Main) {
-                onProgress(DownloadProgress.Completed(outputFile))
-            }
-            return@withContext outputFile
-        }
-
         var existingBytes = if (outputFile.exists()) outputFile.length() else 0L
         var attempt = 0
         val maxAttempts = 3
@@ -135,27 +118,20 @@ object ApkInstallerHelper {
                         // 206 Partial Content: Server supports resuming
                         val remaining = connection.contentLengthLong.takeIf { it > 0 }
                             ?: connection.getHeaderField("Content-Length")?.toLongOrNull() ?: -1L
-                        val total = if (remaining > 0) existingBytes + remaining else -1L
+                        val total = if (remaining > 0) existingBytes + remaining else expectedTotalBytes
                         Pair(true, total)
                     }
                     HttpURLConnection.HTTP_OK -> {
                         // 200 OK: Full file being sent (or starting from offset 0)
                         existingBytes = 0L
-                        Pair(false, connection.contentLengthLong)
+                        val len = connection.contentLengthLong.takeIf { it > 0 } ?: expectedTotalBytes
+                        Pair(false, len)
                     }
                     416 -> {
-                        // Requested Range Not Satisfiable: File might already be complete
-                        if (outputFile.exists() && outputFile.length() > 0 && verifyApk(context, outputFile)) {
-                            withContext(Dispatchers.Main) {
-                                onProgress(DownloadProgress.Completed(outputFile))
-                            }
-                            return@withContext outputFile
-                        } else {
-                            // File was corrupt or range invalid: start clean
-                            outputFile.delete()
-                            existingBytes = 0L
-                            continue
-                        }
+                        // Requested Range Not Satisfiable: Restart clean
+                        outputFile.delete()
+                        existingBytes = 0L
+                        continue
                     }
                     else -> {
                         throw IOException("Unexpected HTTP response code: $responseCode")
@@ -188,7 +164,7 @@ object ApkInstallerHelper {
                     }
                 }
 
-                // Verify file integrity
+                // Verify file existence and size
                 if (outputFile.exists() && outputFile.length() > 0) {
                     withContext(Dispatchers.Main) {
                         onProgress(DownloadProgress.Completed(outputFile))
@@ -222,6 +198,127 @@ object ApkInstallerHelper {
     }
 
     /**
+     * Resiliently downloads the APK with HTTP Range header support to resume partial downloads.
+     * Retries automatically on transient network drops instead of discarding downloaded data.
+     */
+    suspend fun downloadApk(
+        context: Context,
+        downloadUrl: String,
+        versionName: String,
+        assetName: String = "",
+        onProgress: (DownloadProgress) -> Unit
+    ): File? = withContext(Dispatchers.IO) {
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val fileName = getApkFileName(versionName, assetName)
+        val outputFile = File(updatesDir, fileName)
+
+        // If the file is already fully downloaded and verified, return immediately
+        if (outputFile.exists() && outputFile.length() > 0 && verifyApk(context, outputFile)) {
+            withContext(Dispatchers.Main) {
+                onProgress(DownloadProgress.Completed(outputFile))
+            }
+            return@withContext outputFile
+        }
+
+        downloadFileInternal(
+            outputFile = outputFile,
+            downloadUrl = downloadUrl,
+            expectedTotalBytes = -1L,
+            onProgress = onProgress
+        )
+    }
+
+    /**
+     * Downloads a delta patch file, verifying its SHA-256 digest against the manifest.
+     */
+    suspend fun downloadPatch(
+        context: Context,
+        deltaPatch: DeltaPatchInfo,
+        onProgress: (DownloadProgress) -> Unit
+    ): File? = withContext(Dispatchers.IO) {
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val outputFile = File(updatesDir, deltaPatch.patchFilename)
+
+        if (outputFile.exists() && outputFile.length() > 0) {
+            val sha = InstalledApkHelper.computeSha256(outputFile)
+            if (sha == deltaPatch.patchSha256.lowercase()) {
+                withContext(Dispatchers.Main) {
+                    onProgress(DownloadProgress.Completed(outputFile))
+                }
+                return@withContext outputFile
+            } else {
+                outputFile.delete()
+            }
+        }
+
+        val downloaded = downloadFileInternal(
+            outputFile = outputFile,
+            downloadUrl = deltaPatch.downloadUrl,
+            expectedTotalBytes = deltaPatch.patchSize,
+            onProgress = onProgress
+        )
+
+        if (downloaded != null && downloaded.exists()) {
+            val actualSha = InstalledApkHelper.computeSha256(downloaded)
+            if (actualSha != deltaPatch.patchSha256.lowercase()) {
+                Log.w(TAG, "Patch SHA-256 mismatch: got=$actualSha, expected=${deltaPatch.patchSha256}")
+                downloaded.delete()
+                withContext(Dispatchers.Main) {
+                    onProgress(DownloadProgress.Error("Patch file SHA-256 verification failed"))
+                }
+                return@withContext null
+            }
+            return@withContext downloaded
+        }
+        null
+    }
+
+    /**
+     * Applies a downloaded delta patch to the installed APK, reconstructs the complete target APK,
+     * verifies its SHA-256 against the manifest, and cleans up intermediate patch files.
+     */
+    suspend fun applyDeltaPatch(
+        context: Context,
+        deltaPatch: DeltaPatchInfo,
+        patchFile: File,
+        targetVersionName: String,
+        targetAssetName: String = "",
+        onProgress: ((Int) -> Unit)? = null
+    ): File = withContext(Dispatchers.IO) {
+        val installedApk = InstalledApkHelper.getInstalledApkFile(context)
+            ?: throw IOException("Currently installed APK is not accessible on device")
+
+        val currentInstalledSha = InstalledApkHelper.computeSha256(installedApk)
+        if (currentInstalledSha != deltaPatch.baseApkSha256.lowercase()) {
+            throw IOException("Base APK SHA-256 mismatch: installed=$currentInstalledSha, expected=${deltaPatch.baseApkSha256}")
+        }
+
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val targetFileName = getApkFileName(targetVersionName, targetAssetName.ifBlank { deltaPatch.targetApkFilename })
+        val reconstructedFile = File(updatesDir, targetFileName)
+
+        com.laterbox.app.update.patch.BsPatch.applyPatch(
+            oldFile = installedApk,
+            patchFile = patchFile,
+            newFile = reconstructedFile,
+            onProgress = onProgress
+        )
+
+        val actualTargetSha = InstalledApkHelper.computeSha256(reconstructedFile)
+        if (actualTargetSha != deltaPatch.targetApkSha256.lowercase()) {
+            reconstructedFile.delete()
+            throw IOException("Reconstructed APK SHA-256 mismatch: got=$actualTargetSha, expected=${deltaPatch.targetApkSha256}")
+        }
+
+        // Clean up temporary patch file on success
+        try {
+            patchFile.delete()
+        } catch (_: Exception) {}
+
+        reconstructedFile
+    }
+
+    /**
      * Verifies that the downloaded APK matches Laterbox's package name and signing identity.
      */
     fun verifyApkDetailed(context: Context, apkFile: File): ApkVerificationResult {
@@ -243,44 +340,14 @@ object ApkInstallerHelper {
                 return ApkVerificationResult.InvalidPackage(expectedPackage, archivePackage)
             }
 
-            // 2. Verify signing certificates match installed application
-            val archiveSigners: Set<Int> = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && archiveInfo.signingInfo != null -> {
-                    archiveInfo.signingInfo?.apkContentsSigners?.map { it.toByteArray().contentHashCode() }?.toSet() ?: emptySet()
-                }
-                else -> {
-                    @Suppress("DEPRECATION")
-                    val sigs = archiveInfo.signatures
-                        ?: pm.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)?.signatures
-                    sigs?.map { it.toByteArray().contentHashCode() }?.toSet() ?: emptySet()
-                }
-            }
-
-            val installedSigners: Set<Int> = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> {
-                    try {
-                        val installedInfo = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-                        installedInfo.signingInfo?.apkContentsSigners?.map { it.toByteArray().contentHashCode() }?.toSet()
-                            ?: emptySet()
-                    } catch (_: Exception) {
-                        emptySet()
-                    }
-                }
-                else -> {
-                    try {
-                        @Suppress("DEPRECATION")
-                        val installedInfo = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
-                        installedInfo.signatures?.map { it.toByteArray().contentHashCode() }?.toSet() ?: emptySet()
-                    } catch (_: Exception) {
-                        emptySet()
-                    }
-                }
-            }
+            // 2. Verify signing certificates match installed application using cryptographic digests
+            val archiveSigners: Set<String> = InstalledApkHelper.getArchiveSignersSha256(pm, apkFile, archiveInfo)
+            val installedSigners: Set<String> = InstalledApkHelper.getInstalledSignersSha256(context)
 
             if (installedSigners.isNotEmpty() && archiveSigners.isNotEmpty() && installedSigners.intersect(archiveSigners).isEmpty()) {
-                Log.w(TAG, "Signing certificate mismatch")
+                Log.w(TAG, "Signing certificate mismatch: installed=$installedSigners, archive=$archiveSigners")
                 return ApkVerificationResult.SignatureMismatch(
-                    "Signature mismatch: The update was signed with the official release key, but your currently installed app was built with a debug or local key. Android security requires uninstalling the existing app first."
+                    "Signature mismatch: The update was signed with an unexpected certificate. Android security requires matching signing certificates."
                 )
             }
 
@@ -492,9 +559,13 @@ object ApkInstallerHelper {
                         }
                     }
                 } else {
-                    // Non-APK temporary files in updates folder older than 24 hours
+                    // Non-APK temporary files in updates folder (e.g. .patch, .tmp, .part)
                     val ageMs = System.currentTimeMillis() - file.lastModified()
-                    if (ageMs > 24 * 60 * 60 * 1000L) {
+                    if (file.name.endsWith(".patch", ignoreCase = true) ||
+                        file.name.contains(".tmp") ||
+                        file.name.contains(".part") ||
+                        ageMs > 24 * 60 * 60 * 1000L
+                    ) {
                         if (file.delete()) deletedCount++
                     }
                 }

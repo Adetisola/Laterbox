@@ -12,8 +12,14 @@ data class AppUpdateInfo(
     val apkSize: Long = 0L,
     val isNewer: Boolean = false,
     val targetAbiLabel: String = "",
-    val assetName: String = ""
+    val assetName: String = "",
+    val deltaPatch: DeltaPatchInfo? = null
 ) {
+    val isDeltaAvailable: Boolean
+        get() = deltaPatch != null
+
+    val effectiveDownloadSize: Long
+        get() = deltaPatch?.patchSize ?: apkSize
     companion object {
         fun cleanVersion(raw: String): String {
             return raw.trim()

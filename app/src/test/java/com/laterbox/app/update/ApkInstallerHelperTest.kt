@@ -83,4 +83,39 @@ class ApkInstallerHelperTest {
         val deleted = ApkInstallerHelper.cleanupOldUpdateApks(context, "1.0.22")
         assertEquals(0, deleted)
     }
+
+    @Test
+    fun `cleanupOldUpdateApks removes temporary patch and tmp files`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+
+        val patchFile = File(updatesDir, "test.patch").apply { writeText("patch-data") }
+        val tmpFile = File(updatesDir, "update.apk.tmp").apply { writeText("tmp-data") }
+        val partFile = File(updatesDir, "download.part").apply { writeText("part-data") }
+
+        assertTrue(patchFile.exists())
+        assertTrue(tmpFile.exists())
+        assertTrue(partFile.exists())
+
+        val deleted = ApkInstallerHelper.cleanupOldUpdateApks(context, "1.0.22")
+        assertTrue(deleted >= 3)
+        assertFalse(patchFile.exists())
+        assertFalse(tmpFile.exists())
+        assertFalse(partFile.exists())
+
+        updatesDir.delete()
+    }
+
+    @Test
+    fun `computeSha256 calculates accurate lowercase digest`() {
+        val tempFile = File.createTempFile("test_sha", ".txt")
+        try {
+            tempFile.writeText("hello world\n")
+            val sha = InstalledApkHelper.computeSha256(tempFile)
+            // sha256("hello world\n") = a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447
+            assertEquals("a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447", sha)
+        } finally {
+            tempFile.delete()
+        }
+    }
 }

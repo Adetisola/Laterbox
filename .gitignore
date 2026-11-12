@@ -73,3 +73,10 @@ captures/
 .externalNativeBuild/
 .cxx/
 .kotlin/
+
+# Python cache & tooling
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/

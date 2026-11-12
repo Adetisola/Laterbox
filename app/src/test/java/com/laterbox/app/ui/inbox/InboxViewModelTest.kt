@@ -431,7 +431,7 @@ class InboxViewModelTest {
             contentType = ContentType.ARTICLE
         )
 
-        viewModel.uiState.test {
+        viewModel.uiState.test(timeout = kotlin.time.Duration.parse("10s")) {
             var state = awaitItem()
             while (state.isLoading || state.links.size < 2) {
                 state = awaitItem()

@@ -185,11 +185,41 @@ jobs:
 
           echo "All 3 APKs verified successfully!"
 
-      - name: Upload Release APKs Artifact
+      - name: Generate & Verify Delta Patches
+        id: generate_deltas
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/prev_release
+          CURRENT_TAG="v${{ env.VERSION_NAME }}"
+          PREV_TAG=$(gh release list --exclude-drafts --exclude-pre-releases --json tagName --jq '.[].tagName' | grep -v "^${CURRENT_TAG}$" | grep -v "^${{ env.VERSION_NAME }}$" | head -n 1 || true)
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "Found previous stable release tag: $PREV_TAG"
+            gh release download "$PREV_TAG" --dir /tmp/prev_release --pattern "Laterbox-*.apk" || true
+          else
+            echo "No previous release found. Skipping delta generation."
+          fi
+
+          pip3 install --break-system-packages bsdiff4 || pip3 install bsdiff4
+
+          python3 tools/delta/generate_delta.py \
+            --prev-dir /tmp/prev_release \
+            --target-dir release_artifacts \
+            --output-dir release_artifacts \
+            --target-version "${{ env.VERSION_NAME }}" \
+            --target-version-code "${{ env.VERSION_CODE }}" \
+            --prev-version "${PREV_TAG#v}" \
+            --threshold-ratio 0.70
+
+      - name: Upload Release Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: laterbox-release-apks
-          path: release_artifacts/*.apk
+          name: laterbox-release-artifacts
+          path: |
+            release_artifacts/*.apk
+            release_artifacts/*.patch
+            release_artifacts/delta-manifest.json
           retention-days: 30
 
       - name: Create GitHub Release
@@ -200,10 +230,13 @@ jobs:
           name: Laterbox ${{ github.event.inputs.version_tag || github.ref_name }}
           draft: false
           prerelease: false
+          fail_on_unmatched_files: false
           files: |
             release_artifacts/Laterbox-ARM32.apk
             release_artifacts/Laterbox-ARM64.apk
             release_artifacts/Laterbox-Universal.apk
+            release_artifacts/*.patch
+            release_artifacts/delta-manifest.json
           generate_release_notes: true
 
 

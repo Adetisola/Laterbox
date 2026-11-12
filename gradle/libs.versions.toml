@@ -28,6 +28,7 @@ firebaseBom = "33.16.0"
 googleServices = "4.4.2"
 youtubedl = "0.18.1"
 documentfile = "1.0.1"
+commonsCompress = "1.27.1"
 
 [libraries]
 # AndroidX & Compose
@@ -58,6 +59,7 @@ work-testing = { group = "androidx.work", name = "work-testing", version.ref = "
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 
 # Media3 Playback
 media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }

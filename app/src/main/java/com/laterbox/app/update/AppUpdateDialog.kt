@@ -1,5 +1,6 @@
 package com.laterbox.app.update
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -49,7 +50,9 @@ import java.util.Locale
 
 private enum class UpdateStep {
     PROMPT,
-    DOWNLOADING,
+    DOWNLOADING_PATCH,
+    RECONSTRUCTING,
+    DOWNLOADING_FULL,
     VERIFYING,
     PERMISSION_NEEDED,
     READY_TO_INSTALL,
@@ -70,11 +73,13 @@ fun AppUpdateDialog(
 
     var currentStep by remember { mutableStateOf(UpdateStep.PROMPT) }
     var downloadPercent by remember { mutableIntStateOf(0) }
+    var reconstructPercent by remember { mutableIntStateOf(0) }
     var downloadedBytes by remember { mutableLongStateOf(0L) }
-    var totalDownloadBytes by remember { mutableLongStateOf(updateInfo.apkSize) }
+    var totalDownloadBytes by remember { mutableLongStateOf(updateInfo.effectiveDownloadSize) }
     var downloadedFile by remember { mutableStateOf<File?>(null) }
     var errorMessage by remember { mutableStateOf("") }
     var saveStatusMessage by remember { mutableStateOf<String?>(null) }
+    var fallbackNotice by remember { mutableStateOf<String?>(null) }
 
     // Check if an APK for this update is already cached on disk and verified
     LaunchedEffect(updateInfo.versionName, updateInfo.assetName) {
@@ -85,10 +90,43 @@ fun AppUpdateDialog(
         }
     }
 
-    fun startDownloadAndInstall() {
-        currentStep = UpdateStep.DOWNLOADING
+    fun verifyAndProceed(file: File) {
+        downloadedFile = file
+        val verification = ApkInstallerHelper.verifyApkDetailed(context, file)
+        when (verification) {
+            is ApkInstallerHelper.ApkVerificationResult.Valid -> {
+                if (!ApkInstallerHelper.canInstallPackages(context)) {
+                    currentStep = UpdateStep.PERMISSION_NEEDED
+                } else {
+                    currentStep = UpdateStep.READY_TO_INSTALL
+                    ApkInstallerHelper.launchInstaller(context, file)
+                }
+            }
+            is ApkInstallerHelper.ApkVerificationResult.SignatureMismatch -> {
+                errorMessage = verification.message
+                currentStep = UpdateStep.FAILED
+            }
+            is ApkInstallerHelper.ApkVerificationResult.InvalidPackage -> {
+                errorMessage = "Package mismatch: expected ${verification.expected}, found ${verification.actual}"
+                currentStep = UpdateStep.FAILED
+            }
+            is ApkInstallerHelper.ApkVerificationResult.IncompatibleAbi -> {
+                errorMessage = verification.message
+                currentStep = UpdateStep.FAILED
+            }
+            is ApkInstallerHelper.ApkVerificationResult.Error -> {
+                errorMessage = verification.message
+                currentStep = UpdateStep.FAILED
+            }
+        }
+    }
+
+    fun startFullDownload(notice: String? = null) {
+        fallbackNotice = notice
+        currentStep = UpdateStep.DOWNLOADING_FULL
         downloadPercent = 0
-        saveStatusMessage = null
+        downloadedBytes = 0L
+        totalDownloadBytes = updateInfo.apkSize
 
         coroutineScope.launch {
             val file = ApkInstallerHelper.downloadApk(
@@ -118,40 +156,87 @@ fun AppUpdateDialog(
             )
 
             if (file != null) {
-                downloadedFile = file
-                val verification = ApkInstallerHelper.verifyApkDetailed(context, file)
-                when (verification) {
-                    is ApkInstallerHelper.ApkVerificationResult.Valid -> {
-                        if (!ApkInstallerHelper.canInstallPackages(context)) {
-                            currentStep = UpdateStep.PERMISSION_NEEDED
-                        } else {
-                            currentStep = UpdateStep.READY_TO_INSTALL
-                            ApkInstallerHelper.launchInstaller(context, file)
-                        }
-                    }
-                    is ApkInstallerHelper.ApkVerificationResult.SignatureMismatch -> {
-                        errorMessage = verification.message
-                        currentStep = UpdateStep.FAILED
-                    }
-                    is ApkInstallerHelper.ApkVerificationResult.InvalidPackage -> {
-                        errorMessage = "Package mismatch: expected ${verification.expected}, found ${verification.actual}"
-                        currentStep = UpdateStep.FAILED
-                    }
-                    is ApkInstallerHelper.ApkVerificationResult.IncompatibleAbi -> {
-                        errorMessage = verification.message
-                        currentStep = UpdateStep.FAILED
-                    }
-                    is ApkInstallerHelper.ApkVerificationResult.Error -> {
-                        errorMessage = verification.message
-                        currentStep = UpdateStep.FAILED
-                    }
-                }
+                verifyAndProceed(file)
             }
         }
     }
 
+    fun startDownloadAndInstall() {
+        saveStatusMessage = null
+        fallbackNotice = null
+
+        val delta = updateInfo.deltaPatch
+        if (updateInfo.isDeltaAvailable && delta != null) {
+            currentStep = UpdateStep.DOWNLOADING_PATCH
+            downloadPercent = 0
+            downloadedBytes = 0L
+            totalDownloadBytes = delta.patchSize
+
+            coroutineScope.launch {
+                val patchFile = ApkInstallerHelper.downloadPatch(
+                    context = context,
+                    deltaPatch = delta,
+                    onProgress = { progress ->
+                        when (progress) {
+                            is ApkInstallerHelper.DownloadProgress.Downloading -> {
+                                downloadPercent = progress.percent
+                                downloadedBytes = progress.bytesDownloaded
+                                if (progress.totalBytes > 0) {
+                                    totalDownloadBytes = progress.totalBytes
+                                }
+                            }
+                            is ApkInstallerHelper.DownloadProgress.Completed -> {
+                                // Patch download completed
+                            }
+                            is ApkInstallerHelper.DownloadProgress.Error -> {
+                                // Handled below when patchFile returns null
+                            }
+                        }
+                    }
+                )
+
+                if (patchFile == null || !patchFile.exists()) {
+                    Log.w("AppUpdateDialog", "Delta patch download failed, falling back to full APK download")
+                    startFullDownload("Delta update could not be applied. Downloading complete update...")
+                    return@launch
+                }
+
+                currentStep = UpdateStep.RECONSTRUCTING
+                reconstructPercent = 0
+
+                val reconstructedApk = try {
+                    ApkInstallerHelper.applyDeltaPatch(
+                        context = context,
+                        deltaPatch = delta,
+                        patchFile = patchFile,
+                        targetVersionName = updateInfo.versionName,
+                        targetAssetName = updateInfo.assetName,
+                        onProgress = { pct ->
+                            reconstructPercent = pct
+                        }
+                    )
+                } catch (e: Exception) {
+                    Log.w("AppUpdateDialog", "Delta reconstruction failed: ${e.message}, falling back to full APK download", e)
+                    try { patchFile.delete() } catch (_: Exception) {}
+                    startFullDownload("Delta update could not be applied. Downloading complete update...")
+                    return@launch
+                }
+
+                currentStep = UpdateStep.VERIFYING
+                verifyAndProceed(reconstructedApk)
+            }
+        } else {
+            startFullDownload()
+        }
+    }
+
+    val isProcessing = currentStep == UpdateStep.DOWNLOADING_PATCH ||
+        currentStep == UpdateStep.RECONSTRUCTING ||
+        currentStep == UpdateStep.DOWNLOADING_FULL ||
+        currentStep == UpdateStep.VERIFYING
+
     Dialog(onDismissRequest = {
-        if (currentStep != UpdateStep.DOWNLOADING) {
+        if (!isProcessing) {
             onDismiss()
         }
     }) {
@@ -202,14 +287,33 @@ fun AppUpdateDialog(
                                 fontWeight = FontWeight.SemiBold
                             )
                             if (updateInfo.targetAbiLabel.isNotBlank()) {
-                                val sizeText = if (updateInfo.apkSize > 0) {
-                                    val mb = updateInfo.apkSize / (1024f * 1024f)
+                                val displaySize = updateInfo.effectiveDownloadSize
+                                val sizeText = if (displaySize > 0) {
+                                    val mb = displaySize / (1024f * 1024f)
                                     " • ${String.format(Locale.US, "%.1f", mb)} MB"
                                 } else ""
                                 Text(
                                     text = "• ${updateInfo.targetAbiLabel}$sizeText",
                                     style = typography.caption,
                                     color = colors.textSecondary
+                                )
+                            }
+                        }
+                        if (updateInfo.isDeltaAvailable && updateInfo.deltaPatch != null && updateInfo.apkSize > 0) {
+                            val savingsPercent = ((updateInfo.apkSize - updateInfo.deltaPatch.patchSize) * 100 / updateInfo.apkSize).toInt().coerceIn(1, 99)
+                            Spacer(modifier = Modifier.height(spacing.xs))
+                            Box(
+                                modifier = Modifier
+                                    .clip(LaterboxShapeTokens.Chip)
+                                    .background(colors.accentPrimary.copy(alpha = 0.12f))
+                                    .border(spacing.hairline, colors.accentPrimary.copy(alpha = 0.25f), LaterboxShapeTokens.Chip)
+                                    .padding(horizontal = spacing.sm, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "⚡ Delta update • Save $savingsPercent% data",
+                                    style = typography.caption,
+                                    color = colors.accentPrimary,
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
@@ -273,7 +377,7 @@ fun AppUpdateDialog(
                                             ApkInstallerHelper.openFallbackReleasePage(context, updateInfo.releasePageUrl)
                                         }
                                         .padding(vertical = spacing.xs)
-                                )
+                                    )
                                 LaterboxSecondaryButton(
                                     text = "Later",
                                     onClick = {
@@ -285,11 +389,95 @@ fun AppUpdateDialog(
                         }
                     }
 
-                    UpdateStep.DOWNLOADING -> {
+                    UpdateStep.DOWNLOADING_PATCH -> {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            val progressLabel = if (totalDownloadBytes > 0) {
+                                val downloadedMb = String.format(Locale.US, "%.1f", downloadedBytes / (1024f * 1024f))
+                                val totalMb = String.format(Locale.US, "%.1f", totalDownloadBytes / (1024f * 1024f))
+                                "Downloading patch... $downloadedMb MB / $totalMb MB ($downloadPercent%)"
+                            } else {
+                                "Downloading patch... ($downloadPercent%)"
+                            }
+
+                            Text(
+                                text = progressLabel,
+                                style = typography.bodyPrimary,
+                                color = colors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(spacing.sm))
+                            LinearProgressIndicator(
+                                progress = { downloadPercent / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(LaterboxShapeTokens.Chip),
+                                color = colors.accentPrimary,
+                                trackColor = colors.surfacePrimary
+                            )
+                            Spacer(modifier = Modifier.height(spacing.md))
+                            Text(
+                                text = "Downloading differential update patch.",
+                                style = typography.caption,
+                                color = colors.textTertiary
+                            )
+                        }
+                    }
+
+                    UpdateStep.RECONSTRUCTING -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = if (reconstructPercent > 0) "Applying update patch... ($reconstructPercent%)" else "Applying update patch...",
+                                style = typography.bodyPrimary,
+                                color = colors.textPrimary
+                            )
+                            Spacer(modifier = Modifier.height(spacing.sm))
+                            LinearProgressIndicator(
+                                progress = { (reconstructPercent / 100f).coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(LaterboxShapeTokens.Chip),
+                                color = colors.accentPrimary,
+                                trackColor = colors.surfacePrimary
+                            )
+                            Spacer(modifier = Modifier.height(spacing.md))
+                            Text(
+                                text = "Reconstructing update package locally from current installation.",
+                                style = typography.caption,
+                                color = colors.textTertiary
+                            )
+                        }
+                    }
+
+                    UpdateStep.DOWNLOADING_FULL -> {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (fallbackNotice != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(LaterboxShapeTokens.Chip)
+                                        .background(colors.statusWarning.copy(alpha = 0.12f))
+                                        .border(spacing.hairline, colors.statusWarning.copy(alpha = 0.3f), LaterboxShapeTokens.Chip)
+                                        .padding(spacing.sm)
+                                ) {
+                                    Text(
+                                        text = fallbackNotice ?: "",
+                                        style = typography.caption,
+                                        color = colors.statusWarning
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(spacing.sm))
+                            }
+
                             val progressLabel = if (totalDownloadBytes > 0) {
                                 val downloadedMb = String.format(Locale.US, "%.1f", downloadedBytes / (1024f * 1024f))
                                 val totalMb = String.format(Locale.US, "%.1f", totalDownloadBytes / (1024f * 1024f))
