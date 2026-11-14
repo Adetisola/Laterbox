@@ -5,17 +5,18 @@ import com.laterbox.app.ai.GeminiClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.net.ConnectException
 import java.net.HttpURLConnection
 import java.net.Proxy
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.net.UnknownHostException
+import java.util.Base64
 
 sealed interface TranscribeResult {
     data class Success(val text: String) : TranscribeResult
@@ -27,8 +28,9 @@ interface GeminiSpeechTranscriber {
 }
 
 /**
- * Recorded-audio transcription with gemini-3.5-transcribe: Files API upload followed by an
- * Interactions API call using transcription_config.mode = "smart". Reuses GeminiClient key resolution.
+ * Recorded-audio transcription with gemini-3.5-transcribe (Files API + Interactions API) and a
+ * Free-Tier-friendly fallback to gemini-flash-lite-latest (:generateContent with inline audio)
+ * when the primary route hits 429, empty output, or 4xx/5xx server errors.
  */
 class GeminiTranscribeClient(
     private val rootUrl: String = DEFAULT_ROOT_URL,
@@ -42,9 +44,19 @@ class GeminiTranscribeClient(
         return try {
             withContext(Dispatchers.IO) {
                 withTimeout(timeoutMs) {
-                    val (name, uri) = upload(audio, apiKey)
-                    remoteName = name
-                    interact(uri, audio.mimeType, apiKey)
+                    val primary: TranscribeResult = try {
+                        val (name, uri) = upload(audio, apiKey)
+                        remoteName = name
+                        interact(uri, audio.mimeType, apiKey)
+                    } catch (e: HttpFailure) {
+                        TranscribeResult.Failure(e.toFailure())
+                    }
+                    if (primary is TranscribeResult.Failure && shouldTryFlashLiteFallback(primary.reason, audio)) {
+                        val secondary = tryFlashLiteInline(audio, apiKey)
+                        if (secondary is TranscribeResult.Success) secondary else primary
+                    } else {
+                        primary
+                    }
                 }
             }
         } catch (ce: CancellationException) {
@@ -66,6 +78,14 @@ class GeminiTranscribeClient(
         }
     }
 
+    private fun shouldTryFlashLiteFallback(reason: AiFailure, audio: RecordedAudio): Boolean {
+        if (audio.file.length() !in 1L..MAX_INLINE_BYTES) return false
+        return reason is AiFailure.RateLimited ||
+            reason is AiFailure.MalformedResponse ||
+            reason is AiFailure.EmptyResponse ||
+            reason is AiFailure.ServerError
+    }
+
     private class HttpFailure(val code: Int, val body: String) : Exception("HTTP $code") {
         fun toFailure(): AiFailure = when {
             code == 429 -> AiFailure.RateLimited(code)
@@ -82,7 +102,7 @@ class GeminiTranscribeClient(
         return conn.apply {
             requestMethod = method
             connectTimeout = 15_000
-            readTimeout = 30_000
+            readTimeout = 25_000
             setRequestProperty("x-goog-api-key", apiKey)
         }
     }
@@ -92,7 +112,7 @@ class GeminiTranscribeClient(
         return stream?.bufferedReader()?.use { it.readText() }.orEmpty()
     }
 
-    private fun upload(audio: RecordedAudio, apiKey: String): Pair<String?, String> {
+    private suspend fun upload(audio: RecordedAudio, apiKey: String): Pair<String?, String> {
         val length = audio.file.length()
         val start = open("$rootUrl/upload/v1beta/files", "POST", apiKey).apply {
             doOutput = true
@@ -121,9 +141,31 @@ class GeminiTranscribeClient(
             val body = readBody(up)
             if (up.responseCode !in 200..299) throw HttpFailure(up.responseCode, body)
             val file = JSONObject(body).getJSONObject("file")
-            return file.optString("name").takeIf { it.isNotBlank() } to file.getString("uri")
+            val name = file.optString("name").takeIf { it.isNotBlank() }
+            val uri = file.getString("uri")
+            if (name != null && file.optString("state") == "PROCESSING") {
+                waitUntilFileActive(name, apiKey)
+            }
+            return name to uri
         } finally {
             up.disconnect()
+        }
+    }
+
+    private suspend fun waitUntilFileActive(name: String, apiKey: String) {
+        repeat(6) {
+            delay(250)
+            val conn = open("$rootUrl/v1beta/$name", "GET", apiKey)
+            try {
+                if (conn.responseCode in 200..299) {
+                    val state = JSONObject(readBody(conn)).optString("state")
+                    if (state != "PROCESSING") return
+                } else {
+                    return
+                }
+            } finally {
+                conn.disconnect()
+            }
         }
     }
 
@@ -145,6 +187,33 @@ class GeminiTranscribeClient(
         }
     }
 
+    private fun tryFlashLiteInline(audio: RecordedAudio, apiKey: String): TranscribeResult {
+        return try {
+            val encoded = Base64.getEncoder().encodeToString(audio.file.readBytes())
+            val payload = buildInlineGeneratePayload(encoded, audio.mimeType)
+            val conn = open("$rootUrl/v1beta/models/${GeminiClient.CLOUD_MODEL_NAME}:generateContent", "POST", apiKey).apply {
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
+            }
+            try {
+                conn.outputStream.use { it.write(payload.toByteArray()) }
+                val body = readBody(conn)
+                if (conn.responseCode !in 200..299) {
+                    return TranscribeResult.Failure(HttpFailure(conn.responseCode, body).toFailure())
+                }
+                val text = GeminiClient.extractTextFromResponseJson(body)?.trim()
+                if (text.isNullOrBlank()) TranscribeResult.Failure(AiFailure.MalformedResponse)
+                else TranscribeResult.Success(text)
+            } finally {
+                conn.disconnect()
+            }
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (_: Exception) {
+            TranscribeResult.Failure(AiFailure.ServerError(-1))
+        }
+    }
+
     private fun deleteRemote(name: String, apiKey: String) {
         runCatching {
             val conn = open("$rootUrl/v1beta/$name", "DELETE", apiKey)
@@ -155,6 +224,7 @@ class GeminiTranscribeClient(
     companion object {
         const val MODEL = "gemini-3.5-transcribe"
         const val DEFAULT_ROOT_URL = "https://generativelanguage.googleapis.com"
+        const val MAX_INLINE_BYTES = 15L * 1024L * 1024L
 
         fun buildInteractionPayload(fileUri: String, mimeType: String): String =
             JSONObject().apply {
@@ -167,6 +237,27 @@ class GeminiTranscribeClient(
                 put("generation_config", JSONObject().put(
                     "transcription_config", JSONObject().put("mode", "smart")
                 ))
+            }.toString()
+
+        fun buildInlineGeneratePayload(base64Audio: String, mimeType: String): String =
+            JSONObject().apply {
+                put("contents", JSONArray().put(JSONObject().apply {
+                    put("role", "user")
+                    put("parts", JSONArray().apply {
+                        put(JSONObject().put(
+                            "text",
+                            "Transcribe this spoken audio accurately with natural punctuation. Return only the transcript text."
+                        ))
+                        put(JSONObject().put("inline_data", JSONObject().apply {
+                            put("mime_type", mimeType)
+                            put("data", base64Audio)
+                        }))
+                    })
+                }))
+                put("generationConfig", JSONObject().apply {
+                    put("temperature", 0.0)
+                    put("maxOutputTokens", 1024)
+                })
             }.toString()
 
         /** Tolerant parser across the response shapes the Interactions API may return. */

@@ -118,6 +118,14 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
             ),
             apiKeyProvider = {
                 userPreferencesRepository.userPreferencesFlow.first().geminiApiKey.ifBlank { null }
+            },
+            isNetworkAvailable = {
+                runCatching {
+                    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                    val net = cm?.activeNetwork ?: return@runCatching false
+                    val caps = cm.getNetworkCapabilities(net) ?: return@runCatching false
+                    caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                }.getOrDefault(true)
             }
         )
     }

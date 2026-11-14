@@ -190,7 +190,9 @@ fun FloatingChatComposer(
                 AudioConsentCard(onAcceptAudioConsent, onDismissAudioConsent)
             }
             speechState.statusLabel?.let { label ->
-                val isFallback = label.startsWith("Using Android")
+                val isFallback = label.startsWith("Using Android") || label.startsWith("Listening with Android")
+                val canCancel = speechState.status == SpeechStatus.TRANSCRIBING_FALLBACK ||
+                    speechState.status == SpeechStatus.TRANSCRIBING_GEMINI
                 Row(
                     modifier = Modifier
                         .padding(start = 14.dp, end = 14.dp, top = 10.dp)
@@ -198,13 +200,26 @@ fun FloatingChatComposer(
                         .background(if (isFallback) colors.accentContainer else colors.surfaceSecondary)
                         .padding(horizontal = 10.dp, vertical = 4.dp)
                         .testTag(if (isFallback) "speech_fallback_badge" else "speech_status_label"),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
                         text = label,
                         style = typography.bodyPrimary.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
                         color = if (isFallback) colors.accentPrimary else colors.textSecondary
                     )
+                    if (canCancel) {
+                        Icon(
+                            painter = painterResource(LaterboxIcons.Close),
+                            contentDescription = "Cancel speech recognition",
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clip(CircleShape)
+                                .clickable(role = Role.Button, onClick = onCancelDictation)
+                                .testTag("composer_cancel_active_transcription"),
+                            tint = if (isFallback) colors.accentPrimary else colors.textSecondary
+                        )
+                    }
                 }
             }
             speechState.message?.takeIf { speechState.status == SpeechStatus.ERROR }?.let {
@@ -441,7 +456,8 @@ private fun AudioConsentCard(onAccept: () -> Unit, onDismiss: () -> Unit) {
         Text("Voice dictation uses Google Gemini", style = typography.bodyPrimary.copy(fontSize = 15.sp, fontWeight = FontWeight.SemiBold), color = colors.textPrimary)
         Text(
             "Your recording is uploaded to Google to be transcribed, then deleted from this device. " +
-                "If Gemini is unavailable, Laterbox falls back to Android speech recognition. Nothing is sent until you stop recording.",
+                "On Google AI Studio's free tier, Google may retain and review submitted audio to improve its services. " +
+                "If Gemini is unavailable, Laterbox falls back to Android speech recognition.",
             modifier = Modifier.padding(top = 2.dp),
             style = typography.bodyPrimary.copy(fontSize = 13.sp),
             color = colors.textSecondary

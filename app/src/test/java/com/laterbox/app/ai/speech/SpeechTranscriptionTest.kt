@@ -193,6 +193,139 @@ class SpeechTranscriptionTest {
         assertEquals(SpeechStatus.IDLE, c2.state.value.status)
     }
 
+    @Test
+    fun geminiTranscribeClient_fallsBackToFlashLiteInlineOnFreeTierEmptyOr429() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .addHeader("X-Goog-Upload-URL", "$baseUrl/upload/v1beta/files?upload_id=u2")
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"file":{"name":"files/audio456","uri":"https://generativelanguage.googleapis.com/v1beta/files/audio456","state":"ACTIVE"}}"""
+            )
+        )
+        // Primary gemini-3.5-transcribe returns empty HTTP 200 (known free-tier quirk)
+        server.enqueue(MockResponse().setResponseCode(200).setBody("""{"outputs":[]}"""))
+        // Secondary gemini-flash-lite-latest inline :generateContent succeeds
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"candidates":[{"content":{"parts":[{"text":"Save this Kotlin article"}]}}]}"""
+            )
+        )
+        // Remote Files API cleanup still runs
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        val client = GeminiTranscribeClient(rootUrl = baseUrl, timeoutMs = 10_000L)
+        val result = client.transcribe(RecordedAudio(tempFile, "audio/mp4", 1_500L), "AIzaTestKey1234567890")
+
+        assertTrue("Expected Success, got $result", result is TranscribeResult.Success)
+        assertEquals("Save this Kotlin article", (result as TranscribeResult.Success).text)
+
+        server.takeRequest() // start
+        server.takeRequest() // upload
+        server.takeRequest() // interactions
+        val flashReq = server.takeRequest()
+        assertEquals("/v1beta/models/gemini-flash-lite-latest:generateContent", flashReq.path)
+        val flashBody = JSONObject(flashReq.body.readUtf8())
+        val parts = flashBody.getJSONArray("contents").getJSONObject(0).getJSONArray("parts")
+        assertTrue(parts.getJSONObject(1).has("inline_data"))
+        val delReq = server.takeRequest()
+        assertEquals("DELETE", delReq.method)
+    }
+
+    @Test
+    fun coordinator_startDictation_skipsRecorderWhenOfflineOrInCooldown_andErrorsWhenUnavailable() = runTest(StandardTestDispatcher()) {
+        val audioFile = File.createTempFile("stt_preflight_", ".m4a").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        var recorderStarts = 0
+        val countingRecorder = object : AudioRecorder {
+            override var isRecording: Boolean = false
+            override fun start(): Boolean {
+                recorderStarts++
+                isRecording = true
+                return true
+            }
+            override fun stop(): RecordedAudio? {
+                isRecording = false
+                return RecordedAudio(audioFile, "audio/mp4", 1_200L)
+            }
+            override fun cancel() { isRecording = false }
+        }
+
+        // 1. Offline pre-flight: skips MediaRecorder and immediately invokes live Android fallback
+        var online = false
+        var fallbackAvailable = true
+        var delivered: String? = null
+        val offlineCoordinator = SpeechTranscriptionCoordinator(
+            recorder = countingRecorder,
+            gemini = object : GeminiSpeechTranscriber {
+                override suspend fun transcribe(audio: RecordedAudio, customApiKey: String?) =
+                    TranscribeResult.Success("unused")
+            },
+            fallback = object : AndroidFallbackRecognizer {
+                override fun isAvailable(): Boolean = fallbackAvailable
+                override suspend fun recognize(): String = "Live Android dictation"
+            },
+            scope = this,
+            apiKeyProvider = { "AIzaTest" },
+            isNetworkAvailable = { online },
+            badgeVisibleMs = 2_000L
+        )
+
+        offlineCoordinator.startDictation { delivered = it }
+        runCurrent()
+        assertEquals(0, recorderStarts)
+        assertEquals("Live Android dictation", delivered)
+        assertTrue(offlineCoordinator.state.value.fallbackBadgeVisible)
+        advanceTimeBy(2_500L)
+
+        // 2. Offline + no Android recognizer: surfaces error immediately without recording
+        fallbackAvailable = false
+        offlineCoordinator.startDictation {}
+        runCurrent()
+        assertEquals(0, recorderStarts)
+        assertEquals(SpeechStatus.ERROR, offlineCoordinator.state.value.status)
+
+        // 3. After Gemini 429 cooldown activates, next startDictation skips recorder and routes to Android
+        online = true
+        fallbackAvailable = true
+        var clock = 1_000L
+        var deliveredAfterCooldown: String? = null
+        val cooldownCoordinator = SpeechTranscriptionCoordinator(
+            recorder = countingRecorder,
+            gemini = object : GeminiSpeechTranscriber {
+                override suspend fun transcribe(audio: RecordedAudio, customApiKey: String?) =
+                    TranscribeResult.Failure(AiFailure.RateLimited(429))
+            },
+            fallback = object : AndroidFallbackRecognizer {
+                override fun isAvailable(): Boolean = true
+                override suspend fun recognize(): String = "Direct fallback during cooldown"
+            },
+            scope = this,
+            apiKeyProvider = { "AIzaTest" },
+            isNetworkAvailable = { true },
+            nowMs = { clock },
+            rateLimitCooldownMs = 60_000L,
+            badgeVisibleMs = 1_000L
+        )
+        cooldownCoordinator.startDictation { deliveredAfterCooldown = it }
+        runCurrent()
+        assertEquals(1, recorderStarts) // First tap recorded normally
+        cooldownCoordinator.stopAndTranscribe()
+        runCurrent()
+        assertEquals("Direct fallback during cooldown", deliveredAfterCooldown)
+        advanceTimeBy(1_500L)
+
+        // Tap mic again within 60s cooldown -> must skip recorder and run live fallback immediately
+        clock += 5_000L
+        deliveredAfterCooldown = null
+        cooldownCoordinator.startDictation { deliveredAfterCooldown = it }
+        runCurrent()
+        assertEquals(1, recorderStarts)
+        assertEquals("Direct fallback during cooldown", deliveredAfterCooldown)
+    }
+
     private class FakeRecorder(private val audio: RecordedAudio) : AudioRecorder {
         override var isRecording: Boolean = false
         override fun start(): Boolean {

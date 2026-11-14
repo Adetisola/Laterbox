@@ -469,11 +469,26 @@ class ChatViewModel(
 
     fun startDictation(): Boolean = speech?.startRecording() ?: false
 
+    fun startDictation(onTranscript: (String) -> Unit) {
+        speech?.startDictation(onTranscript)
+    }
+
+    fun startDictationIntoChatDraft() {
+        speech?.startDictation { text ->
+            val current = _composerText.value
+            _composerText.value = if (current.isBlank()) text.trim() else current.trimEnd() + " " + text.trim()
+        }
+    }
+
     fun cancelDictation() { speech?.cancel() }
 
     fun clearDictationError() { speech?.clearError() }
 
     /** Stops recording and delivers the transcript; never auto-sends. */
+    fun stopDictation() {
+        speech?.stopAndTranscribe()
+    }
+
     fun stopDictation(onTranscript: (String) -> Unit) {
         speech?.stopAndTranscribe(onTranscript)
     }
@@ -481,13 +496,12 @@ class ChatViewModel(
     fun stopDictationIntoChatDraft() {
         stopDictation { text ->
             val current = _composerText.value
-            _composerText.value = if (current.isBlank()) text else current.trimEnd() + " " + text
+            _composerText.value = if (current.isBlank()) text.trim() else current.trimEnd() + " " + text.trim()
         }
     }
 
     fun acceptAudioConsent() {
         viewModelScope.launch {
-            userPreferencesRepository.setAssistantAiDisclosureAccepted(true)
             userPreferencesRepository.setAudioTranscriptionConsentAccepted(true)
         }
     }

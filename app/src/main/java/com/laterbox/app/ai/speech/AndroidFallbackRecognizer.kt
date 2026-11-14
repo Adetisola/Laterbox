@@ -13,12 +13,17 @@ import kotlin.coroutines.resume
 
 /** Fallback dictation via the platform recognizer. Returns null when nothing was recognized. */
 interface AndroidFallbackRecognizer {
+    fun isAvailable(): Boolean = true
     suspend fun recognize(): String?
 }
 
 class AndroidSpeechRecognizerAdapter(private val context: Context) : AndroidFallbackRecognizer {
+    override fun isAvailable(): Boolean = runCatching {
+        SpeechRecognizer.isRecognitionAvailable(context)
+    }.getOrDefault(false)
+
     override suspend fun recognize(): String? {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) return null
+        if (!isAvailable()) return null
         return suspendCancellableCoroutine { cont ->
             val main = Handler(Looper.getMainLooper())
             var recognizer: SpeechRecognizer? = null
@@ -30,27 +35,33 @@ class AndroidSpeechRecognizerAdapter(private val context: Context) : AndroidFall
                 }
             }
             main.post {
-                val r = SpeechRecognizer.createSpeechRecognizer(context)
-                recognizer = r
-                r.setRecognitionListener(object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle?) {}
-                    override fun onBeginningOfSpeech() {}
-                    override fun onRmsChanged(rmsdB: Float) {}
-                    override fun onBufferReceived(buffer: ByteArray?) {}
-                    override fun onEndOfSpeech() {}
-                    override fun onPartialResults(partialResults: Bundle?) {}
-                    override fun onEvent(eventType: Int, params: Bundle?) {}
-                    override fun onError(error: Int) = finish(null)
-                    override fun onResults(results: Bundle?) {
-                        finish(
-                            results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                ?.firstOrNull()?.takeIf { it.isNotBlank() }
-                        )
-                    }
-                })
-                r.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                })
+                try {
+                    val r = SpeechRecognizer.createSpeechRecognizer(context)
+                    recognizer = r
+                    r.setRecognitionListener(object : RecognitionListener {
+                        override fun onReadyForSpeech(params: Bundle?) {}
+                        override fun onBeginningOfSpeech() {}
+                        override fun onRmsChanged(rmsdB: Float) {}
+                        override fun onBufferReceived(buffer: ByteArray?) {}
+                        override fun onEndOfSpeech() {}
+                        override fun onPartialResults(partialResults: Bundle?) {}
+                        override fun onEvent(eventType: Int, params: Bundle?) {}
+                        override fun onError(error: Int) = finish(null)
+                        override fun onResults(results: Bundle?) {
+                            finish(
+                                results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                    ?.firstOrNull()?.takeIf { it.isNotBlank() }
+                            )
+                        }
+                    })
+                    r.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                    })
+                } catch (_: Exception) {
+                    finish(null)
+                }
             }
             cont.invokeOnCancellation { main.post { runCatching { recognizer?.cancel(); recognizer?.destroy() } } }
         }

@@ -1,6 +1,9 @@
 package com.laterbox.app.ai.speech
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaRecorder
 import android.os.Build
 import java.io.File
@@ -25,6 +28,7 @@ class AudioRecorderController(private val context: Context) : AudioRecorder {
     private var recorder: MediaRecorder? = null
     private var file: File? = null
     private var startedAt = 0L
+    private var focusRequest: AudioFocusRequest? = null
 
     override val isRecording: Boolean get() = synchronized(lock) { recorder != null }
 
@@ -33,6 +37,7 @@ class AudioRecorderController(private val context: Context) : AudioRecorder {
         val dir = File(context.cacheDir, "dictation").apply { mkdirs() }
         val out = File(dir, "rec_${UUID.randomUUID()}.m4a")
         val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(context) else @Suppress("DEPRECATION") MediaRecorder()
+        requestTransientFocus()
         return try {
             r.setAudioSource(MediaRecorder.AudioSource.MIC)
             r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
@@ -48,6 +53,7 @@ class AudioRecorderController(private val context: Context) : AudioRecorder {
             true
         } catch (_: Exception) {
             runCatching { r.release() }
+            abandonTransientFocus()
             out.delete()
             false
         }
@@ -65,6 +71,7 @@ class AudioRecorderController(private val context: Context) : AudioRecorder {
             false
         } finally {
             runCatching { r.release() }
+            abandonTransientFocus()
         }
         if (!ok || f == null) {
             f?.delete()
@@ -76,5 +83,29 @@ class AudioRecorderController(private val context: Context) : AudioRecorder {
     override fun cancel() {
         val rec = stop()
         rec?.file?.delete()
+    }
+
+    private fun requestTransientFocus() {
+        runCatching {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .build()
+            focusRequest = req
+            am.requestAudioFocus(req)
+        }
+    }
+
+    private fun abandonTransientFocus() {
+        runCatching {
+            val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+            focusRequest?.let { am.abandonAudioFocusRequest(it) }
+        }
+        focusRequest = null
     }
 }

@@ -107,7 +107,14 @@ class InboxUiAndChatFlowTest {
         val collapsedBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
         assertTrue((collapsedBounds.bottom - collapsedBounds.top) < multiHeight)
 
-        // Fallback notice indicator renders clearly
+        // Active fallback listening shows cancelable status badge
+        speechState = ComposerSpeechUiState(status = SpeechStatus.TRANSCRIBING_FALLBACK, fallbackBadgeVisible = true)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("speech_fallback_badge").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Listening with Android speech recognition").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("composer_cancel_active_transcription").assertIsDisplayed()
+
+        // Fallback notice indicator renders clearly after completion
         speechState = ComposerSpeechUiState(status = SpeechStatus.IDLE, fallbackBadgeVisible = true)
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("speech_fallback_badge").assertIsDisplayed()

@@ -1,10 +1,15 @@
 package com.laterbox.app.ui.navigation
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -48,6 +53,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -143,19 +149,44 @@ fun LaterboxApp(
 
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingAudioConsentTarget by remember { mutableStateOf<String?>(null) }
-    var pendingPermissionStart by remember { mutableStateOf(false) }
+    var pendingPermissionTarget by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(currentRoute) {
+        pendingAudioConsentTarget = null
+    }
+
+    val startTargetDictation: (String) -> Unit = { target ->
+        if (target == "INBOX") {
+            chatViewModel.startDictation { transcript ->
+                inboxComposerText = appendDictatedTranscript(inboxComposerText, transcript)
+            }
+        } else {
+            chatViewModel.startDictationIntoChatDraft()
+        }
+    }
 
     val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted && pendingPermissionStart) {
-            pendingPermissionStart = false
-            chatViewModel.startDictation()
-        } else {
-            pendingPermissionStart = false
-            if (!granted) {
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Microphone permission is needed for voice input.")
+        val target = pendingPermissionTarget
+        pendingPermissionTarget = null
+        if (granted && target != null) {
+            startTargetDictation(target)
+        } else if (!granted) {
+            val activity = context as? Activity
+            val permanentlyDenied = activity != null &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.RECORD_AUDIO)
+            coroutineScope.launch {
+                val res = snackbarHostState.showSnackbar(
+                    message = "Microphone permission is needed for voice input.",
+                    actionLabel = if (permanentlyDenied) "Settings" else null,
+                    duration = SnackbarDuration.Short
+                )
+                if (res == SnackbarResult.ActionPerformed) {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", context.packageName, null)
+                    }
+                    runCatching { context.startActivity(intent) }
                 }
             }
         }
@@ -166,9 +197,9 @@ fun LaterboxApp(
         if (!preferences.audioTranscriptionConsentAccepted) {
             pendingAudioConsentTarget = target
         } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            chatViewModel.startDictation()
+            startTargetDictation(target)
         } else {
-            pendingPermissionStart = true
+            pendingPermissionTarget = target
             micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -179,18 +210,22 @@ fun LaterboxApp(
         chatViewModel.acceptAudioConsent()
         if (target != null) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                chatViewModel.startDictation()
+                startTargetDictation(target)
             } else {
-                pendingPermissionStart = true
+                pendingPermissionTarget = target
                 micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         }
     }
 
-    // Cancel active microphone capture if the host pauses
-    androidx.lifecycle.compose.LifecycleResumeEffect(speechState.status) {
+    // Cancel active microphone capture ONLY if the host pauses/disposes while recording/listening
+    // (must NOT key on speechState.status, otherwise stopping recording triggers onPauseOrDispose!).
+    val latestSpeechStatus by rememberUpdatedState(speechState.status)
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
         onPauseOrDispose {
-            if (speechState.status == SpeechStatus.RECORDING) {
+            if (latestSpeechStatus == SpeechStatus.RECORDING ||
+                latestSpeechStatus == SpeechStatus.TRANSCRIBING_FALLBACK
+            ) {
                 chatViewModel.cancelDictation()
             }
         }
