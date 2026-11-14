@@ -3,8 +3,58 @@ package com.laterbox.app.ai
 import org.json.JSONArray
 import org.json.JSONObject
 
+enum class ActionCategory { READ_ONLY, STATE_CHANGING }
+
 sealed interface ChatAction {
     val label: String
+
+    /** Read-only actions run after allowlist + target validation; state-changing ones need approval. */
+    val category: ActionCategory
+        get() = when (this) {
+            is RetryInspection, is RetryDownload, is RefreshMetadata -> ActionCategory.STATE_CHANGING
+            else -> ActionCategory.READ_ONLY
+        }
+
+    /** Stable per-action-type key used for "Always allow in this conversation" grants. */
+    val permissionKey: String?
+        get() = when (this) {
+            is RetryInspection -> "RETRY_INSPECTION"
+            is RetryDownload -> "RETRY_DOWNLOAD"
+            is RefreshMetadata -> "REFRESH_METADATA"
+            else -> null
+        }
+
+    val actionName: String
+        get() = when (this) {
+            is RetryInspection -> "Retry media inspection"
+            is RetryDownload -> "Retry download"
+            is RefreshMetadata -> "Refresh link details"
+            else -> label
+        }
+
+    val explanation: String
+        get() = when (this) {
+            is RetryInspection -> "Check this saved link again for downloadable media."
+            is RetryDownload -> "Restart this failed or stopped download."
+            is RefreshMetadata -> "Fetch this link's title and preview again."
+            else -> label
+        }
+
+    val targetLabel: String?
+        get() = when (this) {
+            is RetryInspection -> title
+            is RetryDownload -> title
+            is RefreshMetadata -> title
+            else -> null
+        }
+
+    val consequenceSummary: String
+        get() = when (this) {
+            is RetryInspection -> "Uses the network. Nothing is deleted."
+            is RetryDownload -> "Uses the network and device storage. Nothing is deleted."
+            is RefreshMetadata -> "Uses the network. Saved notes and collections are kept."
+            else -> "Opens a screen. Nothing changes."
+        }
 
     data class SearchLinks(val query: String) : ChatAction {
         override val label: String get() = "Search \"$query\""
@@ -51,6 +101,14 @@ sealed interface ChatAction {
         val requiresConfirmation: Boolean = true
     ) : ChatAction {
         override val label: String get() = "Retry download: ${title.take(24)}"
+    }
+
+    data class RefreshMetadata(
+        val linkId: Long,
+        val title: String,
+        val requiresConfirmation: Boolean = true
+    ) : ChatAction {
+        override val label: String get() = "Refresh details: ${title.take(24)}"
     }
 }
 
@@ -156,6 +214,12 @@ object AssistantActionHandler {
                     obj.put("title", action.title)
                     obj.put("requiresConfirmation", true)
                 }
+                is ChatAction.RefreshMetadata -> {
+                    obj.put("type", "REFRESH_METADATA")
+                    obj.put("linkId", action.linkId)
+                    obj.put("title", action.title)
+                    obj.put("requiresConfirmation", true)
+                }
             }
             array.put(obj)
         }
@@ -195,6 +259,12 @@ object AssistantActionHandler {
                 // Mutating action ALWAYS enforces confirmation gating regardless of model JSON
                 if (taskId.isNotBlank()) ChatAction.RetryDownload(taskId, title, requiresConfirmation = true) else null
             }
+            "REFRESH_METADATA" -> {
+                val linkId = obj.optLong("linkId", -1L)
+                val title = obj.optString("title").trim().ifBlank { "Saved link" }.take(60)
+                if (linkId > 0L) ChatAction.RefreshMetadata(linkId, title, requiresConfirmation = true) else null
+            }
+            // Destructive or unknown types (delete, clear, wipe, export...) are never accepted.
             else -> null
         }
     }

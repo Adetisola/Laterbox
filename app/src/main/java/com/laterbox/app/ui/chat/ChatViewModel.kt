@@ -2,7 +2,11 @@ package com.laterbox.app.ui.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.laterbox.app.ai.ActionCategory
 import com.laterbox.app.ai.AssistantActionHandler
+import com.laterbox.app.ai.speech.ComposerSpeechUiState
+import com.laterbox.app.ai.speech.SpeechTranscriptionCoordinator
+import com.laterbox.app.media.domain.model.DownloadState
 import com.laterbox.app.ai.ChatAction
 import com.laterbox.app.ai.GeminiClient
 import com.laterbox.app.ai.GeminiRole
@@ -41,6 +45,7 @@ data class ChatUiState(
     val recentConversations: List<ChatConversationEntity> = emptyList(),
     val assistantEnabled: Boolean = true,
     val aiDisclosureAccepted: Boolean = false,
+    val audioConsentAccepted: Boolean = false,
     val composerText: String = "",
     val isStreaming: Boolean = false,
     val streamingAssistantMessageId: String? = null,
@@ -58,7 +63,8 @@ class ChatViewModel(
     private val laterboxContextEngine: LaterboxContextEngine,
     private val appHealthChecker: AppHealthChecker,
     private val linkRepository: LinkRepository,
-    private val mediaRepository: MediaRepository
+    private val mediaRepository: MediaRepository,
+    private val speech: SpeechTranscriptionCoordinator? = null
 ) : ViewModel() {
 
     private val _activeConversationId = MutableStateFlow<String?>(null)
@@ -71,6 +77,7 @@ class ChatViewModel(
     private val _pendingMutatingAction = MutableStateFlow<ChatAction?>(null)
     private val _statusNotice = MutableStateFlow<String?>(null)
 
+    private val executingActionKeys = mutableSetOf<String>()
     private var streamingJob: Job? = null
     private var lastHandledInvocationKey: String? = null
     private var pendingConsentConversationId: String? = null
@@ -135,6 +142,7 @@ class ChatViewModel(
             recentConversations = recent,
             assistantEnabled = prefs.assistantEnabled,
             aiDisclosureAccepted = prefs.assistantAiDisclosureAccepted,
+            audioConsentAccepted = prefs.audioTranscriptionConsentAccepted,
             composerText = stream.composer,
             isStreaming = stream.isStreaming,
             streamingAssistantMessageId = stream.msgId,
@@ -313,41 +321,180 @@ class ChatViewModel(
         }
     }
 
+    /**
+     * Entry point for state-changing assistant actions. Validates the target first, then either
+     * runs immediately (conversation grant) or surfaces the inline approval card.
+     */
     fun requestMutatingActionConfirmation(action: ChatAction) {
-        _pendingMutatingAction.value = action
+        if (action.category != ActionCategory.STATE_CHANGING) return
+        viewModelScope.launch {
+            val convId = _activeConversationId.value
+            val problem = validateActionTarget(action)
+            if (problem != null) {
+                postReceipt(convId, "I couldn't ${action.actionName.lowercase()}: $problem Nothing was changed.")
+                return@launch
+            }
+            val permissionKey = action.permissionKey
+            if (convId != null && permissionKey != null &&
+                chatRepository.isActionAlwaysAllowed(convId, permissionKey)
+            ) {
+                executeApprovedAction(action, convId)
+            } else {
+                _pendingMutatingAction.value = action
+            }
+        }
     }
 
+    /** "Don't allow": nothing runs; the conversation records that. */
     fun dismissMutatingAction() {
+        val action = _pendingMutatingAction.value ?: return
         _pendingMutatingAction.value = null
+        viewModelScope.launch {
+            postReceipt(
+                _activeConversationId.value,
+                "Okay, I won't ${action.actionName.lowercase()}${action.targetLabel?.let { " for \"$it\"" }.orEmpty()}. Nothing was changed."
+            )
+        }
     }
 
+    /** "Allow once": executes only this instance. */
     fun confirmMutatingAction() {
         val action = _pendingMutatingAction.value ?: return
         _pendingMutatingAction.value = null
+        val convId = _activeConversationId.value
+        viewModelScope.launch { executeApprovedAction(action, convId) }
+    }
 
+    /** "Always allow in this conversation": persists a grant for this action type only. */
+    fun alwaysAllowMutatingActionInConversation() {
+        val action = _pendingMutatingAction.value ?: return
+        _pendingMutatingAction.value = null
+        val convId = _activeConversationId.value
         viewModelScope.launch {
-            when (action) {
+            val key = action.permissionKey
+            if (convId != null && key != null) chatRepository.grantActionPermission(convId, key)
+            executeApprovedAction(action, convId)
+        }
+    }
+
+    private suspend fun validateActionTarget(action: ChatAction): String? = when (action) {
+        is ChatAction.RetryInspection -> validateLink(action.linkId)
+        is ChatAction.RefreshMetadata -> validateLink(action.linkId)
+        is ChatAction.RetryDownload -> {
+            val task = mediaRepository.getTaskById(action.taskId).first()
+            when {
+                task == null -> "that download no longer exists."
+                task.status != DownloadState.FAILED &&
+                    task.status != DownloadState.CANCELLED &&
+                    task.status != DownloadState.PAUSED -> "that download isn't stopped or failed."
+                else -> null
+            }
+        }
+        else -> "that action isn't supported."
+    }
+
+    private suspend fun validateLink(linkId: Long): String? {
+        val link = linkRepository.getLinkById(linkId).first()
+        return when {
+            link == null -> "that saved link no longer exists."
+            link.originalUrl.isBlank() -> "that saved link has no address."
+            else -> null
+        }
+    }
+
+    private suspend fun executeApprovedAction(action: ChatAction, conversationId: String?) {
+        val dedupeKey = when (action) {
+            is ChatAction.RetryInspection -> "RI:${action.linkId}"
+            is ChatAction.RefreshMetadata -> "RM:${action.linkId}"
+            is ChatAction.RetryDownload -> "RD:${action.taskId}"
+            else -> return
+        }
+        if (!executingActionKeys.add(dedupeKey)) return
+        try {
+            // Independent re-validation: state may have changed while the card was open.
+            val problem = validateActionTarget(action)
+            if (problem != null) {
+                postReceipt(conversationId, "I couldn't ${action.actionName.lowercase()}: $problem Nothing was changed.")
+                return
+            }
+            val receipt: String = when (action) {
                 is ChatAction.RetryInspection -> {
                     val link = linkRepository.getLinkById(action.linkId).first()
-                    if (link != null) {
-                        mediaRepository.startInspection(
-                            linkId = link.id,
-                            url = link.originalUrl,
-                            previewImageUrl = link.previewImageUrl,
-                            forceRefresh = true
-                        )
-                        _statusNotice.value = "Started fresh media inspection for \"${link.title}\"."
-                    } else {
-                        _statusNotice.value = "Saved link no longer exists in your library."
-                    }
+                        ?: return postReceipt(conversationId, "That saved link no longer exists. Nothing was changed.")
+                    mediaRepository.startInspection(
+                        linkId = link.id,
+                        url = link.originalUrl,
+                        previewImageUrl = link.previewImageUrl,
+                        forceRefresh = true
+                    )
+                    "Started a fresh media inspection for \"${link.title}\". Check the item for the result."
+                }
+                is ChatAction.RefreshMetadata -> {
+                    val ok = linkRepository.fetchMetadataNow(action.linkId, isManualRetry = true)
+                    if (ok) "Refreshed the details for \"${action.title}\"."
+                    else "I tried to refresh \"${action.title}\" but it didn't complete (likely a network problem). It will retry later."
                 }
                 is ChatAction.RetryDownload -> {
                     mediaRepository.retryDownload(action.taskId)
-                    _statusNotice.value = "Re-queued download \"${action.title}\"."
+                    val after = mediaRepository.getTaskById(action.taskId).first()
+                    if (after != null && after.status != DownloadState.FAILED && after.status != DownloadState.CANCELLED) {
+                        "Re-queued the download \"${action.title}\"."
+                    } else {
+                        "I tried to re-queue \"${action.title}\" but it is still stopped."
+                    }
                 }
-                else -> Unit
+                else -> return
             }
+            postReceipt(conversationId, receipt)
+        } catch (ce: CancellationException) {
+            throw ce
+        } catch (t: Throwable) {
+            postReceipt(conversationId, "That didn't work: ${GeminiClient.redactSecrets(t.message).take(120).ifBlank { "unexpected error" }}.")
+        } finally {
+            executingActionKeys.remove(dedupeKey)
         }
+    }
+
+    private suspend fun postReceipt(conversationId: String?, text: String) {
+        _statusNotice.value = text
+        if (conversationId != null && chatRepository.getConversation(conversationId) != null) {
+            chatRepository.addAssistantMessage(conversationId, text)
+        }
+    }
+
+    // ---- Voice dictation (shared by the Inbox and Chat composers) ----
+
+    val speechState: StateFlow<ComposerSpeechUiState> =
+        speech?.state ?: MutableStateFlow(ComposerSpeechUiState())
+
+    fun startDictation(): Boolean = speech?.startRecording() ?: false
+
+    fun cancelDictation() { speech?.cancel() }
+
+    fun clearDictationError() { speech?.clearError() }
+
+    /** Stops recording and delivers the transcript; never auto-sends. */
+    fun stopDictation(onTranscript: (String) -> Unit) {
+        speech?.stopAndTranscribe(onTranscript)
+    }
+
+    fun stopDictationIntoChatDraft() {
+        stopDictation { text ->
+            val current = _composerText.value
+            _composerText.value = if (current.isBlank()) text else current.trimEnd() + " " + text
+        }
+    }
+
+    fun acceptAudioConsent() {
+        viewModelScope.launch {
+            userPreferencesRepository.setAssistantAiDisclosureAccepted(true)
+            userPreferencesRepository.setAudioTranscriptionConsentAccepted(true)
+        }
+    }
+
+    override fun onCleared() {
+        speech?.cancel()
+        super.onCleared()
     }
 
     private fun generateAssistantReply(conversationId: String, latestPrompt: String) {

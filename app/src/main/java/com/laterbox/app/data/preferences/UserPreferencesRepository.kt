@@ -111,6 +111,7 @@ data class UserPreferences(
     // Hybrid AI Assistant & Contextual Notifications
     val assistantEnabled: Boolean = true,
     val assistantAiDisclosureAccepted: Boolean = false,
+    val audioTranscriptionConsentAccepted: Boolean = false,
     val smartNotificationsExtractionFailure: Boolean = true,
     val smartNotificationsDownloadFailure: Boolean = true,
     val smartNotificationsAppHealth: Boolean = true,
@@ -223,6 +224,7 @@ class UserPreferencesRepository(private val context: Context) {
 
         val ASSISTANT_ENABLED = booleanPreferencesKey("assistant_enabled")
         val ASSISTANT_AI_DISCLOSURE_ACCEPTED = booleanPreferencesKey("assistant_ai_disclosure_accepted")
+        val AUDIO_TRANSCRIPTION_CONSENT_ACCEPTED = booleanPreferencesKey("audio_transcription_consent_accepted")
         val SMART_NOTIF_EXTRACTION_FAILURE = booleanPreferencesKey("smart_notif_extraction_failure")
         val SMART_NOTIF_DOWNLOAD_FAILURE = booleanPreferencesKey("smart_notif_download_failure")
         val SMART_NOTIF_APP_HEALTH = booleanPreferencesKey("smart_notif_app_health")
@@ -404,6 +406,7 @@ class UserPreferencesRepository(private val context: Context) {
             customExportDirectoryName = preferences[PreferencesKeys.CUSTOM_EXPORT_DIRECTORY_NAME],
             assistantEnabled = preferences[PreferencesKeys.ASSISTANT_ENABLED] ?: true,
             assistantAiDisclosureAccepted = preferences[PreferencesKeys.ASSISTANT_AI_DISCLOSURE_ACCEPTED] ?: false,
+            audioTranscriptionConsentAccepted = preferences[PreferencesKeys.AUDIO_TRANSCRIPTION_CONSENT_ACCEPTED] ?: false,
             smartNotificationsExtractionFailure = preferences[PreferencesKeys.SMART_NOTIF_EXTRACTION_FAILURE] ?: true,
             smartNotificationsDownloadFailure = preferences[PreferencesKeys.SMART_NOTIF_DOWNLOAD_FAILURE] ?: true,
             smartNotificationsAppHealth = preferences[PreferencesKeys.SMART_NOTIF_APP_HEALTH] ?: true,
@@ -705,6 +708,12 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setAssistantAiDisclosureAccepted(accepted: Boolean) {
         context.userDataStore.edit { preferences ->
             preferences[PreferencesKeys.ASSISTANT_AI_DISCLOSURE_ACCEPTED] = accepted
+        }
+    }
+
+    suspend fun setAudioTranscriptionConsentAccepted(accepted: Boolean) {
+        context.userDataStore.edit { preferences ->
+            preferences[PreferencesKeys.AUDIO_TRANSCRIPTION_CONSENT_ACCEPTED] = accepted
         }
     }
 

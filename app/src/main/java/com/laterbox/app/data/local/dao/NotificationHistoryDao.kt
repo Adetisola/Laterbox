@@ -16,6 +16,9 @@ interface NotificationHistoryDao {
     @Query("SELECT * FROM notification_history ORDER BY created_at DESC")
     fun getAllHistory(): Flow<List<NotificationHistoryEntity>>
 
+    @Query("SELECT * FROM notification_history ORDER BY created_at DESC LIMIT :limit")
+    suspend fun getRecentHistorySnapshot(limit: Int = 8): List<NotificationHistoryEntity>
+
     @Query("SELECT COUNT(*) FROM notification_history WHERE is_read = 0")
     fun getUnreadCount(): Flow<Int>
 

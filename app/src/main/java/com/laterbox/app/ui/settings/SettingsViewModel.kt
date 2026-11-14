@@ -435,6 +435,7 @@ class SettingsViewModel(
     fun setAssistantAiDisclosureAccepted(accepted: Boolean) {
         viewModelScope.launch {
             userPreferencesRepository.setAssistantAiDisclosureAccepted(accepted)
+            if (!accepted) userPreferencesRepository.setAudioTranscriptionConsentAccepted(false)
         }
     }
 

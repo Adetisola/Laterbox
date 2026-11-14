@@ -1,17 +1,28 @@
 package com.laterbox.app.ui.navigation
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.laterbox.app.ui.util.SaveFeedbackHelper
 import com.laterbox.app.ui.components.LaterboxShapeTokens
@@ -64,7 +75,10 @@ import com.laterbox.app.ui.collections.CollectionDetailScreen
 import com.laterbox.app.ui.collections.CollectionDetailViewModel
 import com.laterbox.app.ui.collections.CollectionsScreen
 import com.laterbox.app.ui.collections.CollectionsViewModel
+import com.laterbox.app.ai.speech.SpeechStatus
+import com.laterbox.app.ui.components.ComposerInsetHost
 import com.laterbox.app.ui.components.FloatingChatComposer
+import com.laterbox.app.ui.components.appendDictatedTranscript
 import com.laterbox.app.ui.components.LaterboxModalDrawerSheet
 import com.laterbox.app.ui.components.LaterboxPersistentSidePanel
 import com.laterbox.app.ui.components.sectionForRoute
@@ -120,11 +134,67 @@ fun LaterboxApp(
     val inboxUiState by inboxViewModel.uiState.collectAsState()
     val chatUiState by chatViewModel.uiState.collectAsState()
     val recentConversations by chatViewModel.recentConversations.collectAsState()
+    val speechState by chatViewModel.speechState.collectAsState()
 
     // Hoisted Inbox list state & composer state so scroll & draft survive navigation
     val inboxListState = rememberLazyListState()
     var inboxComposerText by rememberSaveable { mutableStateOf("") }
     var inboxComposerHeightPx by remember { mutableIntStateOf(0) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    var pendingAudioConsentTarget by remember { mutableStateOf<String?>(null) }
+    var pendingPermissionStart by remember { mutableStateOf(false) }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted && pendingPermissionStart) {
+            pendingPermissionStart = false
+            chatViewModel.startDictation()
+        } else {
+            pendingPermissionStart = false
+            if (!granted) {
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Microphone permission is needed for voice input.")
+                }
+            }
+        }
+    }
+
+    val beginDictationFor: (String) -> Unit = { target ->
+        haptics.tick()
+        if (!preferences.audioTranscriptionConsentAccepted) {
+            pendingAudioConsentTarget = target
+        } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            chatViewModel.startDictation()
+        } else {
+            pendingPermissionStart = true
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    val acceptAudioConsentAndStart: () -> Unit = {
+        val target = pendingAudioConsentTarget
+        pendingAudioConsentTarget = null
+        chatViewModel.acceptAudioConsent()
+        if (target != null) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                chatViewModel.startDictation()
+            } else {
+                pendingPermissionStart = true
+                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        }
+    }
+
+    // Cancel active microphone capture if the host pauses
+    androidx.lifecycle.compose.LifecycleResumeEffect(speechState.status) {
+        onPauseOrDispose {
+            if (speechState.status == SpeechStatus.RECORDING) {
+                chatViewModel.cancelDictation()
+            }
+        }
+    }
 
     // Modal sheet states
     var showSaveSheet by remember { mutableStateOf(false) }
@@ -132,7 +202,6 @@ fun LaterboxApp(
     var activeViewerAsset by remember { mutableStateOf<com.laterbox.app.media.domain.model.MediaAsset?>(null) }
     val saveSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val detailSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(initialOpenLinkId) {
         val targetId = initialOpenLinkId ?: return@LaunchedEffect
@@ -262,19 +331,25 @@ fun LaterboxApp(
         }
 
         val mainContent: @Composable () -> Unit = {
+            val density = LocalDensity.current
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = colors.backgroundPrimary,
+                contentWindowInsets = WindowInsets.statusBars,
                 snackbarHost = {
+                    val composerDp = with(density) { inboxComposerHeightPx.toDp() }
                     val snackbarBottomPad = if (
                         currentRoute == LaterboxDestination.Inbox.route &&
                         preferences.assistantEnabled &&
-                        !inboxUiState.isSelectionMode
-                    ) 88.dp else 16.dp
+                        !inboxUiState.isSelectionMode &&
+                        inboxComposerHeightPx > 0
+                    ) composerDp + 12.dp else 16.dp
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
+                            .windowInsetsPadding(
+                                WindowInsets.navigationBars.union(WindowInsets.ime).only(WindowInsetsSides.Bottom)
+                            )
                             .padding(bottom = snackbarBottomPad)
                     ) {
                         SnackbarHost(
@@ -538,14 +613,27 @@ fun LaterboxApp(
                                             chatViewModel.runAppHealthCheck()
                                         }
                                         is ChatAction.RetryInspection,
-                                        is ChatAction.RetryDownload -> {
+                                        is ChatAction.RetryDownload,
+                                        is ChatAction.RefreshMetadata -> {
                                             chatViewModel.requestMutatingActionConfirmation(action)
                                         }
                                     }
                                 },
                                 onConfirmMutatingAction = { chatViewModel.confirmMutatingAction() },
                                 onDismissMutatingAction = { chatViewModel.dismissMutatingAction() },
-                                onDismissNotice = { chatViewModel.clearStatusNotice() }
+                                onAlwaysAllowMutatingAction = { chatViewModel.alwaysAllowMutatingActionInConversation() },
+                                onDismissNotice = { chatViewModel.clearStatusNotice() },
+                                onAddLinkClick = {
+                                    saveLinkViewModel.reset()
+                                    showSaveSheet = true
+                                },
+                                onMicClick = { beginDictationFor("CHAT") },
+                                speechState = speechState,
+                                onStopDictation = { chatViewModel.stopDictationIntoChatDraft() },
+                                onCancelDictation = { chatViewModel.cancelDictation() },
+                                showAudioConsent = pendingAudioConsentTarget == "CHAT",
+                                onAcceptAudioConsent = acceptAudioConsentAndStart,
+                                onDismissAudioConsent = { pendingAudioConsentTarget = null }
                             )
                         }
 
@@ -812,22 +900,16 @@ fun LaterboxApp(
                         }
                     }
 
-                    // Bottom Floating ChatGPT-style single-line composer pill on Inbox ONLY
+                    // Bottom Floating Composer pill on Inbox ONLY (uses same ComposerInsetHost as Chat)
                     if (currentRoute == LaterboxDestination.Inbox.route &&
                         preferences.assistantEnabled &&
                         !inboxUiState.isSelectionMode &&
                         inboxUiState.hasCompletedOnboarding
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .navigationBarsPadding()
-                                .imePadding()
-                                .padding(horizontal = 16.dp, vertical = 12.dp)
-                                .onGloballyPositioned { coords ->
-                                    inboxComposerHeightPx = coords.size.height
-                                }
+                        ComposerInsetHost(
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            horizontalPadding = 16.dp,
+                            onMeasuredHeightPx = { inboxComposerHeightPx = it }
                         ) {
                             FloatingChatComposer(
                                 text = inboxComposerText,
@@ -841,7 +923,22 @@ fun LaterboxApp(
                                             LaterboxDestination.Chat.createRoute(initialPrompt = prompt)
                                         )
                                     }
-                                }
+                                },
+                                onAddLinkClick = {
+                                    saveLinkViewModel.reset()
+                                    showSaveSheet = true
+                                },
+                                onMicClick = { beginDictationFor("INBOX") },
+                                speechState = speechState,
+                                onStopDictation = {
+                                    chatViewModel.stopDictation { transcript ->
+                                        inboxComposerText = appendDictatedTranscript(inboxComposerText, transcript)
+                                    }
+                                },
+                                onCancelDictation = { chatViewModel.cancelDictation() },
+                                showAudioConsent = pendingAudioConsentTarget == "INBOX",
+                                onAcceptAudioConsent = acceptAudioConsentAndStart,
+                                onDismissAudioConsent = { pendingAudioConsentTarget = null }
                             )
                         }
                     }

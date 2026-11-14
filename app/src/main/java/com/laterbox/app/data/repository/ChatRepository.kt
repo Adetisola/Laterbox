@@ -1,6 +1,7 @@
 package com.laterbox.app.data.repository
 
 import com.laterbox.app.data.local.dao.ChatDao
+import com.laterbox.app.data.local.entity.ChatActionPermissionEntity
 import com.laterbox.app.data.local.entity.ChatConversationEntity
 import com.laterbox.app.data.local.entity.ChatMessageEntity
 import kotlinx.coroutines.flow.Flow
@@ -162,6 +163,26 @@ class ChatRepository(
     suspend fun togglePinned(conversationId: String) {
         val conv = chatDao.getConversationById(conversationId) ?: return
         chatDao.upsertConversation(conv.copy(isPinned = !conv.isPinned))
+    }
+
+    suspend fun isActionAlwaysAllowed(conversationId: String, actionType: String): Boolean =
+        chatDao.countActionPermission(conversationId, actionType) > 0
+
+    suspend fun grantActionPermission(conversationId: String, actionType: String) {
+        if (chatDao.getConversationById(conversationId) == null) return
+        chatDao.grantActionPermission(
+            ChatActionPermissionEntity(conversationId, actionType, System.currentTimeMillis())
+        )
+    }
+
+    suspend fun getGrantedActionTypes(conversationId: String): List<String> =
+        chatDao.getGrantedActionTypes(conversationId)
+
+    /** Persists a completed assistant message (e.g. an action receipt) without a streaming phase. */
+    suspend fun addAssistantMessage(conversationId: String, text: String): ChatMessageEntity {
+        val placeholder = createAssistantPlaceholder(conversationId)
+        updateAssistantMessage(placeholder.id, conversationId, text, ChatMessageStatus.COMPLETE)
+        return placeholder.copy(content = text, status = ChatMessageStatus.COMPLETE.name)
     }
 
     companion object {

@@ -44,7 +44,8 @@ class AssistantActionHandlerTest {
               {"type":"DELETE_ALL_DATA"},
               {"type":"OPEN_SETTINGS","route":"settings/secret_admin"},
               {"type":"RETRY_INSPECTION","linkId":10,"title":"Broken Link","requiresConfirmation":false},
-              {"type":"RETRY_DOWNLOAD","taskId":"task-9","title":"Broken Video","requiresConfirmation":false}
+              {"type":"RETRY_DOWNLOAD","taskId":"task-9","title":"Broken Video","requiresConfirmation":false},
+              {"type":"REFRESH_METADATA","linkId":11,"title":"Article","requiresConfirmation":false}
             ]
             ```
             [/ACTIONS]
@@ -52,7 +53,7 @@ class AssistantActionHandlerTest {
 
         val parsed = AssistantActionHandler.parseModelResponse(raw)
         assertEquals("Checking status.", parsed.displayText)
-        assertEquals(3, parsed.actions.size)
+        assertEquals(4, parsed.actions.size)
         assertEquals(ChatAction.OpenSettings("settings"), parsed.actions[0])
 
         val retryInsp = parsed.actions[1] as ChatAction.RetryInspection
@@ -62,6 +63,10 @@ class AssistantActionHandlerTest {
         val retryDl = parsed.actions[2] as ChatAction.RetryDownload
         assertTrue(retryDl.requiresConfirmation)
         assertEquals("task-9", retryDl.taskId)
+
+        val refresh = parsed.actions[3] as ChatAction.RefreshMetadata
+        assertTrue(refresh.requiresConfirmation)
+        assertEquals(11L, refresh.linkId)
     }
 
     @Test

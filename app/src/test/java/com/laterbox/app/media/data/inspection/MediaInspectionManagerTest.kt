@@ -255,7 +255,7 @@ class MediaInspectionManagerTest {
     }
 
     @Test
-    fun markInspectionPending_updatesStatusAndIsInspectingFlowIsTrue() = testScope.runTest {
+    fun markInspectionDeferredAndPending_doNotSpinIndefinitelyAndExposeRetryableState() = testScope.runTest {
         val link = SavedLinkEntity(
             originalUrl = "https://example.com/pending_test",
             normalizedUrl = "https://example.com/pending_test",
@@ -280,7 +280,11 @@ class MediaInspectionManagerTest {
         assertEquals("PENDING", entity?.status)
 
         val isInspecting = manager.isInspectingFlow(linkId).first()
-        assertTrue(isInspecting)
+        org.junit.Assert.assertFalse("Deferred/pending states must not show an infinite spinner", isInspecting)
+        manager.markInspectionDeferred(linkId, "https://example.com/pending_test", status = "WAITING_FOR_NETWORK", reason = "Offline")
+        org.junit.Assert.assertFalse(manager.isInspectingFlow(linkId).first())
+        val mapped = manager.getInspectionResultForLink(linkId).first()
+        assertTrue(mapped is InspectionResult.Failed && mapped.retryable)
     }
 
     @Test
@@ -491,5 +495,56 @@ class MediaInspectionManagerTest {
             com.laterbox.app.media.data.adapters.ytdlp.InfoJsonCache.getValidInfoJson(context, url, linkId)
         )
     }
-}
 
+    @Test
+    fun requestInspection_deduplicatesConcurrentRunAndRecoverOrphanedUnsticksDeadInspectingRow() = testScope.runTest {
+        val url = "https://example.com/race_test"
+        val linkId = linkDao.insertLink(
+            SavedLinkEntity(originalUrl = url, normalizedUrl = url, title = "Race", domain = "example.com")
+        )
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var calls = 0
+        val adapter = object : MediaPlatformAdapter {
+            override val id = "Slow"
+            override fun canHandle(u: String) = true
+            override suspend fun inspect(u: String): InspectionResult {
+                calls++
+                started.complete(Unit)
+                release.await()
+                return InspectionResult.Available("Slow", "Ok", null, emptyList())
+            }
+        }
+        val manager = MediaInspectionManager(
+            appContext = context,
+            inspectionDao = inspectionDao,
+            platformResolver = PlatformResolver(AdapterRegistry(listOf(adapter))),
+            scope = this
+        )
+
+        val job1 = manager.requestInspection(linkId, url)
+        started.await()
+        // Second non-forced request reuses same job; concurrent non-forced worker execute does not clobber gen
+        val job2 = manager.requestInspection(linkId, url)
+        assertTrue(job1 === job2)
+        val dupResult = manager.executeInspection(linkId, url, forceRefresh = false)
+        assertTrue(dupResult.isFailure)
+
+        release.complete(Unit)
+        job1.join()
+        assertEquals(1, calls)
+        assertEquals("COMPLETED", inspectionDao.getEntityForLink(linkId)?.status)
+
+        // Simulate orphaned INSPECTING row left by dead process
+        inspectionDao.insert(
+            com.laterbox.app.media.data.db.entity.MediaInspectionEntity(
+                id = "orphan_$linkId", savedLinkId = linkId, url = url, status = "INSPECTING",
+                createdAt = 1L, updatedAt = 1L
+            )
+        )
+        assertTrue(manager.isInspectingFlow(linkId).first())
+        manager.recoverIfOrphaned(linkId)
+        org.junit.Assert.assertFalse(manager.isInspectingFlow(linkId).first())
+        assertEquals("QUEUED", inspectionDao.getEntityForLink(linkId)?.status)
+    }
+}

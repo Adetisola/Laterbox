@@ -82,7 +82,8 @@ object AppViewModelProvider {
                 laterboxContextEngine = app.container.laterboxContextEngine,
                 appHealthChecker = app.container.appHealthChecker,
                 linkRepository = app.container.linkRepository,
-                mediaRepository = app.container.mediaRepository
+                mediaRepository = app.container.mediaRepository,
+                speech = app.container.speechCoordinator
             )
         }
     }

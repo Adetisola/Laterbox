@@ -48,4 +48,5 @@ interface MediaRepository {
     fun isInspectingLink(linkId: Long): Flow<Boolean>
     fun startInspection(linkId: Long, url: String, previewImageUrl: String? = null, forceRefresh: Boolean = false)
     suspend fun cancelInspection(linkId: Long)
+    suspend fun recoverOrphanedInspection(linkId: Long) {}
 }

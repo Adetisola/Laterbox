@@ -1,5 +1,7 @@
 package com.laterbox.app.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
@@ -25,6 +27,9 @@ import com.laterbox.app.domain.model.ContentType
 import com.laterbox.app.domain.model.SavedLink
 import com.laterbox.app.ui.chat.ChatScreen
 import com.laterbox.app.ui.chat.ChatUiState
+import com.laterbox.app.ai.speech.ComposerSpeechUiState
+import com.laterbox.app.ai.speech.SpeechStatus
+import com.laterbox.app.ui.components.ComposerInsetHost
 import com.laterbox.app.ui.components.DrawerPrimarySection
 import com.laterbox.app.ui.components.FloatingChatComposer
 import com.laterbox.app.ui.components.LaterboxDrawerContent
@@ -32,6 +37,7 @@ import com.laterbox.app.ui.inbox.InboxScreen
 import com.laterbox.app.ui.inbox.InboxUiState
 import com.laterbox.app.ui.theme.LaterboxTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -47,43 +53,65 @@ class InboxUiAndChatFlowTest {
     val composeTestRule = createComposeRule()
 
     @Test
-    fun floatingChatComposer_hasNoMicButton_andExpandsOnMultilineInput() {
+    fun floatingChatComposer_hasPlusMicAndSend_expandsOnMultilineOnlyAndShowsFallbackBadge() {
         var textState by mutableStateOf("")
+        var plusClicks = 0
+        var micClicks = 0
+        var speechState by mutableStateOf(ComposerSpeechUiState())
 
         composeTestRule.setContent {
             LaterboxTheme {
                 FloatingChatComposer(
                     text = textState,
                     onTextChange = { textState = it },
-                    onSend = {}
+                    onSend = {},
+                    onAddLinkClick = { plusClicks++ },
+                    onMicClick = { micClicks++ },
+                    speechState = speechState
                 )
             }
         }
 
         composeTestRule.onNodeWithText("Message...").assertIsDisplayed()
-        assertEquals(
-            0,
-            composeTestRule.onAllNodesWithContentDescription("microphone", substring = true, ignoreCase = true)
-                .fetchSemanticsNodes().size
-        )
-        assertEquals(
-            0,
-            composeTestRule.onAllNodesWithContentDescription("voice", substring = true, ignoreCase = true)
-                .fetchSemanticsNodes().size
-        )
+        composeTestRule.onNodeWithTag("composer_add_link_button").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag("composer_mic_button").assertIsDisplayed().performClick()
+        composeTestRule.onNodeWithTag("composer_send_button").assertIsDisplayed()
+        assertEquals(1, plusClicks)
+        assertEquals(1, micClicks)
 
-        val singleLineBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
-        val singleHeight = singleLineBounds.bottom - singleLineBounds.top
+        // Tapping/focusing input without wrapping text must keep single-row height
+        val initialBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
+        val initialHeight = initialBounds.bottom - initialBounds.top
+        composeTestRule.onNodeWithTag("floating_chat_input").performClick()
+        composeTestRule.waitForIdle()
+        val focusedBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
+        assertEquals(initialHeight, focusedBounds.bottom - focusedBounds.top)
 
+        // Multiline text grows composer smoothly to 2 rows (input above, controls below)
         composeTestRule.onNodeWithTag("floating_chat_input").performTextInput("Line 1\nLine 2\nLine 3")
         composeTestRule.waitForIdle()
 
-        val multiLineBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
-        val multiHeight = multiLineBounds.bottom - multiLineBounds.top
+        val multiBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
+        val multiHeight = multiBounds.bottom - multiBounds.top
         assertTrue(
-            "Expected multiline composer ($multiHeight) to grow taller than single-line ($singleHeight)",
-            multiHeight > singleHeight
+            "Expected multiline composer ($multiHeight) to grow taller than single-line ($initialHeight)",
+            multiHeight > initialHeight
         )
+        val inputBounds = composeTestRule.onNodeWithTag("floating_chat_input").getUnclippedBoundsInRoot()
+        val plusBounds = composeTestRule.onNodeWithTag("composer_add_link_button").getUnclippedBoundsInRoot()
+        assertTrue("Expected controls below input in multiline mode", plusBounds.top >= inputBounds.bottom - 2.dp)
+
+        // Collapses back cleanly when back to single line
+        textState = "Single line"
+        composeTestRule.waitForIdle()
+        val collapsedBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
+        assertTrue((collapsedBounds.bottom - collapsedBounds.top) < multiHeight)
+
+        // Fallback notice indicator renders clearly
+        speechState = ComposerSpeechUiState(status = SpeechStatus.IDLE, fallbackBadgeVisible = true)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("speech_fallback_badge").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Using Android speech recognition").assertIsDisplayed()
     }
 
     @Test
@@ -120,8 +148,10 @@ class InboxUiAndChatFlowTest {
     }
 
     @Test
-    fun chatScreen_showsConfirmationDialogForMutatingActions() {
-        var confirmed = false
+    fun chatScreen_showsInlineActionApprovalCardWithThreeChoices() {
+        var denied = false
+        var allowedOnce = false
+        var alwaysAllowed = false
         composeTestRule.setContent {
             LaterboxTheme {
                 ChatScreen(
@@ -145,16 +175,71 @@ class InboxUiAndChatFlowTest {
                     onRetryMessage = {},
                     onQuickPromptClick = {},
                     onActionClick = {},
-                    onConfirmMutatingAction = { confirmed = true },
-                    onDismissMutatingAction = {},
-                    onDismissNotice = {}
+                    onConfirmMutatingAction = { allowedOnce = true },
+                    onDismissMutatingAction = { denied = true },
+                    onAlwaysAllowMutatingAction = { alwaysAllowed = true },
+                    onDismissNotice = {},
+                    onAddLinkClick = {}
                 )
             }
         }
 
-        composeTestRule.onNodeWithText("Retry download?").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Retry download").performClick()
-        assertTrue(confirmed)
+        composeTestRule.onNodeWithTag("action_approval_card").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Item: Kotlin Talk").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Don't allow").performClick()
+        composeTestRule.onNodeWithText("Allow once").performClick()
+        composeTestRule.onNodeWithText("Always allow in this conversation").performClick()
+        assertTrue(denied && allowedOnce && alwaysAllowed)
+        composeTestRule.onNodeWithTag("composer_add_link_button").assertIsDisplayed()
+    }
+
+    @Test
+    fun composerInsetHost_appliesTightOpenKeyboardGapWithoutDoublePadding() {
+        composeTestRule.setContent {
+            LaterboxTheme {
+                ComposerInsetHost(openKeyboardGap = 5.dp, closedKeyboardGap = 12.dp) {
+                    FloatingChatComposer(
+                        text = "",
+                        onTextChange = {},
+                        onSend = {},
+                        onAddLinkClick = {},
+                        onMicClick = {}
+                    )
+                }
+            }
+        }
+        val hostBounds = composeTestRule.onNodeWithTag("composer_inset_host").getUnclippedBoundsInRoot()
+        val composerBounds = composeTestRule.onNodeWithTag("floating_chat_composer").getUnclippedBoundsInRoot()
+        val bottomPad = hostBounds.bottom - composerBounds.bottom
+        assertEquals(12.dp.value, bottomPad.value, 1.5f)
+    }
+
+    @Test
+    fun inboxScreen_hasNoFloatingAddLinkFab() {
+        val sampleLinks = (1..4).map { idx ->
+            SavedLink(
+                id = idx.toLong(),
+                originalUrl = "https://example.com/$idx",
+                normalizedUrl = "https://example.com/$idx",
+                title = "Link $idx",
+                domain = "example.com",
+                contentType = ContentType.ARTICLE
+            )
+        }
+        composeTestRule.setContent {
+            LaterboxTheme {
+                InboxScreen(
+                    uiState = InboxUiState(links = sampleLinks, isLoading = false, hasCompletedOnboarding = true),
+                    onSearchQueryChange = {}, onClearSearch = {}, onFilterContentType = {},
+                    onFilterDateRange = {}, onLinkClick = {}, onQuickOpenClick = {},
+                    onAddLinkClick = {}, onSettingsClick = {}, onToggleViewMode = {},
+                    onRefresh = {}, onCompleteOnboarding = {}, onToggleRead = {},
+                    onArchive = {}, onDelete = {}, onMenuClick = {},
+                    bottomComposerHeightPx = 180
+                )
+            }
+        }
+        assertEquals(0, composeTestRule.onAllNodesWithContentDescription("Add Link").fetchSemanticsNodes().size)
     }
 
     @Test

@@ -40,4 +40,5 @@ object LaterboxIcons {
     @DrawableRes val Send = R.drawable.ic_huge_send
     @DrawableRes val Stop = R.drawable.ic_huge_stop
     @DrawableRes val Health = R.drawable.ic_huge_health
+    @DrawableRes val Mic = R.drawable.ic_huge_mic
 }

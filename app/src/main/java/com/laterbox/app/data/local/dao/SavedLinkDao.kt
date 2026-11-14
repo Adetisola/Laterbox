@@ -20,6 +20,31 @@ interface SavedLinkDao {
     @Query("SELECT * FROM saved_links WHERE is_archived = 0 ORDER BY created_at DESC")
     fun getInboxLinks(): Flow<List<SavedLinkWithCollection>>
 
+    @Query("SELECT COUNT(*) FROM saved_links WHERE is_archived = 0")
+    suspend fun getInboxCount(): Int
+
+    @Query("SELECT COUNT(*) FROM saved_links WHERE is_archived = 1")
+    suspend fun getArchivedCount(): Int
+
+    @Transaction
+    @Query("SELECT * FROM saved_links WHERE is_archived = 0 ORDER BY created_at DESC LIMIT :limit")
+    suspend fun getRecentInboxLinksSnapshot(limit: Int = 25): List<SavedLinkWithCollection>
+
+    @Transaction
+    @Query("""
+        SELECT * FROM saved_links
+        WHERE is_archived = 0 AND (
+            title LIKE '%' || :query || '%' OR
+            domain LIKE '%' || :query || '%' OR
+            original_url LIKE '%' || :query || '%' OR
+            personal_note LIKE '%' || :query || '%' OR
+            description LIKE '%' || :query || '%'
+        )
+        ORDER BY created_at DESC
+        LIMIT :limit
+    """)
+    suspend fun searchInboxLinksSnapshot(query: String, limit: Int = 15): List<SavedLinkWithCollection>
+
     @Transaction
     @Query("SELECT * FROM saved_links WHERE is_archived = 1 ORDER BY updated_at DESC")
     fun getArchivedLinks(): Flow<List<SavedLinkWithCollection>>

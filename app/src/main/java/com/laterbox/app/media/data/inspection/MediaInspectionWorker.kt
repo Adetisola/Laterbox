@@ -93,13 +93,18 @@ class MediaInspectionWorker(
                 platformResolver = container?.platformResolver ?: return Result.failure()
             )
 
+        if (!forceRefresh && inspectionManager.isInProcessActive(savedLinkId)) {
+            android.util.Log.i("MediaInspectionWorker", "In-process inspection already running for link $savedLinkId; skipping duplicate worker run")
+            return Result.success()
+        }
+
         // Pre-check 1: Low memory condition
         val actManager = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
         val memInfo = android.app.ActivityManager.MemoryInfo()
         actManager?.getMemoryInfo(memInfo)
         if (memInfo.lowMemory) {
             android.util.Log.i("MediaInspectionWorker", "Deferring background inspection for link $savedLinkId: device in low-memory state (availMem=${memInfo.availMem}, threshold=${memInfo.threshold}) -> returning Result.retry()")
-            inspectionManager.markInspectionPending(savedLinkId, url)
+            inspectionManager.markInspectionDeferred(savedLinkId, url, status = "DEFERRED", reason = "Paused while device memory is low. Tap Retry to run now.")
             return Result.retry()
         }
 
@@ -110,7 +115,7 @@ class MediaInspectionWorker(
         val isValidated = caps?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         if (!isValidated) {
             android.util.Log.i("MediaInspectionWorker", "Deferring background inspection for link $savedLinkId: active network is not validated (attempt $runAttemptCount of 5) -> returning Result.retry()")
-            inspectionManager.markInspectionPending(savedLinkId, url)
+            inspectionManager.markInspectionDeferred(savedLinkId, url, status = "WAITING_FOR_NETWORK", reason = "Waiting for a working internet connection. Tap Retry to check now.")
             return Result.retry()
         }
 
@@ -135,7 +140,7 @@ class MediaInspectionWorker(
                     val result = res.getOrNull()
                     if (result is InspectionResult.Failed && result.retryable && runAttemptCount < 5 && !isStopped) {
                         android.util.Log.i("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after retryable failure (${result.code}: ${result.message}): attempt $runAttemptCount of 5 -> returning Result.retry()")
-                        inspectionManager.markInspectionPending(savedLinkId, url)
+                        inspectionManager.markInspectionDeferred(savedLinkId, url, status = "QUEUED", reason = "Media check queued to retry automatically in the background.")
                         Result.retry()
                     } else {
                         if (result is InspectionResult.Failed && !isStopped) {
@@ -150,7 +155,7 @@ class MediaInspectionWorker(
                     }
                     if (runAttemptCount < 5 && !isStopped) {
                         android.util.Log.w("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after unhandled inspection error (${ex?.message}): attempt $runAttemptCount of 5 -> returning Result.retry()")
-                        inspectionManager.markInspectionPending(savedLinkId, url)
+                        inspectionManager.markInspectionDeferred(savedLinkId, url, status = "QUEUED", reason = "Media check queued to retry automatically in the background.")
                         Result.retry()
                     } else {
                         notifyTerminalWorkerFailure(container, savedLinkId, url, ex?.message ?: "Inspection failed", inspectionProcessId)
@@ -167,7 +172,7 @@ class MediaInspectionWorker(
                 Result.failure()
             } else if (runAttemptCount < 5) {
                 android.util.Log.w("MediaInspectionWorker", "Retrying inspection for link $savedLinkId after exception (${e.message}): attempt $runAttemptCount of 5 -> returning Result.retry()", e)
-                inspectionManager.markInspectionPending(savedLinkId, url)
+                inspectionManager.markInspectionDeferred(savedLinkId, url, status = "QUEUED", reason = "Media check queued to retry automatically in the background.")
                 Result.retry()
             } else {
                 notifyTerminalWorkerFailure(container, savedLinkId, url, e.message ?: "Inspection failed", inspectionProcessId)

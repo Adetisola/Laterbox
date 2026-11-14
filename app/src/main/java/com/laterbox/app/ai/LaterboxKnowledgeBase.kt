@@ -20,6 +20,7 @@ object LaterboxKnowledgeBase {
         - {"type":"RUN_HEALTH_CHECK"}
         - {"type":"RETRY_INSPECTION","linkId":123,"title":"<short label>"} (only when inspection failed for an exact linkId in context)
         - {"type":"RETRY_DOWNLOAD","taskId":"<exact taskId>","title":"<short label>"} (only when download failed for an exact taskId in context)
+        - {"type":"REFRESH_METADATA","linkId":123,"title":"<short label>"} (to refresh title/preview for an exact linkId in context)
         Never invent linkId or taskId values not present in the context.
     """.trimIndent()
 

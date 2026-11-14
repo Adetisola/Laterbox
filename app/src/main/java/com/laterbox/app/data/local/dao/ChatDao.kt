@@ -3,6 +3,7 @@ package com.laterbox.app.data.local.dao
 import androidx.room.Dao
 import androidx.room.Query
 import androidx.room.Upsert
+import com.laterbox.app.data.local.entity.ChatActionPermissionEntity
 import com.laterbox.app.data.local.entity.ChatConversationEntity
 import com.laterbox.app.data.local.entity.ChatMessageEntity
 import kotlinx.coroutines.flow.Flow
@@ -36,4 +37,16 @@ interface ChatDao {
 
     @Query("DELETE FROM chat_messages WHERE id = :id")
     suspend fun deleteMessageById(id: String)
+
+    @Query("SELECT COUNT(*) FROM chat_action_permissions WHERE conversation_id = :conversationId AND action_type = :actionType")
+    suspend fun countActionPermission(conversationId: String, actionType: String): Int
+
+    @Query("SELECT action_type FROM chat_action_permissions WHERE conversation_id = :conversationId")
+    suspend fun getGrantedActionTypes(conversationId: String): List<String>
+
+    @Upsert
+    suspend fun grantActionPermission(permission: ChatActionPermissionEntity)
+
+    @Query("DELETE FROM chat_action_permissions WHERE conversation_id = :conversationId")
+    suspend fun revokeActionPermissions(conversationId: String)
 }

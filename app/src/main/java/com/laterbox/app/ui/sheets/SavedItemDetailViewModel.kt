@@ -103,6 +103,7 @@ class SavedItemDetailViewModel(
         _editedTitle.value = link.title
         _editedNote.value = link.personalNote.orEmpty()
         _selectedCollectionIds.value = link.collectionIds.toSet()
+        viewModelScope.launch { mediaRepository.recoverOrphanedInspection(link.id) }
     }
 
     fun onTitleChange(newTitle: String) {

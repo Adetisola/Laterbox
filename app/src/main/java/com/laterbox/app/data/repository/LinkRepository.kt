@@ -180,15 +180,8 @@ class LinkRepository(
                     val shouldInspect = userPrefsRepo?.userPreferencesFlow?.first()?.autoInspectMediaOnSave ?: true
                     if (shouldInspect) {
                         val existingEntity = savedLinkDao.getEntityById(linkId)
-                        // Immediate in-process start for prompt foreground discovery & instant UI inspection status
-                        inspectionMgr?.startInspection(
-                            savedLinkId = linkId,
-                            url = trimmedUrl,
-                            previewImageUrl = existingEntity?.previewImageUrl,
-                            forceRefresh = false
-                        )
-                        // Durable background WorkManager backup
-                        inspectionMgr?.scheduleInspection(
+                        // Single coordinated inspection owner (avoids dual-start generation races)
+                        inspectionMgr?.requestInspection(
                             savedLinkId = linkId,
                             url = trimmedUrl,
                             previewImageUrl = existingEntity?.previewImageUrl,

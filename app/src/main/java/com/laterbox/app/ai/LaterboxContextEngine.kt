@@ -26,18 +26,23 @@ class LaterboxContextEngine(
         val keywords = extractKeywords(prompt)
         val lowerPrompt = prompt.lowercase()
 
-        val inboxLinks = try {
-            database.savedLinkDao().getInboxLinks().first()
+        val linkDao = database.savedLinkDao()
+        val inboxCount = try { linkDao.getInboxCount() } catch (_: Throwable) { 0 }
+        val archivedCount = try { linkDao.getArchivedCount() } catch (_: Throwable) { 0 }
+        val candidateLinks = try {
+            val recent = linkDao.getRecentInboxLinksSnapshot(limit = 20)
+            if (keywords.isEmpty()) recent
+            else {
+                val matched = keywords.take(4).flatMap { kw ->
+                    linkDao.searchInboxLinksSnapshot(kw, limit = 10)
+                }
+                (matched + recent).distinctBy { it.link.id }
+            }
         } catch (_: Throwable) {
             emptyList()
         }
-        val archivedCount = try {
-            database.savedLinkDao().getArchivedLinks().first().size
-        } catch (_: Throwable) {
-            0
-        }
 
-        val rankedLinks = rankRelevantLinks(inboxLinks, keywords, maxItems = 10)
+        val rankedLinks = rankRelevantLinks(candidateLinks, keywords, maxItems = 10)
         val inspections = try {
             database.mediaInspectionDao().getRecentInspectionsSnapshot(15)
         } catch (_: Throwable) {
@@ -54,7 +59,7 @@ class LaterboxContextEngine(
             0
         }
         val recentNotifications = try {
-            database.notificationHistoryDao().getAllHistory().first().take(8)
+            database.notificationHistoryDao().getRecentHistorySnapshot(8)
         } catch (_: Throwable) {
             emptyList()
         }
@@ -87,7 +92,7 @@ class LaterboxContextEngine(
             if (prefs.userName.isNotBlank()) {
                 appendLine("User name: ${sanitize(prefs.userName, 40)}")
             }
-            appendLine("Library summary: ${inboxLinks.size} inbox links, $archivedCount archived links, $downloadedAssetCount downloaded media files.")
+            appendLine("Library summary: $inboxCount inbox links, $archivedCount archived links, $downloadedAssetCount downloaded media files.")
 
             if (rankedLinks.isNotEmpty()) {
                 appendLine("\nRelevant & recent saved links (max ${rankedLinks.size}):")

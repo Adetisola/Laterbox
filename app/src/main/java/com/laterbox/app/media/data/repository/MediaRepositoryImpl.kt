@@ -284,4 +284,8 @@ class MediaRepositoryImpl(
     override suspend fun cancelInspection(linkId: Long) {
         inspectionManager?.cancelInspection(linkId)
     }
+
+    override suspend fun recoverOrphanedInspection(linkId: Long) {
+        inspectionManager?.recoverIfOrphaned(linkId)
+    }
 }

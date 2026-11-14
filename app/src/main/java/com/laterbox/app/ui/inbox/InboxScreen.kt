@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,6 +66,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.laterbox.app.capture.ClipboardSuggestion
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -202,11 +207,6 @@ fun InboxScreen(
     val showJumpToTop by remember {
         derivedStateOf {
             (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0) && listState.firstVisibleItemIndex >= 3
-        }
-    }
-    val isFabExpanded by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 80
         }
     }
 
@@ -676,9 +676,9 @@ fun InboxScreen(
                             DateGrouper.groupLinks(uiState.links)
                         }
 
-                        val density = androidx.compose.ui.platform.LocalDensity.current
+                        val density = LocalDensity.current
                         val composerDp = with(density) { bottomComposerHeightPx.toDp() }
-                        val listBottomClearance = if (bottomComposerHeightPx > 0) composerDp + 96.dp else 104.dp
+                        val listBottomClearance = if (bottomComposerHeightPx > 0) composerDp + 12.dp else 24.dp
 
                         LazyColumn(
                             state = listState,
@@ -753,99 +753,54 @@ fun InboxScreen(
             }
         }
 
-        // Floating Action Buttons (Jump to Top stacked directly above Add Link FAB)
+        // Jump to Top (positioned cleanly above the floating composer, hidden while keyboard is open)
         if (!uiState.isSelectionMode) {
-            val density = androidx.compose.ui.platform.LocalDensity.current
+            val density = LocalDensity.current
             val composerDp = with(density) { bottomComposerHeightPx.toDp() }
-            val fabBottomClearance = if (bottomComposerHeightPx > 0) composerDp + 16.dp else 24.dp
-            Column(
+            val isImeVisible = WindowInsets.ime.getBottom(density) > WindowInsets.navigationBars.getBottom(density)
+            val jumpBottomClearance = if (bottomComposerHeightPx > 0) composerDp + 12.dp else 20.dp
+            AnimatedVisibility(
+                visible = showJumpToTop && !isImeVisible,
+                enter = fadeIn(),
+                exit = fadeOut(),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 20.dp, bottom = fabBottomClearance),
-                horizontalAlignment = Alignment.End
+                    .padding(end = 20.dp, bottom = jumpBottomClearance)
+                    .testTag("inbox_jump_to_top")
             ) {
-                // Jump to top floating action button (stacked directly above FAB)
-                AnimatedVisibility(
-                    visible = showJumpToTop,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.padding(bottom = 12.dp)
-                ) {
-                    Surface(
-                        onClick = {
-                            scrollJob?.cancel()
-                            scrollJob = coroutineScope.launch {
-                                if (listState.firstVisibleItemIndex > 2) {
-                                    listState.scrollToItem(2)
-                                }
-                                listState.animateScrollToItem(0)
-                            }
-                        },
-                        shape = CircleShape,
-                        color = colors.surfaceElevated,
-                        contentColor = colors.accentPrimary,
-                        shadowElevation = 4.dp,
-                        border = BorderStroke(spacing.hairline, colors.borderSubtle),
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(id = LaterboxIcons.ChevronDown),
-                                contentDescription = "Jump to top",
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .graphicsLayer(rotationZ = 180f),
-                                tint = colors.accentPrimary
-                            )
-                        }
-                    }
-                }
-
-                // Floating Bottom-Right Action Button (+ Add Link) [UX15, UX17]
                 Surface(
-                    onClick = onAddLinkClick,
-                    shape = LaterboxTheme.shapes.Fab,
-                    color = colors.accentPrimary,
-                    contentColor = colors.onAccentPrimary,
-                    shadowElevation = LaterboxTheme.elevations.floating,
-                    modifier = Modifier
-                        .height(spacing.fabHeight)
-                        .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-                ) {
-                Row(
-                    modifier = Modifier
-                        .padding(horizontal = if (isFabExpanded) spacing.lg else spacing.base),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        painter = painterResource(id = LaterboxIcons.Plus),
-                        contentDescription = "Add Link",
-                        modifier = Modifier.size(spacing.iconLarge),
-                        tint = colors.onAccentPrimary
-                    )
-                    AnimatedVisibility(
-                        visible = isFabExpanded,
-                        enter = fadeIn() + expandHorizontally(),
-                        exit = fadeOut() + shrinkHorizontally()
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Spacer(modifier = Modifier.width(spacing.sm))
-                            Text(
-                                text = "Add Link",
-                                style = typography.buttonLabel,
-                                color = colors.onAccentPrimary,
-                                maxLines = 1
-                            )
+                    onClick = {
+                        scrollJob?.cancel()
+                        scrollJob = coroutineScope.launch {
+                            if (listState.firstVisibleItemIndex > 2) {
+                                listState.scrollToItem(2)
+                            }
+                            listState.animateScrollToItem(0)
                         }
+                    },
+                    shape = CircleShape,
+                    color = colors.surfaceElevated,
+                    contentColor = colors.accentPrimary,
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(spacing.hairline, colors.borderSubtle),
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painter = painterResource(id = LaterboxIcons.ChevronDown),
+                            contentDescription = "Jump to top",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .graphicsLayer(rotationZ = 180f),
+                            tint = colors.accentPrimary
+                        )
                     }
                 }
             }
         }
-    }
 
         // Onboarding Sheet on First Launch
         if (!uiState.hasCompletedOnboarding) {

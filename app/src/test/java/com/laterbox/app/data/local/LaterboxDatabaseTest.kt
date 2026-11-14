@@ -1498,5 +1498,51 @@ class LaterboxDatabaseTest {
         assertFalse(allEvents.first().detail.orEmpty().contains("secretToken"))
         assertFalse(allEvents.first().detail.orEmpty().contains("/data/user/0/"))
     }
-}
 
+    @Test
+    fun migration10To11_createsChatActionPermissionsWithCascade() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val config = androidx.sqlite.db.SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(null)
+            .callback(object : androidx.sqlite.db.SupportSQLiteOpenHelper.Callback(10) {
+                override fun onCreate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                    db.execSQL("PRAGMA foreign_keys = ON")
+                    db.execSQL("CREATE TABLE IF NOT EXISTS `chat_conversations` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `last_message_preview` TEXT, `is_pinned` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`id`))")
+                }
+                override fun onUpgrade(db: androidx.sqlite.db.SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+            }).build()
+        val helper = androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory().create(config)
+        val sqliteDb = helper.writableDatabase
+        sqliteDb.execSQL("PRAGMA foreign_keys = ON")
+        sqliteDb.execSQL("INSERT INTO `chat_conversations` (`id`, `title`, `created_at`, `updated_at`, `is_pinned`) VALUES ('c1', 'Conv', 1000, 1000, 0)")
+        LaterboxDatabase.MIGRATION_10_11.migrate(sqliteDb)
+        sqliteDb.execSQL("INSERT INTO `chat_action_permissions` (`conversation_id`, `action_type`, `granted_at`) VALUES ('c1', 'RETRY_INSPECTION', 2000)")
+        sqliteDb.execSQL("DELETE FROM `chat_conversations` WHERE `id` = 'c1'")
+        val c = sqliteDb.query("SELECT COUNT(*) FROM `chat_action_permissions`")
+        assertTrue(c.moveToFirst())
+        assertEquals(0, c.getInt(0))
+        c.close()
+        helper.close()
+    }
+
+    @Test
+    fun savedLinkDao_boundedSnapshotsReturnExactCountsAndLimits() = runTest {
+        for (i in 1..30) {
+            linkDao.insertLink(
+                SavedLinkEntity(
+                    originalUrl = "https://example.com/$i",
+                    normalizedUrl = "https://example.com/$i",
+                    title = if (i == 25) "Special Match" else "Item $i",
+                    domain = "example.com",
+                    isArchived = i > 26
+                )
+            )
+        }
+        assertEquals(26, linkDao.getInboxCount())
+        assertEquals(4, linkDao.getArchivedCount())
+        assertEquals(10, linkDao.getRecentInboxLinksSnapshot(limit = 10).size)
+        val hits = linkDao.searchInboxLinksSnapshot("Special", limit = 5)
+        assertEquals(1, hits.size)
+        assertEquals("Special Match", hits[0].link.title)
+    }
+}

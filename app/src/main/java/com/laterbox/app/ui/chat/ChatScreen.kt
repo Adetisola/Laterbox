@@ -16,8 +16,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -46,14 +48,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.laterbox.app.ai.AssistantActionHandler
 import com.laterbox.app.ai.ChatAction
+import com.laterbox.app.ai.speech.ComposerSpeechUiState
 import com.laterbox.app.data.local.entity.ChatMessageEntity
 import com.laterbox.app.data.repository.ChatMessageStatus
 import com.laterbox.app.data.repository.ChatRole
 import com.laterbox.app.diagnostics.AppHealthReport
 import com.laterbox.app.diagnostics.AppHealthStatus
+import com.laterbox.app.ui.components.ComposerInsetHost
 import com.laterbox.app.ui.components.FloatingChatComposer
 import com.laterbox.app.ui.components.LaterboxBanner
-import com.laterbox.app.ui.components.LaterboxConfirmDialog
 import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxPrimaryButton
@@ -77,41 +80,29 @@ fun ChatScreen(
     onConfirmMutatingAction: () -> Unit,
     onDismissMutatingAction: () -> Unit,
     onDismissNotice: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onAlwaysAllowMutatingAction: () -> Unit = {},
+    onAddLinkClick: (() -> Unit)? = null,
+    onMicClick: (() -> Unit)? = null,
+    speechState: ComposerSpeechUiState = ComposerSpeechUiState(),
+    onStopDictation: () -> Unit = {},
+    onCancelDictation: () -> Unit = {},
+    showAudioConsent: Boolean = false,
+    onAcceptAudioConsent: () -> Unit = {},
+    onDismissAudioConsent: () -> Unit = {}
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
     val spacing = LaterboxTheme.spacing
     val listState = rememberLazyListState()
 
+    val density = LocalDensity.current
+    val isImeVisible = WindowInsets.ime.getBottom(density) > WindowInsets.navigationBars.getBottom(density)
     val itemCount = uiState.messages.size
-    LaunchedEffect(itemCount, uiState.streamingPartialText.length) {
+    LaunchedEffect(itemCount, uiState.streamingPartialText.length, isImeVisible, uiState.pendingMutatingAction != null) {
         if (itemCount > 0) {
             listState.animateScrollToItem((itemCount - 1).coerceAtLeast(0))
         }
-    }
-
-    uiState.pendingMutatingAction?.let { pending ->
-        val (title, message, confirmLabel) = when (pending) {
-            is ChatAction.RetryInspection -> Triple(
-                "Retry media inspection?",
-                "Re-inspect \"${pending.title}\" to refresh downloadable formats.",
-                "Retry inspection"
-            )
-            is ChatAction.RetryDownload -> Triple(
-                "Retry download?",
-                "Re-queue the download for \"${pending.title}\".",
-                "Retry download"
-            )
-            else -> Triple("Confirm action?", pending.label, "Confirm")
-        }
-        LaterboxConfirmDialog(
-            title = title,
-            message = message,
-            confirmText = confirmLabel,
-            onConfirm = onConfirmMutatingAction,
-            onDismiss = onDismissMutatingAction
-        )
     }
 
     Box(
@@ -251,20 +242,26 @@ fun ChatScreen(
 
             // Docked Floating Composer anchored calmly at the bottom
             if (uiState.assistantEnabled) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
-                        .imePadding()
-                        .padding(horizontal = spacing.base, vertical = spacing.sm)
-                ) {
+                ComposerInsetHost(horizontalPadding = spacing.base) {
                     FloatingChatComposer(
                         text = uiState.composerText,
                         onTextChange = onComposerTextChange,
                         onSend = onSendMessage,
                         isStreaming = uiState.isStreaming,
                         onStopStreaming = onStopStreaming,
-                        placeholder = "Ask about your links, downloads, or app health..."
+                        placeholder = "Ask about your links, downloads, or app health...",
+                        onAddLinkClick = onAddLinkClick,
+                        onMicClick = onMicClick,
+                        speechState = speechState,
+                        onStopDictation = onStopDictation,
+                        onCancelDictation = onCancelDictation,
+                        pendingApproval = uiState.pendingMutatingAction,
+                        onDenyAction = onDismissMutatingAction,
+                        onAllowActionOnce = onConfirmMutatingAction,
+                        onAlwaysAllowAction = onAlwaysAllowMutatingAction,
+                        showAudioConsent = showAudioConsent,
+                        onAcceptAudioConsent = onAcceptAudioConsent,
+                        onDismissAudioConsent = onDismissAudioConsent
                     )
                 }
             }
@@ -311,7 +308,7 @@ private fun AiDisclosureConsentCard(
                 )
             }
             Text(
-                text = "When you send a message, your prompt and relevant saved link metadata (titles, URLs, notes, and app diagnostics—never API keys or private storage paths) are sent remotely to Google AI Studio (Gemini). You can disable this or review your API key anytime in Settings.",
+                text = "When you send a message, your prompt and relevant saved link metadata (titles, URLs, notes, and app diagnostics—never API keys or private storage paths) are sent remotely to Google AI Studio (Gemini). If you use voice dictation, recorded audio is also sent to Gemini for transcription (with Android speech recognition as fallback). You can disable this or review your API key anytime in Settings.",
                 style = typography.bodySecondary.copy(fontSize = 13.sp),
                 color = colors.textSecondary
             )

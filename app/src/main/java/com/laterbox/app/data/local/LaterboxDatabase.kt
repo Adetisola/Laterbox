@@ -36,9 +36,10 @@ import com.laterbox.app.media.data.db.entity.MediaInspectionEntity
         MediaInspectionEntity::class,
         ChatConversationEntity::class,
         ChatMessageEntity::class,
-        ActivityEventEntity::class
+        ActivityEventEntity::class,
+        com.laterbox.app.data.local.entity.ChatActionPermissionEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -511,6 +512,27 @@ abstract class LaterboxDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Non-destructive migration from version 10 to version 11:
+         * Adds per-conversation assistant action permission grants (cascade-deleted with the conversation).
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `chat_action_permissions` (
+                        `conversation_id` TEXT NOT NULL,
+                        `action_type` TEXT NOT NULL,
+                        `granted_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`conversation_id`, `action_type`),
+                        FOREIGN KEY(`conversation_id`) REFERENCES `chat_conversations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_action_permissions_conversation_id` ON `chat_action_permissions` (`conversation_id`)")
+            }
+        }
+
         @Volatile
         private var INSTANCE: LaterboxDatabase? = null
 
@@ -530,7 +552,8 @@ abstract class LaterboxDatabase : RoomDatabase() {
                         MIGRATION_6_7,
                         MIGRATION_7_8,
                         MIGRATION_8_9,
-                        MIGRATION_9_10
+                        MIGRATION_9_10,
+                        MIGRATION_10_11
                     )
                     .build()
                     .also { INSTANCE = it }

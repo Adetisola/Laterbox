@@ -36,6 +36,14 @@ class MediaInspectionManager(
 
     private val tag = "MediaInspectionManager"
     private val inspectionMutexes = ConcurrentHashMap<Long, Mutex>()
+
+    companion object {
+        val ACTIVE_STATUSES = setOf("PREPARING", "INSPECTING", "PROCESSING")
+        val DEFERRED_STATUSES = setOf("PENDING", "QUEUED", "WAITING_FOR_NETWORK", "DEFERRED")
+    }
+
+    fun isInProcessActive(savedLinkId: Long): Boolean =
+        activeInspections[savedLinkId]?.job?.isActive == true
     private val activeGenerations = ConcurrentHashMap<Long, Long>()
 
     private data class ActiveInspection(
@@ -95,6 +103,16 @@ class MediaInspectionManager(
                         )
                     }
                 }
+                "WAITING_FOR_NETWORK" -> InspectionResult.Failed(
+                    code = FailureCode.NETWORK_ERROR,
+                    message = entity.errorMessage ?: "Waiting for internet connection. Tap Retry to check now.",
+                    retryable = true
+                )
+                "DEFERRED", "QUEUED", "PENDING" -> InspectionResult.Failed(
+                    code = FailureCode.UNKNOWN,
+                    message = entity.errorMessage ?: "Media check queued in background. Tap Retry to run now.",
+                    retryable = true
+                )
                 else -> null
             }
         }
@@ -102,7 +120,7 @@ class MediaInspectionManager(
 
     fun isInspectingFlow(savedLinkId: Long): Flow<Boolean> {
         return inspectionDao.getInspectionForLink(savedLinkId).map { entity ->
-            entity != null && entity.status in setOf("PENDING", "PREPARING", "INSPECTING", "PROCESSING")
+            entity != null && entity.status in ACTIVE_STATUSES
         }
     }
 
@@ -123,6 +141,12 @@ class MediaInspectionManager(
         explicitProcessId: String? = null,
         notifyOnTerminalFailure: Boolean = false
     ): Result<InspectionResult> = withContext(Dispatchers.IO) {
+        val running = activeInspections[savedLinkId]
+        if (!forceRefresh && running != null && running.job.isActive && running.generation != explicitGeneration) {
+            Log.i(tag, "Skipping duplicate inspection for link $savedLinkId while generation ${running.generation} is actively running")
+            return@withContext Result.failure(kotlinx.coroutines.CancellationException("Already inspecting"))
+        }
+
         val generation = explicitGeneration ?: System.currentTimeMillis()
         val inspectionProcessId = explicitProcessId ?: "inspect_${savedLinkId}_g$generation"
         activeGenerations[savedLinkId] = generation
@@ -465,9 +489,16 @@ class MediaInspectionManager(
     }
 
     /**
-     * Marks an inspection as pending between scheduled retries.
+     * Marks an inspection as deferred/queued with a non-spinning status so the UI never hangs
+     * on an infinite loading spinner while WorkManager waits for network, memory, or backoff.
      */
-    suspend fun markInspectionPending(savedLinkId: Long, url: String) = withContext(Dispatchers.IO) {
+    suspend fun markInspectionDeferred(
+        savedLinkId: Long,
+        url: String,
+        status: String = "QUEUED",
+        reason: String? = null
+    ) = withContext(Dispatchers.IO) {
+        if (isInProcessActive(savedLinkId)) return@withContext
         val existing = inspectionDao.getEntityForLink(savedLinkId)
         val now = System.currentTimeMillis()
         val gen = activeGenerations[savedLinkId] ?: now
@@ -476,14 +507,71 @@ class MediaInspectionManager(
             id = "inspect_${savedLinkId}_g$gen",
             generation = gen,
             url = url,
-            status = "PENDING",
+            status = status,
             resultJson = existing?.resultJson,
-            errorCode = null,
-            errorMessage = null,
+            errorCode = if (status == "WAITING_FOR_NETWORK") FailureCode.NETWORK_ERROR.name else null,
+            errorMessage = reason,
             createdAt = existing?.createdAt ?: now,
             updatedAt = now
         )
         inspectionDao.insert(entity)
+    }
+
+    suspend fun markInspectionPending(savedLinkId: Long, url: String) =
+        markInspectionDeferred(savedLinkId, url, status = "PENDING", reason = "Media check queued in background. Tap Retry to run now.")
+
+    /**
+     * Single coordinated entry point for saving / automatic / manual inspections.
+     * Ensures at most one active inspection runs for a link and only hands off to WorkManager
+     * if the immediate run ends in a retryable failure.
+     */
+    fun requestInspection(
+        savedLinkId: Long,
+        url: String,
+        previewImageUrl: String? = null,
+        forceRefresh: Boolean = false
+    ): Job {
+        if (!forceRefresh && isInProcessActive(savedLinkId)) {
+            return activeInspections[savedLinkId]!!.job
+        }
+        try {
+            WorkManager.getInstance(appContext).cancelUniqueWork("media_inspect_$savedLinkId")
+        } catch (_: Throwable) {}
+        return startInspection(
+            savedLinkId = savedLinkId,
+            url = url,
+            previewImageUrl = previewImageUrl,
+            forceRefresh = forceRefresh,
+            scheduleBackupOnRetryable = true
+        )
+    }
+
+    /**
+     * Recovers an inspection row stuck in an active status when neither an in-process coroutine
+     * nor a running WorkManager worker owns it anymore (e.g., after process death or killed task).
+     */
+    suspend fun recoverIfOrphaned(savedLinkId: Long) = withContext(Dispatchers.IO) {
+        if (isInProcessActive(savedLinkId)) return@withContext
+        val entity = inspectionDao.getEntityForLink(savedLinkId) ?: return@withContext
+        if (entity.status !in ACTIVE_STATUSES) return@withContext
+
+        val workerRunning = try {
+            val infos = WorkManager.getInstance(appContext)
+                .getWorkInfosForUniqueWork("media_inspect_$savedLinkId")
+                .get()
+            infos.any { it.state == androidx.work.WorkInfo.State.RUNNING }
+        } catch (_: Throwable) {
+            false
+        }
+        if (workerRunning) return@withContext
+
+        Log.i(tag, "Recovering orphaned ${entity.status} inspection for link $savedLinkId")
+        markInspectionDeferred(
+            savedLinkId = savedLinkId,
+            url = entity.url,
+            status = "QUEUED",
+            reason = "Previous media check was interrupted. Tap Retry to run now."
+        )
     }
 
     /**
@@ -507,7 +595,7 @@ class MediaInspectionManager(
                 return@launch
             }
 
-            if (!forceRefresh && existing != null && existing.status in setOf("PENDING", "PREPARING", "INSPECTING", "PROCESSING")) {
+            if (!forceRefresh && (isInProcessActive(savedLinkId) || (existing != null && existing.status in ACTIVE_STATUSES))) {
                 return@launch
             }
 
@@ -528,9 +616,13 @@ class MediaInspectionManager(
         savedLinkId: Long,
         url: String,
         previewImageUrl: String? = null,
-        forceRefresh: Boolean = false
+        forceRefresh: Boolean = false,
+        scheduleBackupOnRetryable: Boolean = false
     ): Job {
-        if (forceRefresh) {
+        if (!forceRefresh) {
+            val running = activeInspections[savedLinkId]
+            if (running != null && running.job.isActive) return running.job
+        } else {
             val prior = activeInspections.remove(savedLinkId)
             prior?.job?.cancel()
             prior?.processId?.let { pid ->
@@ -545,7 +637,7 @@ class MediaInspectionManager(
         activeGenerations[savedLinkId] = generation
 
         val job = scope.launch {
-            executeInspection(
+            val res = executeInspection(
                 savedLinkId = savedLinkId,
                 url = url,
                 previewImageUrl = previewImageUrl,
@@ -554,6 +646,20 @@ class MediaInspectionManager(
                 explicitProcessId = inspectionProcessId,
                 notifyOnTerminalFailure = forceRefresh
             )
+            val resultValue = res.getOrNull()
+            if (scheduleBackupOnRetryable &&
+                activeGenerations[savedLinkId] == generation &&
+                resultValue is InspectionResult.Failed &&
+                resultValue.retryable
+            ) {
+                MediaInspectionWorker.schedule(
+                    context = appContext,
+                    savedLinkId = savedLinkId,
+                    url = url,
+                    previewImageUrl = previewImageUrl,
+                    forceRefresh = false
+                )
+            }
         }
         val active = ActiveInspection(generation, inspectionProcessId, job)
         activeInspections[savedLinkId] = active
@@ -611,7 +717,9 @@ class MediaInspectionManager(
             val staleThreshold = System.currentTimeMillis() - (5 * 60 * 1000L)
             val staleInspections = inspectionDao.getStaleInspections(staleThreshold)
             for (stale in staleInspections) {
+                if (isInProcessActive(stale.savedLinkId)) continue
                 Log.i(tag, "Recovering stale inspection for link ${stale.savedLinkId}")
+                markInspectionDeferred(stale.savedLinkId, stale.url, status = "QUEUED")
                 scheduleInspection(
                     savedLinkId = stale.savedLinkId,
                     url = stale.url,

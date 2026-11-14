@@ -1,6 +1,7 @@
 package com.laterbox.app.di
 
 import android.content.Context
+import kotlinx.coroutines.flow.first
 import com.laterbox.app.ai.LaterboxContextEngine
 import com.laterbox.app.data.backup.BackupManager
 import com.laterbox.app.data.local.LaterboxDatabase
@@ -33,6 +34,7 @@ interface AppContainer {
     val appHealthChecker: AppHealthChecker
     val laterboxContextEngine: LaterboxContextEngine
     val contextualNotificationEngine: ContextualNotificationEngine
+    val speechCoordinator: com.laterbox.app.ai.speech.SpeechTranscriptionCoordinator
 }
 
 class DefaultAppContainer(private val context: Context) : AppContainer {
@@ -103,6 +105,20 @@ class DefaultAppContainer(private val context: Context) : AppContainer {
         com.laterbox.app.media.data.adapters.ytdlp.WarmYtDlpServer(
             appContext = context.applicationContext,
             userPreferencesRepository = userPreferencesRepository
+        )
+    }
+
+    override val speechCoordinator: com.laterbox.app.ai.speech.SpeechTranscriptionCoordinator by lazy {
+        com.laterbox.app.ai.speech.SpeechTranscriptionCoordinator(
+            recorder = com.laterbox.app.ai.speech.AudioRecorderController(context.applicationContext),
+            gemini = com.laterbox.app.ai.speech.GeminiTranscribeClient(),
+            fallback = com.laterbox.app.ai.speech.AndroidSpeechRecognizerAdapter(context.applicationContext),
+            scope = kotlinx.coroutines.CoroutineScope(
+                kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate
+            ),
+            apiKeyProvider = {
+                userPreferencesRepository.userPreferencesFlow.first().geminiApiKey.ifBlank { null }
+            }
         )
     }
 
