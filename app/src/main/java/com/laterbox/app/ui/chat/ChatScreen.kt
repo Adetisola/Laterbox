@@ -61,6 +61,7 @@ import com.laterbox.app.ui.components.LaterboxIconButton
 import com.laterbox.app.ui.components.LaterboxIcons
 import com.laterbox.app.ui.components.LaterboxPrimaryButton
 import com.laterbox.app.ui.components.LaterboxShapeTokens
+import com.laterbox.app.ui.components.MarkdownText
 import com.laterbox.app.ui.theme.LaterboxTheme
 
 @Composable
@@ -89,7 +90,8 @@ fun ChatScreen(
     onCancelDictation: () -> Unit = {},
     showAudioConsent: Boolean = false,
     onAcceptAudioConsent: () -> Unit = {},
-    onDismissAudioConsent: () -> Unit = {}
+    onDismissAudioConsent: () -> Unit = {},
+    onMarkdownLinkClick: ((String) -> Unit)? = null
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
@@ -233,7 +235,8 @@ fun ChatScreen(
                                 displayedContent = displayedContent,
                                 isStreamingThis = isActiveStreamingBubble,
                                 onRetry = { onRetryMessage(message.id) },
-                                onActionClick = onActionClick
+                                onActionClick = onActionClick,
+                                onMarkdownLinkClick = onMarkdownLinkClick
                             )
                         }
                     }
@@ -522,7 +525,8 @@ private fun ChatMessageBubble(
     displayedContent: String,
     isStreamingThis: Boolean,
     onRetry: () -> Unit,
-    onActionClick: (ChatAction) -> Unit
+    onActionClick: (ChatAction) -> Unit,
+    onMarkdownLinkClick: ((String) -> Unit)?
 ) {
     val colors = LaterboxTheme.colors
     val typography = LaterboxTheme.typography
@@ -572,10 +576,10 @@ private fun ChatMessageBubble(
                             )
                         }
                     } else if (displayedContent.isNotBlank()) {
-                        Text(
-                            text = displayedContent,
-                            style = typography.bodyPrimary.copy(fontSize = 14.sp),
-                            color = if (isUser) colors.onAccentPrimary else colors.textPrimary
+                        MarkdownText(
+                            markdown = displayedContent,
+                            isUserMessage = isUser,
+                            onLinkClick = onMarkdownLinkClick
                         )
                     }
 

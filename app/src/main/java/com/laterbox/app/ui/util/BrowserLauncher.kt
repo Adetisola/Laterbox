@@ -11,16 +11,31 @@ import com.laterbox.app.ui.theme.LaterboxColors
 
 object BrowserLauncher {
 
+    fun isSafeHttpUrl(url: String?): Boolean {
+        val trimmed = url?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+        return try {
+            val uri = Uri.parse(trimmed)
+            val scheme = uri.scheme?.lowercase()
+            (scheme == "http" || scheme == "https") && !uri.authority.isNullOrBlank()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun openUrl(context: Context, url: String, colors: LaterboxColors? = null) {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return
 
         val validUri = try {
             val uri = Uri.parse(trimmed)
-            if (uri.scheme == null || (!uri.scheme.equals("http", ignoreCase = true) && !uri.scheme.equals("https", ignoreCase = true))) {
-                Uri.parse("https://$trimmed")
-            } else {
-                uri
+            val scheme = uri.scheme?.lowercase()
+            when {
+                scheme == null -> Uri.parse("https://$trimmed")
+                scheme == "http" || scheme == "https" -> uri
+                else -> {
+                    Toast.makeText(context, "Unsupported link", Toast.LENGTH_SHORT).show()
+                    return
+                }
             }
         } catch (e: Exception) {
             Toast.makeText(context, "Invalid link URL", Toast.LENGTH_SHORT).show()

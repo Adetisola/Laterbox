@@ -43,8 +43,8 @@ android {
         applicationId = "com.laterbox.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 38
-        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.38"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 39
+        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.0.39"
 
         val embeddedKey = resolveGeminiApiKey(project)
         buildConfigField("String", "EMBEDDED_GEMINI_API_KEY", "\"$embeddedKey\"")
@@ -164,6 +164,10 @@ dependencies {
     implementation(libs.jsoup)
     implementation(libs.coil.compose)
     implementation(libs.commons.compress)
+    implementation(libs.commonmark)
+    implementation(libs.commonmark.strikethrough)
+    implementation(libs.commonmark.tables)
+    implementation(libs.commonmark.autolink)
 
     // Media3 Playback
     implementation(libs.media3.exoplayer)

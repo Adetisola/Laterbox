@@ -1,14 +1,18 @@
 package com.laterbox.app.ui.components
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -24,7 +28,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -35,16 +38,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -53,7 +55,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -63,19 +64,23 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import com.laterbox.app.ai.ChatAction
 import com.laterbox.app.ai.speech.ComposerSpeechUiState
 import com.laterbox.app.ai.speech.SpeechStatus
+import com.laterbox.app.ui.theme.LaterboxMotion
 import com.laterbox.app.ui.theme.LaterboxTheme
+import com.laterbox.app.ui.theme.rememberReducedMotion
 
 /**
  * Floating composer: [+ add link] [text input] [mic] [send/stop].
  *
  * Stays a compact single row until the text *actually* wraps (measured against the single-row input
- * width, so there is no expand/collapse flicker) or contains a newline; then the input takes the
- * upper row and the controls move to a lower row. Cursor and selection survive the switch.
+ * width, so there is no expand/collapse flicker) or contains a newline; then the single persistent
+ * [BasicTextField] smoothly expands to take the upper row while controls glide below without ever
+ * reparenting or losing keyboard focus.
  * Also hosts dictation status, the inline action-approval card and the audio consent prompt so they
- * visually extend from the composer.
+ * visually extend from the composer without disturbing input focus or cursor selection.
  */
 @Composable
 fun FloatingChatComposer(
@@ -104,29 +109,34 @@ fun FloatingChatComposer(
     val spacing = LaterboxTheme.spacing
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
+    val reducedMotion = rememberReducedMotion()
 
-    var tfv by remember { mutableStateOf(TextFieldValue(text)) }
-    // External changes (send clear, dictation append) reset the cursor to the end; typing keeps selection.
-    val value = if (tfv.text == text) tfv else TextFieldValue(text, TextRange(text.length))
+    // Synchronize external string state with internal TextFieldValue without capturing stale text:
+    // - User edits update textFieldValueState first and notify parent whenever text actually changed.
+    // - External updates (clearing after send, appending dictated transcript) move selection to end.
+    var textFieldValueState by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = text,
+                selection = TextRange(text.length)
+            )
+        )
+    }
+    var lastObservedExternalText by remember { mutableStateOf(text) }
 
-    var surfaceWidthPx by remember { mutableIntStateOf(0) }
+    if (text != lastObservedExternalText) {
+        lastObservedExternalText = text
+        if (text != textFieldValueState.text) {
+            textFieldValueState = TextFieldValue(
+                text = text,
+                selection = TextRange(text.length)
+            )
+        }
+    }
+
     val textStyle = typography.bodyPrimary.copy(fontSize = 15.sp, color = colors.textPrimary)
-
     val controlSize = 36.dp
     val showPlus = onAddLinkClick != null
-    val singleRowInputWidthPx = with(density) {
-        val controls = controlSize * (if (showPlus) 3 else 2) + 4.dp * (if (showPlus) 2 else 1) + 12.dp /*row padding*/ + 12.dp /*input padding*/
-        (surfaceWidthPx - controls.roundToPx()).coerceAtLeast(0)
-    }
-    val isMultiline = remember(text, singleRowInputWidthPx, textStyle) {
-        if (text.contains('\n')) true
-        else if (text.isEmpty() || singleRowInputWidthPx <= 0) false
-        else textMeasurer.measure(
-            text = text,
-            style = textStyle,
-            constraints = Constraints(maxWidth = singleRowInputWidthPx)
-        ).lineCount > 1
-    }
 
     val canSend = text.isNotBlank() && !isStreaming
     val isRecording = speechState.status == SpeechStatus.RECORDING
@@ -137,10 +147,182 @@ fun FloatingChatComposer(
     val currentOnSend by rememberUpdatedState(onSend)
     val currentCanSend by rememberUpdatedState(canSend)
 
-    val inputContent = remember {
-        movableContentOf { v: TextFieldValue, modifier: Modifier ->
-            Box(modifier = modifier.padding(horizontal = 6.dp, vertical = 6.dp), contentAlignment = Alignment.CenterStart) {
-                if (v.text.isEmpty()) {
+    var lastRenderedApproval by remember { mutableStateOf(pendingApproval) }
+    if (pendingApproval != null) {
+        lastRenderedApproval = pendingApproval
+    }
+
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val availableWidthPx = with(density) { maxWidth.roundToPx() }
+        val singleRowTextWidthPx = with(density) {
+            val plusWidth = if (showPlus) controlSize + 4.dp else 0.dp
+            val controls = plusWidth + controlSize * 2 + 4.dp /*gap*/ + 12.dp /*row padding*/ + 12.dp /*input internal padding*/
+            (availableWidthPx - controls.roundToPx()).coerceAtLeast(0)
+        }
+        val isMultiline = remember(text, singleRowTextWidthPx, textStyle) {
+            if (text.contains('\n')) true
+            else if (text.isEmpty() || singleRowTextWidthPx <= 0) false
+            else textMeasurer.measure(
+                text = text,
+                style = textStyle,
+                constraints = Constraints(maxWidth = singleRowTextWidthPx)
+            ).lineCount > 1
+        }
+
+        val cornerRadius by animateDpAsState(
+            targetValue = if (isMultiline || pendingApproval != null || showAudioConsent) 22.dp else 28.dp,
+            animationSpec = LaterboxMotion.springSpec(reducedMotion = reducedMotion),
+            label = "composer_corner_radius"
+        )
+        val multilineProgress by animateFloatAsState(
+            targetValue = if (isMultiline) 1f else 0f,
+            animationSpec = LaterboxMotion.springSpec(reducedMotion = reducedMotion),
+            label = "composer_multiline_progress"
+        )
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("floating_chat_composer"),
+            shape = RoundedCornerShape(cornerRadius),
+            color = colors.surfaceElevated,
+            shadowElevation = 6.dp,
+            border = BorderStroke(spacing.hairline, colors.borderSubtle)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                AnimatedVisibility(
+                    visible = pendingApproval != null,
+                    enter = expandVertically(LaterboxMotion.springSpec(reducedMotion = reducedMotion)) + fadeIn(),
+                    exit = shrinkVertically(LaterboxMotion.springSpec(reducedMotion = reducedMotion)) + fadeOut()
+                ) {
+                    lastRenderedApproval?.let { action ->
+                        ActionApprovalCard(action, onDenyAction, onAllowActionOnce, onAlwaysAllowAction)
+                    }
+                }
+                AnimatedVisibility(
+                    visible = showAudioConsent,
+                    enter = expandVertically(LaterboxMotion.springSpec(reducedMotion = reducedMotion)) + fadeIn(),
+                    exit = shrinkVertically(LaterboxMotion.springSpec(reducedMotion = reducedMotion)) + fadeOut()
+                ) {
+                    AudioConsentCard(onAcceptAudioConsent, onDismissAudioConsent)
+                }
+                speechState.statusLabel?.let { label ->
+                    val isFallback = label.startsWith("Using Android") || label.startsWith("Listening with Android")
+                    val canCancel = speechState.status == SpeechStatus.TRANSCRIBING_FALLBACK ||
+                        speechState.status == SpeechStatus.TRANSCRIBING_GEMINI
+                    Row(
+                        modifier = Modifier
+                            .padding(start = 14.dp, end = 14.dp, top = 10.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isFallback) colors.accentContainer else colors.surfaceSecondary)
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .testTag(if (isFallback) "speech_fallback_badge" else "speech_status_label"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            style = typography.bodyPrimary.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                            color = if (isFallback) colors.accentPrimary else colors.textSecondary
+                        )
+                        if (canCancel) {
+                            Icon(
+                                painter = painterResource(LaterboxIcons.Close),
+                                contentDescription = "Cancel speech recognition",
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clip(CircleShape)
+                                    .clickable(role = Role.Button, onClick = onCancelDictation)
+                                    .testTag("composer_cancel_active_transcription"),
+                                tint = if (isFallback) colors.accentPrimary else colors.textSecondary
+                            )
+                        }
+                    }
+                }
+                speechState.message?.takeIf { speechState.status == SpeechStatus.ERROR }?.let {
+                    Text(
+                        text = it,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp).testTag("speech_error"),
+                        style = typography.bodyPrimary.copy(fontSize = 12.sp),
+                        color = colors.statusDanger
+                    )
+                }
+
+                if (isRecording) {
+                    RecordingBar(speechState.elapsedMs, onCancelDictation, onStopDictation)
+                } else {
+                    PersistentComposerBar(
+                        value = textFieldValueState,
+                        onValueChange = { newValue ->
+                            val oldText = textFieldValueState.text
+                            if (newValue != textFieldValueState) {
+                                textFieldValueState = newValue
+                            }
+                            if (newValue.text != oldText) {
+                                currentOnTextChange(newValue.text)
+                            }
+                        },
+                        placeholder = placeholder,
+                        textStyle = textStyle,
+                        multilineProgress = multilineProgress,
+                        controlSize = controlSize,
+                        showPlus = showPlus,
+                        onAddLinkClick = onAddLinkClick,
+                        onMicClick = onMicClick,
+                        isTranscribing = isTranscribing,
+                        isStreaming = isStreaming,
+                        onStopStreaming = onStopStreaming,
+                        canSend = canSend,
+                        onSend = { if (currentCanSend) currentOnSend() }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Single persistent layout hosting one [BasicTextField] at a fixed child position and transitioning
+ * smoothly between single-row inline controls and two-row expanded controls via [Layout] placement.
+ * Because the [BasicTextField] never moves between branches, keyboard focus, IME connection,
+ * composition, and cursor selection are preserved seamlessly across wraps and approval expansions.
+ */
+@Composable
+private fun PersistentComposerBar(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    placeholder: String,
+    textStyle: androidx.compose.ui.text.TextStyle,
+    multilineProgress: Float,
+    controlSize: Dp,
+    showPlus: Boolean,
+    onAddLinkClick: (() -> Unit)?,
+    onMicClick: (() -> Unit)?,
+    isTranscribing: Boolean,
+    isStreaming: Boolean,
+    onStopStreaming: (() -> Unit)?,
+    canSend: Boolean,
+    onSend: () -> Unit
+) {
+    val colors = LaterboxTheme.colors
+    val typography = LaterboxTheme.typography
+    val density = LocalDensity.current
+
+    val horizontalPadPx = with(density) { 6.dp.roundToPx() }
+    val verticalPadPx = with(density) { 6.dp.roundToPx() }
+    val gapPx = with(density) { 4.dp.roundToPx() }
+    val minSingleRowHeightPx = with(density) { 48.dp.roundToPx() }
+    val multiRowExtraPadPx = with(density) { 4.dp.roundToPx() }
+
+    Layout(
+        modifier = Modifier.fillMaxWidth(),
+        content = {
+            // Child 0: Persistent input field wrapper (position never moves in composition tree)
+            Box(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (value.text.isEmpty()) {
                     Text(
                         text = placeholder,
                         style = typography.bodyPrimary.copy(fontSize = 15.sp),
@@ -149,11 +331,8 @@ fun FloatingChatComposer(
                     )
                 }
                 BasicTextField(
-                    value = v,
-                    onValueChange = {
-                        tfv = it
-                        if (it.text != text) currentOnTextChange(it.text)
-                    },
+                    value = value,
+                    onValueChange = onValueChange,
                     singleLine = false,
                     maxLines = 5,
                     textStyle = textStyle,
@@ -162,109 +341,90 @@ fun FloatingChatComposer(
                         capitalization = KeyboardCapitalization.Sentences,
                         imeAction = ImeAction.Send
                     ),
-                    keyboardActions = KeyboardActions(onSend = { if (currentCanSend) currentOnSend() }),
+                    keyboardActions = KeyboardActions(onSend = { onSend() }),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("floating_chat_input")
                 )
             }
+            // Child 1: Mic button
+            MicButton(onMicClick, isTranscribing, controlSize)
+            // Child 2: Send / Stop button
+            SendOrStop(isStreaming, onStopStreaming, canSend, onSend, controlSize)
+            // Child 3 (optional): Plus button
+            if (showPlus && onAddLinkClick != null) {
+                PlusButton(onAddLinkClick, controlSize)
+            }
         }
-    }
+    ) { measurables, constraints ->
+        val looseConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+        val micPlaceable = measurables[1].measure(looseConstraints)
+        val sendPlaceable = measurables[2].measure(looseConstraints)
+        val plusPlaceable = measurables.getOrNull(3)?.measure(looseConstraints)
 
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .testTag("floating_chat_composer")
-            .onSizeChanged { surfaceWidthPx = it.width }
-            .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)),
-        shape = RoundedCornerShape(if (isMultiline || pendingApproval != null || showAudioConsent) 22.dp else 28.dp),
-        color = colors.surfaceElevated,
-        shadowElevation = 6.dp,
-        border = BorderStroke(spacing.hairline, colors.borderSubtle)
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            if (pendingApproval != null) {
-                ActionApprovalCard(pendingApproval, onDenyAction, onAllowActionOnce, onAlwaysAllowAction)
-            }
-            if (showAudioConsent) {
-                AudioConsentCard(onAcceptAudioConsent, onDismissAudioConsent)
-            }
-            speechState.statusLabel?.let { label ->
-                val isFallback = label.startsWith("Using Android") || label.startsWith("Listening with Android")
-                val canCancel = speechState.status == SpeechStatus.TRANSCRIBING_FALLBACK ||
-                    speechState.status == SpeechStatus.TRANSCRIBING_GEMINI
-                Row(
-                    modifier = Modifier
-                        .padding(start = 14.dp, end = 14.dp, top = 10.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isFallback) colors.accentContainer else colors.surfaceSecondary)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                        .testTag(if (isFallback) "speech_fallback_badge" else "speech_status_label"),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = label,
-                        style = typography.bodyPrimary.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
-                        color = if (isFallback) colors.accentPrimary else colors.textSecondary
-                    )
-                    if (canCancel) {
-                        Icon(
-                            painter = painterResource(LaterboxIcons.Close),
-                            contentDescription = "Cancel speech recognition",
-                            modifier = Modifier
-                                .size(14.dp)
-                                .clip(CircleShape)
-                                .clickable(role = Role.Button, onClick = onCancelDictation)
-                                .testTag("composer_cancel_active_transcription"),
-                            tint = if (isFallback) colors.accentPrimary else colors.textSecondary
-                        )
-                    }
-                }
-            }
-            speechState.message?.takeIf { speechState.status == SpeechStatus.ERROR }?.let {
-                Text(
-                    text = it,
-                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp).testTag("speech_error"),
-                    style = typography.bodyPrimary.copy(fontSize = 12.sp),
-                    color = colors.statusDanger
-                )
-            }
+        val plusSlotWidth = if (plusPlaceable != null) plusPlaceable.width + gapPx else 0
+        val trailingWidth = gapPx + micPlaceable.width + sendPlaceable.width
 
-            if (isRecording) {
-                RecordingBar(speechState.elapsedMs, onCancelDictation, onStopDictation)
-            } else if (!isMultiline) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .sizeIn(minHeight = 48.dp)
-                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (showPlus) {
-                        PlusButton(onAddLinkClick!!, controlSize)
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    inputContent(value, Modifier.weight(1f))
-                    Spacer(Modifier.width(4.dp))
-                    MicButton(onMicClick, isTranscribing, controlSize)
-                    SendOrStop(isStreaming, onStopStreaming, canSend, onSend, controlSize)
-                }
-            } else {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp)) {
-                    inputContent(value, Modifier.fillMaxWidth().padding(horizontal = 4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        if (showPlus) PlusButton(onAddLinkClick!!, controlSize)
-                        Spacer(Modifier.weight(1f))
-                        MicButton(onMicClick, isTranscribing, controlSize)
-                        SendOrStop(isStreaming, onStopStreaming, canSend, onSend, controlSize)
-                    }
-                }
-            }
+        val singleRowInputWidth = (constraints.maxWidth - horizontalPadPx * 2 - plusSlotWidth - trailingWidth).coerceAtLeast(0)
+        val multiRowInputWidth = (constraints.maxWidth - horizontalPadPx * 2 - multiRowExtraPadPx * 2).coerceAtLeast(0)
+        val clampedProgress = multilineProgress.coerceIn(0f, 1f)
+        val currentInputWidth = lerp(singleRowInputWidth, multiRowInputWidth, clampedProgress).coerceAtLeast(0)
+
+        val inputPlaceable = measurables[0].measure(
+            Constraints(
+                minWidth = currentInputWidth,
+                maxWidth = currentInputWidth,
+                minHeight = 0,
+                maxHeight = constraints.maxHeight
+            )
+        )
+
+        val controlsRowHeight = maxOf(
+            plusPlaceable?.height ?: 0,
+            micPlaceable.height,
+            sendPlaceable.height
+        )
+        val singleRowHeight = maxOf(
+            minSingleRowHeightPx,
+            inputPlaceable.height + verticalPadPx * 2,
+            controlsRowHeight + verticalPadPx * 2
+        )
+
+        val singleInputX = horizontalPadPx + plusSlotWidth
+        val singleInputY = (singleRowHeight - inputPlaceable.height) / 2
+        val singlePlusY = (singleRowHeight - (plusPlaceable?.height ?: 0)) / 2
+        val singleMicY = (singleRowHeight - micPlaceable.height) / 2
+        val singleSendY = (singleRowHeight - sendPlaceable.height) / 2
+
+        val multiInputX = horizontalPadPx + multiRowExtraPadPx
+        val multiInputY = verticalPadPx
+        val multiControlsTopY = verticalPadPx + inputPlaceable.height
+        val multiPlusY = multiControlsTopY + (controlsRowHeight - (plusPlaceable?.height ?: 0)) / 2
+        val multiMicY = multiControlsTopY + (controlsRowHeight - micPlaceable.height) / 2
+        val multiSendY = multiControlsTopY + (controlsRowHeight - sendPlaceable.height) / 2
+
+        val inputX = lerp(singleInputX, multiInputX, clampedProgress)
+        val inputY = lerp(singleInputY, multiInputY, clampedProgress)
+        val plusX = horizontalPadPx
+        val plusY = lerp(singlePlusY, multiPlusY, clampedProgress)
+        val sendX = (constraints.maxWidth - horizontalPadPx - sendPlaceable.width).coerceAtLeast(0)
+        val micX = (sendX - micPlaceable.width).coerceAtLeast(0)
+        val micY = lerp(singleMicY, multiMicY, clampedProgress)
+        val sendY = lerp(singleSendY, multiSendY, clampedProgress)
+
+        val totalHeight = maxOf(
+            singleRowHeight,
+            inputY + inputPlaceable.height + verticalPadPx,
+            micY + micPlaceable.height + verticalPadPx,
+            sendY + sendPlaceable.height + verticalPadPx,
+            if (plusPlaceable != null) plusY + plusPlaceable.height + verticalPadPx else 0
+        )
+
+        layout(constraints.maxWidth, totalHeight) {
+            inputPlaceable.placeRelative(inputX, inputY)
+            plusPlaceable?.placeRelative(plusX, plusY)
+            micPlaceable.placeRelative(micX, micY)
+            sendPlaceable.placeRelative(sendX, sendY)
         }
     }
 }
